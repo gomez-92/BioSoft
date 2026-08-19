@@ -1,0 +1,110 @@
+#pragma once
+#include "secrets.h"
+#include "seriallink.hpp"
+#include "wifimanager.hpp"
+#include "timer.hpp"
+#include "broker.hpp"
+#include "display.hpp"
+#include "screenmanager.hpp"
+#include "screencontroller.hpp"
+#include "mysystem.hpp"
+
+#define SERIAL_RX_BUFFER_SIZE 512
+#define RXD2 22  // RX del ESP32 ← TX del Mega
+#define TXD2 27  // TX del ESP32 → RX del Mega
+
+static const char* ROOT_CA_CERT = R"EOF(
+-----BEGIN CERTIFICATE-----
+MIIDjjCCAnagAwIBAgIQAzrx5qcRqaC7KGSxHQn65TANBgkqhkiG9w0BAQsFADBh
+MQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3
+d3cuZGlnaWNlcnQuY29tMSAwHgYDVQQDExdEaWdpQ2VydCBHbG9iYWwgUm9vdCBH
+MjAeFw0xMzA4MDExMjAwMDBaFw0zODAxMTUxMjAwMDBaMGExCzAJBgNVBAYTAlVT
+MRUwEwYDVQQKEwxEaWdpQ2VydCBJbmMxGTAXBgNVBAsTEHd3dy5kaWdpY2VydC5j
+b20xIDAeBgNVBAMTF0RpZ2lDZXJ0IEdsb2JhbCBSb290IEcyMIIBIjANBgkqhkiG
+9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuzfNNNx7a8myaJCtSnX/RrohCgiN9RlUyfuI
+2/Ou8jqJkTx65qsGGmvPrC3oXgkkRLpimn7Wo6h+4FR1IAWsULecYxpsMNzaHxmx
+1x7e/dfgy5SDN67sH0NO3Xss0r0upS/kqbitOtSZpLYl6ZtrAGCSYP9PIUkY92eQ
+q2EGnI/yuum06ZIya7XzV+hdG82MHauVBJVJ8zUtluNJbd134/tJS7SsVQepj5Wz
+tCO7TG1F8PapspUwtP1MVYwnSlcUfIKdzXOS0xZKBgyMUNGPHgm+F6HmIcr9g+UQ
+vIOlCsRnKPZzFBQ9RnbDhxSJITRNrw9FDKZJobq7nMWxM4MphQIDAQABo0IwQDAP
+BgNVHRMBAf8EBTADAQH/MA4GA1UdDwEB/wQEAwIBhjAdBgNVHQ4EFgQUTiJUIBiV
+5uNu5g/6+rkS7QYXjzkwDQYJKoZIhvcNAQELBQADggEBAGBnKJRvDkhj6zHd6mcY
+1Yl9PMWLSn/pvtsrF9+wX3N3KjITOYFnQoQj8kVnNeyIv/iPsGEMNKSuIEyExtv4
+NeF22d+mQrvHRAiGfzZ0JFrabA0UWTW98kndth/Jsw1HKj2ZL7tcu7XUIOGZX1NG
+Fdtom/DzMNU+MeKNhJ7jitralj41E6Vf8PlwUHBHQRFXGU7Aj64GxJUTFy8bJZ91
+8rGOmaFvE7FBcf6IKshPECBV1/MUReXgRPTqh5Uykw7+U0b6LJ3/iyK5S9kJRaTe
+pLiaWN0bfVKfjllDiIGknibVb63dDcY3fe0Dkhvld1927jyNxF1WW6LZZm6zNTfl
+MrY=
+-----END CERTIFICATE-----
+)EOF";
+
+SerialLink serial(Serial2);
+Timer timer;
+WiFiManager wiFiManager;
+BrokerManager brokerManager;
+DisplayDriver display;
+ScreenManager screenManager;
+
+MySystem mySystem(serial, timer, wiFiManager, brokerManager, display, screenManager);
+
+void setup() {
+  Serial.begin(115200);
+  Serial2.begin(9600, SERIAL_8N1, RXD2, TXD2);
+  delay(2000);
+
+  WiFiConfig config1;
+  config1.add(SECRET_WIFI_SSID_1, SECRET_WIFI_PASS_1); // agregar aca todas las redes
+  config1.add(SECRET_WIFI_SSID_2, SECRET_WIFI_PASS_2); // agregar aca todas las redes
+  wiFiManager.begin(config1);
+
+  MqttConfig config;
+  config.server   = SECRET_MQTT_SERVER;
+  config.port     = SECRET_MQTT_PORT;   // TLS
+  config.user     = SECRET_MQTT_USER;
+  config.password = SECRET_MQTT_PASSWORD;
+  config.clientId = SECRET_MQTT_CLIENT_ID;
+  config.rootCA   = ROOT_CA_CERT;
+  brokerManager.begin(config);
+
+  mySystem.begin();
+  
+  xTaskCreatePinnedToCore(
+    communicationTask,
+    "CommunicationTask",
+    8192,
+    nullptr,
+    1,
+    nullptr,
+    1
+  );
+}
+
+void loop() {
+  static uint32_t lastLoop = millis();
+  uint32_t now = millis();
+  uint32_t interval = now - lastLoop;
+  lastLoop = now;
+  if (interval > 50) 
+    Serial.printf("[LOOP] intervalo anterior = %lu ms\n", interval);
+  uint32_t t1 = millis();
+  display.update();
+  uint32_t t2 = millis();
+  mySystem.update();
+  uint32_t t3 = millis();
+  if ((t2 - t1) > 5)
+    Serial.printf("[LOOP] display.update() tardó %lu ms\n", t2 - t1);
+  if ((t3 - t2) > 5) 
+    Serial.printf("[LOOP] mysystem.update() tardó %lu ms\n", t3 - t2);
+}
+
+
+void communicationTask(void* parameter) {
+  Serial.println("[COMM TASK] iniciada");
+  for (;;) {
+    mySystem.remoteUpdate();
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
+}
+
+
+
