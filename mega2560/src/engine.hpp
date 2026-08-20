@@ -71,14 +71,12 @@ class Engine :
     void _start();
     void _stop();
     void _reset();
-    void _evaluateHealthData();
 
     void _sendState();
     //void _sendTargetData();
     //void _sendProgressData();
     void _sendResultData();
-    //void _sendVitalsData();
-    
+
     //void _setTarget(JsonVariantConst params);
     //void _configureSource(JsonVariantConst params);
     void _readRule(JsonVariantConst json, Rule& rule);
@@ -96,7 +94,6 @@ class Engine :
     void onTarget() override;
     void onProgress() override;
     void onResult() override;
-    void onHealth() override;
 
     void onTimer(const char* name) override;
     void onSerialConnected() override;
@@ -192,35 +189,6 @@ inline void Engine::_reset() {
   _runtimeState.reset();
 }
 
-inline void Engine::_evaluateHealthData() {
-  float maxScore = 0.0f;
-
-  for (uint8_t i = 0; i < _detector.getCount(); ++i) {
-    Source* source = _detector.getSource(i);
-    if (source == nullptr) continue;
-
-    if (source->hasCriticalFlags()) {
-      _runtimeState.setHealth("critical");
-      return;
-    }
-
-    maxScore = max(maxScore, source->score());
-  }
-
-  if (maxScore >= 75.0f) {
-    _runtimeState.setHealth("bad");
-  }
-  else if (maxScore >= 50.0f) {
-    _runtimeState.setHealth("warning");
-  }
-  else if (maxScore >= 20.0f) {
-    _runtimeState.setHealth("good");
-  }
-  else {
-    _runtimeState.setHealth("optimal");
-  }
-}
-
 inline void Engine::_sendState() {
   JsonDocument doc;
   doc["status"] = _engineState.getState();
@@ -257,15 +225,6 @@ inline void Engine::_sendResultData() {
   doc["description"] = data.description;
   _serial.sendCommand(Commands::ResultData, doc);
 }
-
-/*
-inline void Engine::_sendVitalsData() {
-  HealthData data = _runtimeState.health();
-  JsonDocument doc;
-  doc["health"] = data.health;
-  _serial.sendCommand(Commands::HealthData, doc);
-}
-*/
 
 /*
 inline void Engine::_setTarget(JsonVariantConst params) {
@@ -367,7 +326,6 @@ inline void Engine::onStart() {
   _timer.addTask(Tasks::MeasureCurrent, Intervals::MeasureCurrent);
   //_timer.addTask(Tasks::MeasureMagneticField, Intervals::MeasureMagneticField);
   //_timer.addTask(Tasks::UpdateProgress, Intervals::UpdateProgress);
-  //_timer.addTask(Tasks::UpdateVitals, Intervals::UpdateVitals);
   //_timer.addTask(Tasks::SendFlags, Intervals::SendFlags);
   //_timer.addTask(Tasks::SettlingTime, Intervals::SettlingTime);
 }
@@ -378,7 +336,6 @@ inline void Engine::onFinish() {
   _timer.removeTask(Tasks::MeasureCurrent);
   _timer.removeTask(Tasks::MeasureMagneticField);
   _timer.removeTask(Tasks::UpdateProgress);
-  _timer.removeTask(Tasks::UpdateVitals);
   _timer.removeTask(Tasks::SendFlags);
   _timer.removeTask(Tasks::SettlingTime);
   
@@ -397,10 +354,6 @@ inline void Engine::onProgress() {
 
 inline void Engine::onResult() {
   _sendResultData();
-}
-
-inline void Engine::onHealth() {
-  //_sendVitalsData();
 }
 
 // Timer Callback
@@ -435,9 +388,6 @@ inline void Engine::onTimer(const char* name) {
   }
   else if(strcmp(name, Tasks::UpdateProgress) == 0) {
     _runtimeState.updateProgress();
-  }
-  else if(strcmp(name, Tasks::UpdateVitals) == 0) {
-    _evaluateHealthData();
   }
   else if(strcmp(name, Tasks::SendFlags) == 0) {
     _sendFlagsData();
@@ -740,7 +690,12 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
 
   else if (strcmp(command, Commands::Stop) == 0) {
 
+    // _stop() deja el Engine en Finished, un estado que el ESP32 no
+    // consume (ver Tasks::Finish en onTimer, mismo criterio). _reset()
+    // encadenado vuelve a Ready para que el ESP32 navegue solo a
+    // Principal en vez de quedarse colgado en "Deteniendo...".
     _stop();
+    _reset();
 
     JsonDocument doc;
     doc["command"] = Commands::Stop;

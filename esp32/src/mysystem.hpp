@@ -346,10 +346,13 @@ inline void MySystem::_processState(const char* status, bool forceStatus) {
     if(!_data.isInitialized()) return;
     if(current == ScreenType::PRINCIPAL || current == ScreenType::CONFIG) return;
     if(current == ScreenType::BUSY) {
+      // Starting: un "ready" que llegue mientras se espera confirmacion de
+      // un start es viejo/espureo -- se ignora salvo forceStatus. Stopping
+      // NO tiene la misma guarda: el "ready" es justamente la confirmacion
+      // real que se esta esperando, bloquearla dejaba "Detener" colgado en
+      // la pantalla Busy para siempre (o cayendo al timeout, que hoy vuelve
+      // a Running en vez de a Principal).
       if(_data.getState() == StateData::Starting) {
-        if(!forceStatus) return;
-      }
-      else if(_data.getState() == StateData::Stopping) {
         if(!forceStatus) return;
       }
     }
@@ -420,7 +423,6 @@ inline void MySystem::onCommand(const char* command, JsonVariantConst params) {
       }
     }
   }
-  //else if(strcmp(command, Commands::HealthData) == 0) {}
   //else if(strcmp(command, Commands::ProgressData) == 0) {}
   //else if(strcmp(command, Commands::ResultData) == 0) {}
   //else if(strcmp(command, Commands::FlagsData) == 0) {}
@@ -544,6 +546,12 @@ inline void MySystem::onScreenEvent(ScreenEvent e) {
     _sendStart();
     _timer.addTask(Tasks::ReSendStart, Intervals::ReSendStart);
     _processState(StateData::Starting);
+  }
+  else if(e.type == ScreenType::RUNNING && e.name == EventName::Stop) {
+    Serial.println("Procesando stop!");
+    _sendStop();
+    _timer.addTask(Tasks::ReSendStop, Intervals::ReSendStop);
+    _processState(StateData::Stopping);
   }
   else if(e.type == ScreenType::CONFIG && e.name == EventName::Back) {
     _screenManager.show(ScreenType::PRINCIPAL);
