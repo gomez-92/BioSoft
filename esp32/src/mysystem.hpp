@@ -358,6 +358,12 @@ inline void MySystem::_processState(const char* status, bool forceStatus) {
   }
   else if(strcmp(status, StateData::Running) == 0) {
     if(current == ScreenType::RUNNING) return;
+    // Misma duracion (ms) que _sendStart() ya mando como "dur" -- se
+    // calcula el progreso localmente, sin esperar nada nuevo del Mega.
+    _data.progress.startTime = millis();
+    _data.progress.duration = ConfigurationOptions::optionsDuration[
+        _data.configuration.targetDurationOption
+    ].duration;
     _data.setState(status);
     _screenManager.show(ScreenType::RUNNING);
   }
