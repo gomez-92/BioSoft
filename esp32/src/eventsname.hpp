@@ -2,6 +2,7 @@
 
 namespace EventName {
   constexpr const char* Start = "start";
+  constexpr const char* Stop = "stop";
   constexpr const char* Back = "back";
   constexpr const char* GoToConfig = "gotoconfig";
   constexpr const char* Save = "save";

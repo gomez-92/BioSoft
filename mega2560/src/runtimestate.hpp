@@ -8,7 +8,6 @@ class RuntimeStateListener {
     virtual void onTarget() = 0;
     virtual void onProgress() = 0;
     virtual void onResult() = 0;
-    virtual void onHealth() = 0;
 };
 
 struct TargetData {
@@ -27,16 +26,11 @@ struct ResultData {
   char description[64] = "";
 };
 
-struct HealthData {
-  char health[16] = "NORMAL";
-};
-
 class RuntimeState {
   private:
     TargetData _target;
     ProgressData _progress;
     ResultData _result;
-    HealthData _health;
     unsigned long _start;
     RuntimeStateListener* _listener;
 
@@ -46,11 +40,9 @@ class RuntimeState {
     const TargetData& target() const;
     const ProgressData& progress() const;
     const ResultData& result() const;
-    const HealthData& health() const;
     void setTarget(float cemTarget, int frequencyTarget, unsigned long durationTarget);
     void updateProgress();
     void setResult(const char* reason, const char* description);
-    void setHealth(const char* health);
     void setListener(RuntimeStateListener* listener);
 
   private:
@@ -58,7 +50,6 @@ class RuntimeState {
     void notifyTarget();
     void notifyProgress();
     void notifyResult();
-    void notifyHealth();
 };
 
 inline RuntimeState::RuntimeState() : _start(0), _listener(nullptr) {}
@@ -67,9 +58,7 @@ inline void RuntimeState::reset() {
   _target = {};
   _progress = {};
   _result = {};
-  _health = {};
   strcpy(_progress.elapsed, "00:00:00");
-  strcpy(_health.health, "NORMAL");
   _start = millis();
 }
 
@@ -83,10 +72,6 @@ inline const ProgressData& RuntimeState::progress() const {
 
 inline const ResultData& RuntimeState::result() const {
   return _result;
-}
-
-inline const HealthData& RuntimeState::health() const {
-  return _health;
 }
 
 inline void RuntimeState::setTarget(float cemTarget, int frequencyTarget, unsigned long durationTarget) {
@@ -123,13 +108,6 @@ inline void RuntimeState::setResult(const char* reason, const char* description)
   notifyResult();
 }
 
-inline void RuntimeState::setHealth(const char* health) {
-  if (strcmp(_health.health, health) == 0) return;
-  strncpy(_health.health, health, sizeof(_health.health) - 1);
-  _health.health[sizeof(_health.health) - 1] = '\0';
-  notifyHealth();
-}
-
 inline void RuntimeState::setListener(RuntimeStateListener* listener) {
   _listener = listener;
 }
@@ -144,10 +122,6 @@ inline void RuntimeState::notifyProgress() {
 
 inline void RuntimeState::notifyResult() {
   if (_listener) _listener->onResult();
-}
-
-inline void RuntimeState::notifyHealth() {
-  if (_listener) _listener->onHealth();
 }
 
 inline void RuntimeState::writeElapsed(unsigned long elapsedMs) {

@@ -14,6 +14,8 @@ static void dropdownConfigSelectedChanged(lv_event_t * e);
 static void btnConfigSaveClick(lv_event_t * e);
 static void btnConfigBackClick(lv_event_t * e);
 
+static void btnRunningDetenerClick(lv_event_t * e);
+
 
 template<typename T>
 inline void buildDropdown(lv_obj_t* dropdown, const T* options, int count) {
@@ -325,6 +327,7 @@ class RunningController : public BaseScreenController {
     void show() override;
     void update() override;
     void init() override;
+    void onStop();
   private:
     SystemData& _data;
     unsigned long _lastProgressUpdate = 0;
@@ -338,6 +341,23 @@ inline RunningController::RunningController(SystemData& data) : BaseScreenContro
 inline void RunningController::init() {
   BaseScreenController::init();
   lv_bar_set_range(ui_TotalProgressBar, 0, 100);
+  lv_obj_add_event_cb(ui_TabPageProgressBtnDetener, btnRunningDetenerClick, LV_EVENT_CLICKED, this);
+
+  // Estado de salud por defecto: los 3 iconos se crean sin flag de
+  // visibilidad (quedarian superpuestos). El calculo real de salud
+  // depende de las alertas del Detector, todavia pendiente -- por ahora
+  // se muestra siempre NORMAL.
+  lv_obj_add_flag(ui_HealthWarningImg, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_HealthCriticalImg, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_remove_flag(ui_HealthNormalImg, LV_OBJ_FLAG_HIDDEN);
+}
+
+inline void RunningController::onStop() {
+  if(_listener == nullptr) return;
+  ScreenEvent ev;
+  ev.type = ScreenType::RUNNING;
+  ev.name = EventName::Stop;
+  _listener->onScreenEvent(ev);
 }
 
 inline void RunningController::show() {
@@ -481,6 +501,13 @@ inline void RunningController::update() {
   if (now - _lastProgressUpdate >= 1000) {
     _lastProgressUpdate = now;
     _updateProgressData();
+  }
+}
+
+static void btnRunningDetenerClick(lv_event_t * e) {
+  RunningController * self = (RunningController *) lv_event_get_user_data(e);
+  if(lv_event_get_code(e) == LV_EVENT_CLICKED) {
+    self->onStop();
   }
 }
 
