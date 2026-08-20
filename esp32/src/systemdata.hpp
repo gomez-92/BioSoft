@@ -159,6 +159,8 @@ inline const char* SystemData::latestUpdateStr(unsigned long latestUpdate) {
   else {
     snprintf(result, sizeof(result), "hace %lud", seconds / 86400);
   }
+
+  return result;
 }
 
 inline const char* SystemData::elapsedTime() {

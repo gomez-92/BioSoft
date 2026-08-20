@@ -421,22 +421,25 @@ inline void MySystem::onCommand(const char* command, JsonVariantConst params) {
   //else if(strcmp(command, Commands::OneFlagsData) == 0) {}
   
   else if(strcmp(command, Commands::TempData) == 0) {
-    if (params.containsKey("temp") && params["temp"].is<float>()) {
-      float temp1 = params["temp"].as<float>();
+    // La clave es el nombre real del sensor, tal como lo registra el Mega
+    // (ver ThermometerManager::publishMeasures / "TEMP1" en el .ino), no un
+    // nombre de campo genérico.
+    if (params.containsKey("TEMP1") && params["TEMP1"].is<float>()) {
+      float temp1 = params["TEMP1"].as<float>();
       _data.measures.measureTemperature = temp1;
       _data.measures.latestTemperatureUpdate = millis();
     }
   }
   else if(strcmp(command, Commands::CemData) == 0) {
-    if (params.containsKey("cem") && params["cem"].is<float>()) {
-      float cem1 = params["cem"].as<float>();
+    if (params.containsKey("CEM1") && params["CEM1"].is<float>()) {
+      float cem1 = params["CEM1"].as<float>();
       _data.measures.measureMagneticField = cem1;
       _data.measures.latestMagneticFieldUpdate = millis();
     }
   }
   else if(strcmp(command, Commands::CurrentData) == 0) {
-    if (params.containsKey("curr") && params["curr"].is<float>()) {
-      float curr1 = params["curr"].as<float>();
+    if (params.containsKey("SCT013-1") && params["SCT013-1"].is<float>()) {
+      float curr1 = params["SCT013-1"].as<float>();
       _data.measures.measureCurrent = curr1;
       _data.measures.latestCurrentUpdate = millis();
     }
