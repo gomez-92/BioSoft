@@ -101,7 +101,6 @@ inline void CurrentSensorsManager::updateAll() {
     if (!c.currentSensor) continue;
     c.currentSensor->update();
     if(!c.currentSensor->isValid()) continue;
-    float value = c.currentSensor->getCurrent();
     if (_listener) {
         _listener->onCurrentSensorSample(c.currentSensor);
     }

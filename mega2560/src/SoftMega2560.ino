@@ -148,11 +148,11 @@ void setup() {
     .integrationTimeMs = 200,
     .name = "SCT013-1"
   };
-  CurrentSensorSct013 currentSensor1(
+  CurrentSensorSct013* currentSensor1 = new CurrentSensorSct013(
     ads1,
     sensor1Config
   );
-  currentsensormanager.addCurrentSensor(&currentSensor1);
+  currentsensormanager.addCurrentSensor(currentSensor1);
 
   /* ===== relays =====*/
   Relay* rele1 = new Relay(RELE1_PIN, Relay::ACTIVE_LOW);

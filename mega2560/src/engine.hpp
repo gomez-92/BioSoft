@@ -347,7 +347,9 @@ inline void Engine::_sendCemData() {
 inline void Engine::_sendCurrentData() {
   JsonDocument doc;
   _currentSensorsManager.publishMeasures(doc);
-  _serial.sendCommand(Commands::CurrentData, doc);
+  bool queued = _serial.sendCommand(Commands::CurrentData, doc);
+  Serial.print(F("[CURRENT] current_data encolado: "));
+  Serial.println(queued ? F("OK") : F("FALLO (cola TX llena)"));
 }
 
 // Engine State Callbacks
@@ -362,7 +364,7 @@ inline void Engine::onStart() {
   //_timer.addTask(Tasks::Finish, target.durationTarget);
 
   _timer.addTask(Tasks::MeasureTemperature, Intervals::MeasureTemperature);
-  //_timer.addTask(Tasks::MeasureCurrent, Intervals::MeasureCurrent);
+  _timer.addTask(Tasks::MeasureCurrent, Intervals::MeasureCurrent);
   //_timer.addTask(Tasks::MeasureMagneticField, Intervals::MeasureMagneticField);
   //_timer.addTask(Tasks::UpdateProgress, Intervals::UpdateProgress);
   //_timer.addTask(Tasks::UpdateVitals, Intervals::UpdateVitals);
@@ -422,6 +424,11 @@ inline void Engine::onTimer(const char* name) {
   }
   else if(strcmp(name, Tasks::MeasureCurrent) == 0) {
     _currentSensorsManager.updateAll();
+    JsonDocument doc;
+    _currentSensorsManager.publishMeasures(doc);
+    Serial.print(F("[CURRENT] JSON: "));
+    serializeJson(doc, Serial);
+    Serial.println();
   }
   else if(strcmp(name, Tasks::MeasureMagneticField) == 0) {
     _magnetometerManager.updateAll();
@@ -786,6 +793,12 @@ inline void Engine::onThermometerSample(IThermometer* thermometer) {
 }
 
 inline void Engine::onCurrentSensorSample(ICurrentSensor* sensor) {
+  Serial.print(F("[CURRENT] sample "));
+  Serial.print(sensor->getName());
+  Serial.print(F(" = "));
+  Serial.print(sensor->getCurrent());
+  Serial.println(F(" A"));
+
   if(!_isSettlingTime) {
     _detector.addSample(sensor->getName(), sensor->getCurrent());
   }
@@ -793,6 +806,7 @@ inline void Engine::onCurrentSensorSample(ICurrentSensor* sensor) {
   unsigned long now = millis();
   if(now - _lastCurrentSampleSent >= _currentSampleSendInterval) {
     _lastCurrentSampleSent = now;
+    Serial.println(F("[CURRENT] enviando current_data al ESP32..."));
     _sendCurrentData();
   }
 }
@@ -800,7 +814,7 @@ inline void Engine::onCurrentSensorSample(ICurrentSensor* sensor) {
 // Detector Callback
 inline void Engine::onFlag(SourceEvent& event) {
   JsonDocument sourceData;
-  Source* source = event.source;
+  const Source* source = event.source;
   sourceData["source"] = source->getName();
   sourceData["count"] = event.count;
   sourceData["limit"] = event.limit;
