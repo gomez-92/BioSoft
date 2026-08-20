@@ -361,7 +361,7 @@ inline void Engine::onReady() {
 
 inline void Engine::onStart() {
   TargetData target = _runtimeState.target();
-  //_timer.addTask(Tasks::Finish, target.durationTarget);
+  _timer.addTask(Tasks::Finish, target.durationTarget);
 
   _timer.addTask(Tasks::MeasureTemperature, Intervals::MeasureTemperature);
   _timer.addTask(Tasks::MeasureCurrent, Intervals::MeasureCurrent);
@@ -450,7 +450,11 @@ inline void Engine::onTimer(const char* name) {
     _timer.removeTask(Tasks::SettlingTime);
   }
   else if(strcmp(name, Tasks::Finish) == 0) {
+    // _stop() hace la limpieza real (saca las tareas de medicion del Timer
+    // via onFinish); _reset() encadenado deja el Engine en Ready en vez de
+    // en Finished, que hoy nadie consume del lado ESP32.
     _stop();
+    _reset();
   }
   unsigned long t2 = millis();
   Serial.print(name);

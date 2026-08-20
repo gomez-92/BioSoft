@@ -327,6 +327,7 @@ class RunningController : public BaseScreenController {
     void init() override;
   private:
     SystemData& _data;
+    unsigned long _lastProgressUpdate = 0;
     void _loadTargetsData();
     void _updateMeasuresData();
     void _updateProgressData();
@@ -345,6 +346,7 @@ inline void RunningController::show() {
   _loadTargetsData();
   // tab progreso
   _updateProgressData();
+  _lastProgressUpdate = millis();
   // tab measures
   _updateMeasuresData();
 
@@ -470,7 +472,16 @@ inline void RunningController::_updateProgressData() {
 
 inline void RunningController::update() {
   _updateMeasuresData();
-  _updateProgressData();
+
+  // El progreso (%, elapsed) no necesita refrescarse en cada tick de
+  // pantalla (50ms) -- un experimento se mide en minutos, no en decimas de
+  // segundo. Se throttlea a 1s, igual que los envios por Serial del resto
+  // del proyecto.
+  unsigned long now = millis();
+  if (now - _lastProgressUpdate >= 1000) {
+    _lastProgressUpdate = now;
+    _updateProgressData();
+  }
 }
 
 /* ============================================================
