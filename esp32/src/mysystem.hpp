@@ -426,7 +426,23 @@ inline void MySystem::onCommand(const char* command, JsonVariantConst params) {
   //else if(strcmp(command, Commands::ProgressData) == 0) {}
   //else if(strcmp(command, Commands::ResultData) == 0) {}
   //else if(strcmp(command, Commands::FlagsData) == 0) {}
-  //else if(strcmp(command, Commands::OneFlagsData) == 0) {}
+  else if(strcmp(command, Commands::OneFlagsData) == 0) {
+    // Por ahora solo se imprime -- todavia no se decidio como mostrarlo
+    // en pantalla.
+    const char* source = params["source"] | "?";
+    const char* type   = params["type"] | "?";
+    int count = params["count"] | 0;
+    int limit = params["limit"] | 0;
+
+    Serial.print(F("[FLAG] "));
+    Serial.print(source);
+    Serial.print(F(" tipo="));
+    Serial.print(type);
+    Serial.print(F(" count="));
+    Serial.print(count);
+    Serial.print(F("/"));
+    Serial.println(limit);
+  }
   
   else if(strcmp(command, Commands::TempData) == 0) {
     // La clave es el nombre real del sensor, tal como lo registra el Mega

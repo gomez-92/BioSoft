@@ -643,6 +643,35 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
     Serial.println(configTemp.criticalMax, 2);
 
 
+    // Reglas de deteccion de flags para TEMP1. bufferSize se deja en el
+    // default (32 muestras) -- esa ventana la usa "frequency"; critical y
+    // streak usan racha consecutiva (Source::evaluate en detector.hpp),
+    // no la ventana. Con Intervals::MeasureTemperature = 25000ms:
+    //
+    // critical: 3 muestras CRITICAS seguidas = flag. cooldown 1 (deja
+    // pasar al menos 1 muestra entre disparos). maxEvents 2 -> con la 2da
+    // (4ta muestra critica seguida) se corta el experimento.
+    configTemp.critical.threshold = 3;
+    configTemp.critical.cooldown = 1;
+    configTemp.critical.maxEvents = 2;
+
+    // streak: 5 muestras fuera de lo normal (pero no criticas) SEGUIDAS =
+    // flag. cooldown 4. maxEvents 5 -> corta si la desviacion se sostiene
+    // mucho mas tiempo que para "critical" (umbral mas alto a proposito,
+    // es una condicion menos grave).
+    configTemp.streak.threshold = 5;
+    configTemp.streak.cooldown = 4;
+    configTemp.streak.maxEvents = 5;
+
+    // frequency: 16 de las ultimas 32 muestras (mitad de la ventana) NO
+    // normales (criticas o fuera de rango), sin importar el orden = flag.
+    // cooldown 16 (practicamente espera a renovar la ventana antes de
+    // reevaluar). maxEvents 3 -> mide inestabilidad sostenida en el
+    // tiempo, no un pico puntual.
+    configTemp.frequency.threshold = 16;
+    configTemp.frequency.cooldown = 16;
+    configTemp.frequency.maxEvents = 3;
+
     Serial.println(F("[START] Aplicando configuracion a TEMP1..."));
 
     _detector.configureSource("TEMP1", configTemp);
@@ -777,17 +806,43 @@ inline void Engine::onFlag(SourceEvent& event) {
   sourceData["source"] = source->getName();
   sourceData["count"] = event.count;
   sourceData["limit"] = event.limit;
+
+  const char* typeStr = "unknown";
   if(event.type == EventType::Critical) {
-    sourceData["type"] = "critical";
+    typeStr = "critical";
   }
   else if(event.type == EventType::Streak) {
-    sourceData["type"] = "streak";
+    typeStr = "streak";
   }
   else if(event.type == EventType::Frequency) {
-    sourceData["type"] = "frequency";
+    typeStr = "frequency";
   }
-  else {
-    sourceData["type"] = "unknown";
+  sourceData["type"] = typeStr;
+
+  Serial.print(F("[FLAG] "));
+  Serial.print(source->getName());
+  Serial.print(F(" tipo="));
+  Serial.print(typeStr);
+  Serial.print(F(" count="));
+  Serial.print(event.count);
+  Serial.print(F("/"));
+  Serial.println(event.limit);
+
+  // El ESP32 todavia no procesa flag_data (onCommand no tiene rama para
+  // Commands::OneFlagsData) -- se manda igual, para tenerlo disponible
+  // en el monitor serie / sniffer mientras se define como mostrarlo.
+  _serial.sendCommand(Commands::OneFlagsData, sourceData);
+
+  if(event.limit > 0 && event.count >= event.limit) {
+    Serial.print(F("[FLAG] limite alcanzado para "));
+    Serial.print(source->getName());
+    Serial.println(F(" -> interrumpiendo experimento"));
+
+    // _stop() deja el Engine en Finished, un estado que el ESP32 no
+    // consume (mismo criterio que Tasks::Finish y Commands::Stop).
+    // _reset() encadenado vuelve a Ready para que el ESP32 navegue solo
+    // a Principal.
+    _stop();
+    _reset();
   }
-  //_serial.sendCommand(Commands::OneFlagsData, sourceData);  
 }
