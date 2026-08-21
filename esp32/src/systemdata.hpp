@@ -23,7 +23,7 @@ struct ConfigurationData {
 struct ProgressData {
   unsigned long startTime = 0;
   unsigned long duration = 0;
-  char health[20];
+  char health[20] = "normal";
 };
 
 struct MeasuresData {
@@ -57,6 +57,12 @@ namespace StateData {
   constexpr const char* Running   = "running";
   constexpr const char* Stopping  = "stopping";
   constexpr const char* Finished  = "finished";
+};
+
+namespace HealthData {
+  constexpr const char* Normal   = "normal";
+  constexpr const char* Warning  = "warning";
+  constexpr const char* Critical = "critical";
 };
 
 struct BusyData {
@@ -94,6 +100,7 @@ class SystemData {
   public:
     void updatePrincipalConfigurationLabels();
     void pushAlert(const char* type, const char* source, int count, int limit);
+    const char* evaluateHealth() const;
     const char* latestUpdateStr(unsigned long latestUpdate);
     const char* elapsedTime();
     float progressPercent();
@@ -185,6 +192,23 @@ inline void SystemData::pushAlert(const char* type, const char* source, int coun
     alerts.items[i] = alerts.items[i - 1];
   }
   alerts.items[0] = updated;
+}
+
+// Salud general del experimento a partir de las alertas activas: sin
+// alertas -> normal; con alguna alerta "critical" -> critical (aunque
+// tambien haya streak/frequency activas); solo streak/frequency -> warning.
+inline const char* SystemData::evaluateHealth() const {
+  bool hasWarning = false;
+
+  for (int i = 0; i < MAX_ALERTS; i++) {
+    if (!alerts.items[i].active) continue;
+    if (strcmp(alerts.items[i].type, "critical") == 0) {
+      return HealthData::Critical;
+    }
+    hasWarning = true;
+  }
+
+  return hasWarning ? HealthData::Warning : HealthData::Normal;
 }
 
 inline const char* SystemData::latestUpdateStr(unsigned long latestUpdate) {

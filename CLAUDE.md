@@ -170,6 +170,21 @@ and `StateListener` (own app state, from `SystemData`).
   distinct alerts the unused panels disappear instead of showing an empty/dashed
   state. `_data.alerts` is reset (`AlertsData()`) each time the state machine
   enters `Running`, so a new experiment starts with a clean tab.
+- Overall experiment health (`SystemData::evaluateHealth()`, `systemdata.hpp`) is
+  computed entirely on the ESP32 from `_data.alerts` — it is *not* something the
+  Mega reports (a prior refactor removed health scoring from `Engine`). Rule: no
+  active alerts → `normal`; any active alert with `type == "critical"` → `critical`
+  (even if others are streak/frequency); otherwise → `warning`. It is recomputed at
+  exactly two triggers, deliberately not on a timer/poll: when `onCommand` handles
+  a `flag_data` (right after `pushAlert`), and reset to `normal` when
+  `_processState()` transitions into `Running`. `RunningController::_updateHealthData()`
+  reads `_data.progress.health` every screen tick and drives both `ui_HealthEstado`
+  (label) and the matching one of `ui_HealthNormalImg`/`WarningImg`/`CriticalImg`
+  (mutually exclusive visibility toggle) — same panel used for the icons that used
+  to be hardcoded to "always Normal". There used to be a `Tasks::UpdateHealth`
+  5s-poll timer wired for this; it was removed as redundant once the event-driven
+  recompute was added — if health ever needs a periodic fallback again, don't just
+  re-add a poll without checking whether the event triggers already cover it.
 
 ### Style notes specific to this codebase
 

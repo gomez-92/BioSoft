@@ -6,5 +6,4 @@ namespace Tasks {
   constexpr const char* ReSendStop            = "RESEND_STOP";
   constexpr const char* ReSendReset           = "RESEND_RESET";
   constexpr const char* UpdateProgress        = "UPDATE_PROGRESS";
-  constexpr const char* UpdateHealth          = "UPDATE_HEALTH";
 };

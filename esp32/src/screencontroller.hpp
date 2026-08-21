@@ -335,6 +335,7 @@ class RunningController : public BaseScreenController {
     void _updateMeasuresData();
     void _updateProgressData();
     void _updateAlertsData();
+    void _updateHealthData();
     void _applyAlertPanel(
         const AlertData& alert,
         lv_obj_t* panel,
@@ -355,10 +356,9 @@ inline void RunningController::init() {
   lv_bar_set_range(ui_TotalProgressBar, 0, 100);
   lv_obj_add_event_cb(ui_TabPageProgressBtnDetener, btnRunningDetenerClick, LV_EVENT_CLICKED, this);
 
-  // Estado de salud por defecto: los 3 iconos se crean sin flag de
-  // visibilidad (quedarian superpuestos). El calculo real de salud
-  // depende de las alertas del Detector, todavia pendiente -- por ahora
-  // se muestra siempre NORMAL.
+  // Los 3 iconos de salud se crean sin flag de visibilidad (quedarian
+  // superpuestos) -- arrancan en NORMAL por defecto, _updateHealthData
+  // corrige al vuelo con el dato real apenas se muestra la pantalla.
   lv_obj_add_flag(ui_HealthWarningImg, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_HealthCriticalImg, LV_OBJ_FLAG_HIDDEN);
   lv_obj_remove_flag(ui_HealthNormalImg, LV_OBJ_FLAG_HIDDEN);
@@ -389,6 +389,8 @@ inline void RunningController::show() {
   _updateMeasuresData();
   // tab alertas
   _updateAlertsData();
+  // estado de salud
+  _updateHealthData();
 }
 
 inline void RunningController::_loadTargetsData() {
@@ -540,9 +542,47 @@ inline void RunningController::_updateAlertsData() {
   );
 }
 
+inline void RunningController::_updateHealthData() {
+  const char* health = _data.progress.health;
+
+  bool isCritical = strcmp(health, HealthData::Critical) == 0;
+  bool isWarning  = strcmp(health, HealthData::Warning) == 0;
+
+  const char* label = "NORMAL";
+  if (isCritical) {
+    label = "CRITICO";
+  }
+  else if (isWarning) {
+    label = "ADVERTENCIA";
+  }
+  lv_label_set_text(ui_HealthEstado, label);
+
+  if (isCritical) {
+    lv_obj_remove_flag(ui_HealthCriticalImg, LV_OBJ_FLAG_HIDDEN);
+  }
+  else {
+    lv_obj_add_flag(ui_HealthCriticalImg, LV_OBJ_FLAG_HIDDEN);
+  }
+
+  if (isWarning) {
+    lv_obj_remove_flag(ui_HealthWarningImg, LV_OBJ_FLAG_HIDDEN);
+  }
+  else {
+    lv_obj_add_flag(ui_HealthWarningImg, LV_OBJ_FLAG_HIDDEN);
+  }
+
+  if (!isCritical && !isWarning) {
+    lv_obj_remove_flag(ui_HealthNormalImg, LV_OBJ_FLAG_HIDDEN);
+  }
+  else {
+    lv_obj_add_flag(ui_HealthNormalImg, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
 inline void RunningController::update() {
   _updateMeasuresData();
   _updateAlertsData();
+  _updateHealthData();
 
   // El progreso (%, elapsed) no necesita refrescarse en cada tick de
   // pantalla (50ms) -- un experimento se mide en minutos, no en decimas de

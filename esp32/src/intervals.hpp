@@ -6,5 +6,4 @@ namespace Intervals {
   constexpr unsigned long ReSendStop            = 4000;
   constexpr unsigned long ReSendReset           = 4000;
   constexpr unsigned long UpdateProgress        = 5000;
-  constexpr unsigned long UpdateHealth          = 5000;
 };

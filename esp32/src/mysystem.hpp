@@ -359,6 +359,7 @@ inline void MySystem::_processState(const char* status, bool forceStatus) {
         _data.configuration.targetDurationOption
     ].duration;
     _data.alerts = AlertsData();
+    snprintf(_data.progress.health, sizeof(_data.progress.health), "%s", HealthData::Normal);
     _data.setState(status);
     _screenManager.show(ScreenType::RUNNING);
   }
@@ -434,6 +435,11 @@ inline void MySystem::onCommand(const char* command, JsonVariantConst params) {
     Serial.println(limit);
 
     _data.pushAlert(type, source, count, limit);
+
+    // La salud se recalcula al vuelo con cada flag que llega, no por
+    // polling -- ver tambien el reset a Normal al entrar a Running.
+    const char* health = _data.evaluateHealth();
+    snprintf(_data.progress.health, sizeof(_data.progress.health), "%s", health);
   }
   
   else if(strcmp(command, Commands::TempData) == 0) {
@@ -562,7 +568,6 @@ inline void MySystem::onStateChanged(const char* oldState, const char* newState)
     _timer.removeTask(Tasks::ReSendReset);
   }
   else if(strcmp(oldState, StateData::Running) == 0) {
-    _timer.removeTask(Tasks::UpdateHealth);
     _timer.removeTask(Tasks::UpdateProgress);
   }
   
@@ -570,7 +575,6 @@ inline void MySystem::onStateChanged(const char* oldState, const char* newState)
     _timer.addTask(Tasks::ReSendReset, Intervals::ReSendReset);
   }
   else if(strcmp(newState, StateData::Running) == 0) {
-    _timer.addTask(Tasks::UpdateHealth, Intervals::UpdateHealth);
     _timer.addTask(Tasks::UpdateProgress, Intervals::UpdateProgress);
   }
   else if(strcmp(newState, StateData::Starting) == 0) {
