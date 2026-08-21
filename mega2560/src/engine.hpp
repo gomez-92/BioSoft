@@ -71,6 +71,7 @@ class Engine :
     void _start();
     void _stop();
     void _reset();
+    void _finish(const char* reason, const char* description);
 
     void _sendState();
     //void _sendTargetData();
@@ -187,6 +188,19 @@ inline void Engine::_reset() {
   _detector.reset();
   _engineState.setState(State::Ready);
   _runtimeState.reset();
+}
+
+// Punto unico donde termina un experimento (tiempo cumplido, stop manual o
+// corte de seguridad por flag). _reset() borra el resultado de
+// RuntimeState (via _runtimeState.reset()) y _stop()/_reset() dejan el
+// Engine en Ready antes de que el ESP32 pueda ver "finished" en state_data
+// -- por eso setResult() tiene que llamarse ANTES de _stop(), asi
+// onResult() dispara el envio de result_data mientras el dato todavia es
+// valido.
+inline void Engine::_finish(const char* reason, const char* description) {
+  _runtimeState.setResult(reason, description);
+  _stop();
+  _reset();
 }
 
 inline void Engine::_sendState() {
@@ -400,11 +414,7 @@ inline void Engine::onTimer(const char* name) {
     _timer.removeTask(Tasks::SettlingTime);
   }
   else if(strcmp(name, Tasks::Finish) == 0) {
-    // _stop() hace la limpieza real (saca las tareas de medicion del Timer
-    // via onFinish); _reset() encadenado deja el Engine en Ready en vez de
-    // en Finished, que hoy nadie consume del lado ESP32.
-    _stop();
-    _reset();
+    _finish("completed", "Duracion completa alcanzada");
   }
   unsigned long t2 = millis();
   Serial.print(name);
@@ -719,12 +729,7 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
 
   else if (strcmp(command, Commands::Stop) == 0) {
 
-    // _stop() deja el Engine en Finished, un estado que el ESP32 no
-    // consume (ver Tasks::Finish en onTimer, mismo criterio). _reset()
-    // encadenado vuelve a Ready para que el ESP32 navegue solo a
-    // Principal en vez de quedarse colgado en "Deteniendo...".
-    _stop();
-    _reset();
+    _finish("stopped", "Detenido manualmente por el operador");
 
     JsonDocument doc;
     doc["command"] = Commands::Stop;
@@ -828,9 +833,6 @@ inline void Engine::onFlag(SourceEvent& event) {
   Serial.print(F("/"));
   Serial.println(event.limit);
 
-  // El ESP32 todavia no procesa flag_data (onCommand no tiene rama para
-  // Commands::OneFlagsData) -- se manda igual, para tenerlo disponible
-  // en el monitor serie / sniffer mientras se define como mostrarlo.
   _serial.sendCommand(Commands::OneFlagsData, sourceData);
 
   if(event.limit > 0 && event.count >= event.limit) {
@@ -838,11 +840,12 @@ inline void Engine::onFlag(SourceEvent& event) {
     Serial.print(source->getName());
     Serial.println(F(" -> interrumpiendo experimento"));
 
-    // _stop() deja el Engine en Finished, un estado que el ESP32 no
-    // consume (mismo criterio que Tasks::Finish y Commands::Stop).
-    // _reset() encadenado vuelve a Ready para que el ESP32 navegue solo
-    // a Principal.
-    _stop();
-    _reset();
+    char description[64];
+    snprintf(
+        description, sizeof(description),
+        "%s: limite de alertas %s alcanzado (%u/%u)",
+        source->getName(), typeStr, event.count, event.limit
+    );
+    _finish("critical", description);
   }
 }

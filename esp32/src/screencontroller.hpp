@@ -16,6 +16,8 @@ static void btnConfigBackClick(lv_event_t * e);
 
 static void btnRunningDetenerClick(lv_event_t * e);
 
+static void btnResultadoVolverClick(lv_event_t * e);
+
 
 template<typename T>
 inline void buildDropdown(lv_obj_t* dropdown, const T* options, int count) {
@@ -607,21 +609,88 @@ static void btnRunningDetenerClick(lv_event_t * e) {
  * ============================================================ */
 class ResultadoController : public BaseScreenController {
   public:
-    ResultadoController();
+    ResultadoController(SystemData& data);
     void show() override;
     void update() override;
+    void init() override;
+    void onVolver();
 
   private:
-
+    SystemData& _data;
+    void _applyResult();
 };
 
-inline ResultadoController::ResultadoController() : BaseScreenController(ui_Resultado, ScreenType::RESULT, "result") {}
+inline ResultadoController::ResultadoController(SystemData& data) : BaseScreenController(ui_Resultado, ScreenType::RESULT, "result"), _data(data) {}
+
+inline void ResultadoController::init() {
+  BaseScreenController::init();
+  lv_obj_add_event_cb(ui_ResultadoBtnVolver, btnResultadoVolverClick, LV_EVENT_CLICKED, this);
+
+  // Los 3 paneles de resultado (Exitoso/Falla/Detenido) se crean visibles y
+  // superpuestos en el mismo lugar -- arrancan ocultos, _applyResult() deja
+  // visible solo el que corresponde a _data.result.reason.
+  lv_obj_add_flag(ui_ResultadoExitoso, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_ResultadoFalla, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_ResultadoDetenido, LV_OBJ_FLAG_HIDDEN);
+}
+
+inline void ResultadoController::onVolver() {
+  if(_listener == nullptr) return;
+  ScreenEvent ev;
+  ev.type = ScreenType::RESULT;
+  ev.name = EventName::Back;
+  _listener->onScreenEvent(ev);
+}
 
 inline void ResultadoController::show() {
   BaseScreenController::show();
+  _applyResult();
+}
+
+inline void ResultadoController::_applyResult() {
+  bool isCompleted = strcmp(_data.result.reason, "completed") == 0;
+  bool isCritical  = strcmp(_data.result.reason, "critical") == 0;
+  bool isStopped   = strcmp(_data.result.reason, "stopped") == 0;
+
+  if (isCompleted) lv_obj_remove_flag(ui_ResultadoExitoso, LV_OBJ_FLAG_HIDDEN);
+  else lv_obj_add_flag(ui_ResultadoExitoso, LV_OBJ_FLAG_HIDDEN);
+
+  if (isCritical) lv_obj_remove_flag(ui_ResultadoFalla, LV_OBJ_FLAG_HIDDEN);
+  else lv_obj_add_flag(ui_ResultadoFalla, LV_OBJ_FLAG_HIDDEN);
+
+  if (isStopped) lv_obj_remove_flag(ui_ResultadoDetenido, LV_OBJ_FLAG_HIDDEN);
+  else lv_obj_add_flag(ui_ResultadoDetenido, LV_OBJ_FLAG_HIDDEN);
+
+  const char* healthLabel = "NORMAL";
+  if (strcmp(_data.result.health, HealthData::Critical) == 0) {
+    healthLabel = "CRITICO";
+  }
+  else if (strcmp(_data.result.health, HealthData::Warning) == 0) {
+    healthLabel = "ADVERTENCIA";
+  }
+
+  // El diseno de la pantalla solo tiene un campo de detalle libre -- el
+  // progreso/tiempo/salud (que el ESP32 ya trackeaba en vivo, congelados en
+  // SystemData::result al llegar result_data) se anexan ahi junto con la
+  // descripcion que arma el Mega.
+  char detail[160];
+  snprintf(
+      detail, sizeof(detail),
+      "%s\nProgreso: %.0f%%   Tiempo: %s   Salud: %s",
+      _data.result.description, _data.result.progressPercent,
+      _data.result.elapsed, healthLabel
+  );
+  lv_label_set_text(ui_ResultadoDetalleText, detail);
 }
 
 inline void ResultadoController::update() {}
+
+static void btnResultadoVolverClick(lv_event_t * e) {
+  ResultadoController * self = (ResultadoController *) lv_event_get_user_data(e);
+  if(lv_event_get_code(e) == LV_EVENT_CLICKED) {
+    self->onVolver();
+  }
+}
 
 /* ============================================================
  * BUSY

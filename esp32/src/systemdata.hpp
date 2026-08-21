@@ -26,6 +26,21 @@ struct ProgressData {
   char health[20] = "normal";
 };
 
+// Snapshot del resultado del experimento, tomado en el instante en que
+// llega result_data. reason/description los arma el Mega (Engine::_finish);
+// health/progressPercent/elapsed son un snapshot de los datos que el ESP32
+// ya venia trackeando en vivo (SystemData::progress) -- se copian aca en
+// vez de leerse en cada tick de RunningController/ResultadoController
+// porque una vez terminado el experimento esos valores no deben seguir
+// avanzando con el reloj real.
+struct ResultData {
+  char reason[16] = "";
+  char description[64] = "";
+  char health[20] = "";
+  float progressPercent = 0.0f;
+  char elapsed[9] = "00:00:00";
+};
+
 struct MeasuresData {
   float measureMagneticField = 0.0f;
   float measureTemperature = 0.0f;
@@ -90,6 +105,7 @@ class SystemData {
     MeasuresData measures;
     AlertsData alerts;
     ProgressData progress;
+    ResultData result;
     BusyData busy;
     CommunicationData communication;
   private:

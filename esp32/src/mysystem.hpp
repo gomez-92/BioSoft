@@ -96,7 +96,7 @@ inline void MySystem::begin() {
   static PrincipalController principal(_data);
   static ConfigurationController config(_data);
   static RunningController running(_data);
-  static ResultadoController result;
+  static ResultadoController result(_data);
   static BusyController busy(_data);
   
   /* ---------------- LISTA ---------------- */
@@ -335,7 +335,11 @@ inline void MySystem::_processState(const char* status, bool forceStatus) {
   }
   else if(strcmp(status, StateData::Ready) == 0) {
     if(!_data.isInitialized()) return;
-    if(current == ScreenType::PRINCIPAL || current == ScreenType::CONFIG) return;
+    // RESULT: el Mega ya volvio a Ready para cuando este "ready" llega (ver
+    // Engine::_finish -- _stop()+_reset() son sincronicos), pero la
+    // pantalla de Resultado se abandona solo con el boton Volver, no con un
+    // ready espureo que llegue por el timer periodico de SendState.
+    if(current == ScreenType::PRINCIPAL || current == ScreenType::CONFIG || current == ScreenType::RESULT) return;
     if(current == ScreenType::BUSY) {
       // Starting: un "ready" que llegue mientras se espera confirmacion de
       // un start es viejo/espureo -- se ignora salvo forceStatus. Stopping
@@ -417,8 +421,27 @@ inline void MySystem::onCommand(const char* command, JsonVariantConst params) {
     }
   }
   //else if(strcmp(command, Commands::ProgressData) == 0) {}
-  //else if(strcmp(command, Commands::ResultData) == 0) {}
   //else if(strcmp(command, Commands::FlagsData) == 0) {}
+  else if(strcmp(command, Commands::ResultData) == 0) {
+    const char* reason = params["reason"] | "";
+    const char* description = params["description"] | "";
+
+    snprintf(_data.result.reason, sizeof(_data.result.reason), "%s", reason);
+    snprintf(_data.result.description, sizeof(_data.result.description), "%s", description);
+
+    // Snapshot de lo que el ESP32 ya venia trackeando en vivo, congelado en
+    // el instante del corte (ver comentario de ResultData en systemdata.hpp).
+    snprintf(_data.result.health, sizeof(_data.result.health), "%s", _data.progress.health);
+    _data.result.progressPercent = _data.progressPercent();
+    snprintf(_data.result.elapsed, sizeof(_data.result.elapsed), "%s", _data.elapsedTime());
+
+    Serial.print(F("[RESULT] reason="));
+    Serial.print(reason);
+    Serial.print(F(" description="));
+    Serial.println(description);
+
+    _screenManager.show(ScreenType::RESULT);
+  }
   else if(strcmp(command, Commands::OneFlagsData) == 0) {
     const char* source = params["source"] | "?";
     const char* type   = params["type"] | "?";
@@ -539,6 +562,10 @@ inline void MySystem::onScreenEvent(ScreenEvent e) {
     _screenManager.show(ScreenType::PRINCIPAL);
   }
   else if(e.type == ScreenType::CONFIG && e.name == EventName::Save) {
+    _screenManager.show(ScreenType::PRINCIPAL);
+  }
+  else if(e.type == ScreenType::RESULT && e.name == EventName::Back) {
+    _data.result = ResultData();
     _screenManager.show(ScreenType::PRINCIPAL);
   }
   else if(e.type == ScreenType::BUSY && e.name == EventName::Timeout) {

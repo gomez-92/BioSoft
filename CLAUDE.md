@@ -107,10 +107,24 @@ Key collaborators:
   `PwmDriver` based on live magnetometer readings.
 - `Detector` — evaluates per-source (`CEM1`, `TEMP1`, ...) rules (critical
   threshold, streak, frequency) from sensor sample history and raises `onFlag`
-  events; `Engine::_evaluateHealthData()` turns per-source scores into an overall
-  health verdict (`optimal`/`good`/`warning`/`bad`/`critical`).
+  events. Overall health scoring used to live here (`Engine::_evaluateHealthData()`)
+  but was removed in a refactor — it's now computed on the ESP32 from the flags it
+  receives, see the esp32 section below.
 - Remote commands `start`/`stop`/`reset` drive `Engine::_start()`/`_stop()`/
   `_reset()`, each acknowledged back to the ESP32 via an `ack` command.
+- `Engine::_finish(reason, description)` is the single place an experiment ends —
+  called from the 3 spots that used to call `_stop(); _reset();` directly: the
+  `Tasks::Finish` timer (`reason="completed"`, duration elapsed), `Commands::Stop`
+  (`reason="stopped"`, operator hit Detener), and `Detector::onFlag` when
+  `event.count >= event.limit` (`reason="critical"`, description built from
+  `source->getName()`/type/count/limit — e.g. `"TEMP1: limite de alertas critical
+  alcanzado (4/4)"`). It calls `_runtimeState.setResult(reason, description)`
+  *before* `_stop()`/`_reset()` — `_reset()` wipes `RuntimeState`'s result and
+  `_stop()`+`_reset()` are synchronous, so `Finished` is never observable over
+  `state_data` (see `onFinish()`'s comment). The only way `result_data` ever
+  reaches the ESP32 with real content is the synchronous send triggered by
+  `RuntimeStateListener::onResult()` the instant `setResult()` runs — same
+  fire-once reliability as `flag_data`, no ack/retry.
 - `Engine::_start()` sets `_isSettlingTime = true` and `onStart()` schedules the
   `Tasks::SettlingTime` timer (`Intervals::SettlingTime`, 10s) to clear it; while
   set, sensor samples are recorded but withheld from `_detector.addSample(...)`
@@ -185,6 +199,32 @@ and `StateListener` (own app state, from `SystemData`).
   5s-poll timer wired for this; it was removed as redundant once the event-driven
   recompute was added — if health ever needs a periodic fallback again, don't just
   re-add a poll without checking whether the event triggers already cover it.
+- The Resultado screen (`ScreenType::RESULT`, `ui_Resultado.c/.h`) is reached only
+  by receiving `result_data`, never through `_processState()`'s normal state
+  machine — the Mega's `Finished` state is never observable (see `_finish()`
+  above), so there's no `state_data` value to route on. `onCommand`'s
+  `Commands::ResultData` branch stores `reason`/`description` from the Mega into
+  `SystemData::result` and calls `_screenManager.show(ScreenType::RESULT)`
+  directly, the same pattern already used by Config's Back/Save. Progress %,
+  elapsed time and health are *not* sent by the Mega — the ESP32 already tracks
+  them live (`_data.progressPercent()`, `elapsedTime()`, `progress.health`), so
+  they're snapshotted into `_data.result` at the moment `result_data` arrives
+  (frozen — they must stop advancing once the experiment is over, unlike the
+  Running screen where the same getters are read live every tick).
+  `ResultadoController::_applyResult()` shows exactly one of
+  `ui_ResultadoExitoso`/`Falla`/`Detenido` based on `reason`
+  (`"completed"`/`"critical"`/`"stopped"`), and folds the snapshotted
+  progress/elapsed/health into `ui_ResultadoDetalleText` alongside the Mega's
+  `description` — the SquareLine layout only has that one free-text field, no
+  dedicated widgets for those three values. Because `state_data: ready` is only
+  sent on a 5s poll (`Tasks::SendState`) and arrives *after* `result_data`,
+  `_processState()`'s `Ready` branch treats `ScreenType::RESULT` like
+  `PRINCIPAL`/`CONFIG` (early-return, doesn't auto-navigate away) — otherwise
+  that stale "ready" broadcast would silently bounce the operator back to
+  Principal a few seconds after arriving, before they could read the result.
+  Leaving Resultado is manual only, via `ui_ResultadoBtnVolver` (already built in
+  SquareLine, just needed wiring) → `EventName::Back` → resets `_data.result` and
+  shows `PRINCIPAL`.
 
 ### Style notes specific to this codebase
 
