@@ -171,7 +171,7 @@ void setup() {
 
 void loop() {
   static unsigned long lastRamLog = 0;
-  if (millis() - lastRamLog >= 1000) {
+  if (millis() - lastRamLog >= 10000) {
     lastRamLog = millis();
     Serial.print("[RAM] libre = ");
     Serial.println(freeMemory());

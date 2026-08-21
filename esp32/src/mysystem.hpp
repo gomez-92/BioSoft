@@ -126,17 +126,8 @@ inline void MySystem::update() {
 }
 
 inline void MySystem::remoteUpdate() {
-  uint32_t t1 = millis();
   _wifiManager.update();
-  uint32_t t2 = millis();
   _brokerManager.loop();
-  uint32_t t3 = millis();
-
-  if ((t2 - t1) > 5)
-    Serial.printf("[CORE 1] _wifiManager.update() tardó %lu ms\n", t2 - t1);
-  if ((t3 - t2) > 5)
-    Serial.printf("[CORE 1] _brokerManager.loop() tardó %lu ms\n", t3 - t2);
-
 }
 
 inline void MySystem::_sendStart() {
@@ -474,48 +465,16 @@ inline void MySystem::onCommand(const char* command, JsonVariantConst params) {
 inline void MySystem::onTimer(const char* name) {
 
   if(strcmp(name, Tasks::UpdateScreens) == 0) {
-    uint32_t t1 = millis();
     _screenManager.update();
-    uint32_t t2 = millis();
-    if ((t2 - t1) > 5) {
-      Serial.printf(
-        "[SYSTEM ON TIMER] _screenManager.update tardó %lu ms\n",
-        t2 - t1
-      );
-    }
   }
   else if(strcmp(name, Tasks::ReSendStart) == 0) {
-    uint32_t t1 = millis();
     _sendStart();
-    uint32_t t2 = millis();
-    if ((t2 - t1) > 5) {
-      Serial.printf(
-        "[SYSTEM ON TIMER] _sendStart tardó %lu ms\n",
-        t2 - t1
-      );
-    }
   }
   else if(strcmp(name, Tasks::ReSendStop) == 0) {
-    uint32_t t1 = millis();
     _sendStop();
-    uint32_t t2 = millis();
-    if ((t2 - t1) > 5) {
-      Serial.printf(
-        "[SYSTEM ON TIMER] _sendStop tardó %lu ms\n",
-        t2 - t1
-      );
-    }
   }
   else if(strcmp(name, Tasks::ReSendReset) == 0) {
-    uint32_t t1 = millis();
     _sendReset();
-    uint32_t t2 = millis();
-    if ((t2 - t1) > 5) {
-      Serial.printf(
-        "[SYSTEM ON TIMER] _sendReset tardó %lu ms\n",
-        t2 - t1
-      );
-    }
   }
 }
 

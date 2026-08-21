@@ -327,7 +327,7 @@ inline void Engine::onStart() {
   //_timer.addTask(Tasks::MeasureMagneticField, Intervals::MeasureMagneticField);
   //_timer.addTask(Tasks::UpdateProgress, Intervals::UpdateProgress);
   //_timer.addTask(Tasks::SendFlags, Intervals::SendFlags);
-  //_timer.addTask(Tasks::SettlingTime, Intervals::SettlingTime);
+  _timer.addTask(Tasks::SettlingTime, Intervals::SettlingTime);
 }
 
 inline void Engine::onFinish() {

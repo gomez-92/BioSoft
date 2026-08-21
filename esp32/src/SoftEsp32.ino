@@ -80,21 +80,8 @@ void setup() {
 }
 
 void loop() {
-  static uint32_t lastLoop = millis();
-  uint32_t now = millis();
-  uint32_t interval = now - lastLoop;
-  lastLoop = now;
-  if (interval > 50) 
-    Serial.printf("[LOOP] intervalo anterior = %lu ms\n", interval);
-  uint32_t t1 = millis();
   display.update();
-  uint32_t t2 = millis();
   mySystem.update();
-  uint32_t t3 = millis();
-  if ((t2 - t1) > 5)
-    Serial.printf("[LOOP] display.update() tardó %lu ms\n", t2 - t1);
-  if ((t3 - t2) > 5) 
-    Serial.printf("[LOOP] mysystem.update() tardó %lu ms\n", t3 - t2);
 }
 
 
