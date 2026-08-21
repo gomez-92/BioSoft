@@ -111,10 +111,21 @@ Key collaborators:
   health verdict (`optimal`/`good`/`warning`/`bad`/`critical`).
 - Remote commands `start`/`stop`/`reset` drive `Engine::_start()`/`_stop()`/
   `_reset()`, each acknowledged back to the ESP32 via an `ack` command.
+- `Engine::_start()` sets `_isSettlingTime = true` and `onStart()` schedules the
+  `Tasks::SettlingTime` timer (`Intervals::SettlingTime`, 10s) to clear it; while
+  set, sensor samples are recorded but withheld from `_detector.addSample(...)`
+  (see `onThermometerSample`/`onMagnetometerSample`/`onCurrentSensorSample`), so
+  no flags can fire during that initial window. If this timer task isn't
+  scheduled, the flag stays true forever and the Detector silently never
+  evaluates anything for the rest of the run — always verify `onStart()` still
+  adds `Tasks::SettlingTime` after touching that code path.
 
-Several code paths (`SetTarget`, `ConfigSource`, per-flag telemetry commands) are
-present but commented out — the protocol supports them but the ESP32 side does
-not yet drive them. Check before assuming a command name is unused.
+Several code paths (`SetTarget`, `ConfigSource`) are present but commented out —
+the protocol supports them but the ESP32 side does not yet drive them. Check
+before assuming a command name is unused. Per-flag telemetry (`flag_data`,
+`Commands::OneFlagsData`) *is* wired end to end: the Mega's `Detector::onFlag`
+sends one `flag_data` per event, and the ESP32 renders the last 3 into the
+Running screen's Alertas tab (see below).
 
 ### esp32 — HMI, connectivity, and screen state machine
 
@@ -146,6 +157,19 @@ and `StateListener` (own app state, from `SystemData`).
   Studio-style output, including `ui_img_*_png.c` embedded image assets) — treat
   them as generated UI code, distinct from the hand-written `*controller`/manager
   classes that add behavior on top.
+- `RunningController` (`screencontroller.hpp`)'s Alertas tab shows up to 3 flags
+  in `SystemData::alerts` (`AlertsData`, `systemdata.hpp`), filled by
+  `MySystem::onCommand` on every `flag_data` via `SystemData::pushAlert(type,
+  source, count, limit)`. `pushAlert` dedupes by `source`+`type`: a repeat flag
+  for the same source/type updates that slot's count/limit/timestamp in place
+  and moves it to the front, instead of adding a duplicate entry — so the panel
+  always shows the latest accumulated count for a given alert, not every single
+  event. Slots are most-recent-first (`items[0]` → `ui_Alert1`, top of the tab);
+  `RunningController::_applyAlertPanel()` hides a panel entirely
+  (`LV_OBJ_FLAG_HIDDEN`) when its slot has no alert yet, so with fewer than 3
+  distinct alerts the unused panels disappear instead of showing an empty/dashed
+  state. `_data.alerts` is reset (`AlertsData()`) each time the state machine
+  enters `Running`, so a new experiment starts with a clean tab.
 
 ### Style notes specific to this codebase
 

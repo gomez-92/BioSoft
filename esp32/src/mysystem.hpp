@@ -358,6 +358,7 @@ inline void MySystem::_processState(const char* status, bool forceStatus) {
     _data.progress.duration = ConfigurationOptions::optionsDuration[
         _data.configuration.targetDurationOption
     ].duration;
+    _data.alerts = AlertsData();
     _data.setState(status);
     _screenManager.show(ScreenType::RUNNING);
   }
@@ -418,8 +419,6 @@ inline void MySystem::onCommand(const char* command, JsonVariantConst params) {
   //else if(strcmp(command, Commands::ResultData) == 0) {}
   //else if(strcmp(command, Commands::FlagsData) == 0) {}
   else if(strcmp(command, Commands::OneFlagsData) == 0) {
-    // Por ahora solo se imprime -- todavia no se decidio como mostrarlo
-    // en pantalla.
     const char* source = params["source"] | "?";
     const char* type   = params["type"] | "?";
     int count = params["count"] | 0;
@@ -433,6 +432,8 @@ inline void MySystem::onCommand(const char* command, JsonVariantConst params) {
     Serial.print(count);
     Serial.print(F("/"));
     Serial.println(limit);
+
+    _data.pushAlert(type, source, count, limit);
   }
   
   else if(strcmp(command, Commands::TempData) == 0) {

@@ -334,6 +334,18 @@ class RunningController : public BaseScreenController {
     void _loadTargetsData();
     void _updateMeasuresData();
     void _updateProgressData();
+    void _updateAlertsData();
+    void _applyAlertPanel(
+        const AlertData& alert,
+        lv_obj_t* panel,
+        lv_obj_t* critImg,
+        lv_obj_t* warningImg,
+        lv_obj_t* typeText,
+        lv_obj_t* sourceText,
+        lv_obj_t* countText,
+        lv_obj_t* maxText,
+        lv_obj_t* lastUpdateText
+    );
 };
 
 inline RunningController::RunningController(SystemData& data) : BaseScreenController(ui_Running, ScreenType::RUNNING, "running"), _data(data) {}
@@ -350,6 +362,12 @@ inline void RunningController::init() {
   lv_obj_add_flag(ui_HealthWarningImg, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_HealthCriticalImg, LV_OBJ_FLAG_HIDDEN);
   lv_obj_remove_flag(ui_HealthNormalImg, LV_OBJ_FLAG_HIDDEN);
+
+  // Paneles de alertas: arrancan ocultos, solo se muestran (de a uno) cuando
+  // hay una flag real que dibujar en ese slot -- ver _applyAlertPanel.
+  lv_obj_add_flag(ui_Alert1, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_Alert2, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_Alert3, LV_OBJ_FLAG_HIDDEN);
 }
 
 inline void RunningController::onStop() {
@@ -369,55 +387,8 @@ inline void RunningController::show() {
   _lastProgressUpdate = millis();
   // tab measures
   _updateMeasuresData();
-
-
-/*
-ui_HealthEstado
-ui_HealthNormalImg
-ui_HealthWarningImg
-ui_HealthCriticalImg
-ui_TabPageProgressBtnDetener
-*/
-
-/*
-ui_TabPageAlertas
-ui_Alert1
-ui_Alert1CritImg
-ui_Alert1WarningImg
-ui_Alert1TypeAlertSource
-ui_Alert1TypeAlertText
-ui_Alert1SourceText
-ui_Alert1StatsLastUpdate
-ui_Alert1Stats
-ui_Alert1StatsCountText
-ui_Alert1StatsSpacerText
-ui_Alert1StatsMaxText
-ui_Alert1LastUpdateText
-ui_Alert2
-ui_Alert2CritImg
-ui_Alert2WarningImg
-ui_Alert2TypeAlertSource
-ui_Alert2TypeAlertText
-ui_Alert2SourceText
-ui_Alert2StatsLastUpdate
-ui_Alert2Stats
-ui_Alert2StatsCountText
-ui_Alert2StatsSpacerText
-ui_Alert2StatsMaxText
-ui_Alert2LastUpdateText
-ui_Alert3
-ui_Alert3CritImg
-ui_Alert2WarningImg1
-ui_Alert3TypeAlertSource
-ui_Alert3TypeAlertText
-ui_Alert3SourceText
-ui_Alert3StatsLastUpdate
-ui_Alert3Stats
-ui_Alert3StatsCountText
-ui_Alert3StatsSpacerText
-ui_Alert3StatsMaxText
-ui_Alert3LastUpdateText
-*/
+  // tab alertas
+  _updateAlertsData();
 }
 
 inline void RunningController::_loadTargetsData() {
@@ -490,8 +461,88 @@ inline void RunningController::_updateProgressData() {
   lv_arc_set_value(ui_MedicionCampoMagneticoArc, (int)(_data.measures.measureMagneticField) * 10);
 }
 
+inline void RunningController::_applyAlertPanel(
+    const AlertData& alert,
+    lv_obj_t* panel,
+    lv_obj_t* critImg,
+    lv_obj_t* warningImg,
+    lv_obj_t* typeText,
+    lv_obj_t* sourceText,
+    lv_obj_t* countText,
+    lv_obj_t* maxText,
+    lv_obj_t* lastUpdateText
+) {
+  if (!alert.active) {
+    lv_obj_add_flag(panel, LV_OBJ_FLAG_HIDDEN);
+    return;
+  }
+
+  lv_obj_remove_flag(panel, LV_OBJ_FLAG_HIDDEN);
+
+  bool isCritical = strcmp(alert.type, "critical") == 0;
+  if (isCritical) {
+    lv_obj_remove_flag(critImg, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(warningImg, LV_OBJ_FLAG_HIDDEN);
+  }
+  else {
+    lv_obj_add_flag(critImg, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_remove_flag(warningImg, LV_OBJ_FLAG_HIDDEN);
+  }
+
+  const char* typeLabel = "?";
+  if (strcmp(alert.type, "critical") == 0) {
+    typeLabel = "CRITICO";
+  }
+  else if (strcmp(alert.type, "streak") == 0) {
+    typeLabel = "RACHA";
+  }
+  else if (strcmp(alert.type, "frequency") == 0) {
+    typeLabel = "FRECUENCIA";
+  }
+  lv_label_set_text(typeText, typeLabel);
+  lv_label_set_text(sourceText, alert.source);
+
+  char countStr[8];
+  snprintf(countStr, sizeof(countStr), "%d", alert.count);
+  lv_label_set_text(countText, countStr);
+
+  char maxStr[8];
+  snprintf(maxStr, sizeof(maxStr), "%d", alert.limit);
+  lv_label_set_text(maxText, maxStr);
+
+  lv_label_set_text(lastUpdateText, _data.latestUpdateStr(alert.lastUpdate));
+}
+
+inline void RunningController::_updateAlertsData() {
+  _applyAlertPanel(
+      _data.alerts.items[0],
+      ui_Alert1,
+      ui_Alert1CritImg, ui_Alert1WarningImg,
+      ui_Alert1TypeAlertText, ui_Alert1SourceText,
+      ui_Alert1StatsCountText, ui_Alert1StatsMaxText,
+      ui_Alert1LastUpdateText
+  );
+  _applyAlertPanel(
+      _data.alerts.items[1],
+      ui_Alert2,
+      ui_Alert2CritImg, ui_Alert2WarningImg,
+      ui_Alert2TypeAlertText, ui_Alert2SourceText,
+      ui_Alert2StatsCountText, ui_Alert2StatsMaxText,
+      ui_Alert2LastUpdateText
+  );
+  _applyAlertPanel(
+      _data.alerts.items[2],
+      ui_Alert3,
+      ui_Alert3CritImg, ui_Alert2WarningImg1,
+      ui_Alert3TypeAlertText, ui_Alert3SourceText,
+      ui_Alert3StatsCountText, ui_Alert3StatsMaxText,
+      ui_Alert3LastUpdateText
+  );
+}
+
 inline void RunningController::update() {
   _updateMeasuresData();
+  _updateAlertsData();
 
   // El progreso (%, elapsed) no necesita refrescarse en cada tick de
   // pantalla (50ms) -- un experimento se mide en minutos, no en decimas de

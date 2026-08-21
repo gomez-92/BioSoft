@@ -35,6 +35,21 @@ struct MeasuresData {
   unsigned long latestCurrentUpdate = 0;
 };
 
+#define MAX_ALERTS 3
+
+struct AlertData {
+  bool active = false;
+  char type[16] = "";
+  char source[16] = "";
+  int count = 0;
+  int limit = 0;
+  unsigned long lastUpdate = 0;
+};
+
+struct AlertsData {
+  AlertData items[MAX_ALERTS];
+};
+
 namespace StateData {
   constexpr const char* Idle      = "idle";
   constexpr const char* Ready     = "ready";
@@ -67,6 +82,7 @@ class SystemData {
     PrincipalData principal;
     ConfigurationData configuration;
     MeasuresData measures;
+    AlertsData alerts;
     ProgressData progress;
     BusyData busy;
     CommunicationData communication;
@@ -77,6 +93,7 @@ class SystemData {
 
   public:
     void updatePrincipalConfigurationLabels();
+    void pushAlert(const char* type, const char* source, int count, int limit);
     const char* latestUpdateStr(unsigned long latestUpdate);
     const char* elapsedTime();
     float progressPercent();
@@ -138,6 +155,36 @@ inline void SystemData::updatePrincipalConfigurationLabels() {
       "%s",
       ConfigurationOptions::optionsRangeCriticalTemperature[configuration.criticalTemperatureRangeOption].label
   );
+}
+
+// Mantiene las ultimas MAX_ALERTS alertas distintas (por source+type), mas
+// recientes primero. Si ya existe una entrada para el mismo source+type se
+// actualiza en lugar de duplicarla, para que siempre se vea el acumulado
+// (count/limit) mas reciente de esa alerta.
+inline void SystemData::pushAlert(const char* type, const char* source, int count, int limit) {
+  int foundIndex = -1;
+  for (int i = 0; i < MAX_ALERTS; i++) {
+    if (alerts.items[i].active &&
+        strcmp(alerts.items[i].type, type) == 0 &&
+        strcmp(alerts.items[i].source, source) == 0) {
+      foundIndex = i;
+      break;
+    }
+  }
+
+  AlertData updated;
+  updated.active = true;
+  snprintf(updated.type, sizeof(updated.type), "%s", type);
+  snprintf(updated.source, sizeof(updated.source), "%s", source);
+  updated.count = count;
+  updated.limit = limit;
+  updated.lastUpdate = millis();
+
+  int shiftFrom = (foundIndex >= 0) ? foundIndex : (MAX_ALERTS - 1);
+  for (int i = shiftFrom; i > 0; i--) {
+    alerts.items[i] = alerts.items[i - 1];
+  }
+  alerts.items[0] = updated;
 }
 
 inline const char* SystemData::latestUpdateStr(unsigned long latestUpdate) {
