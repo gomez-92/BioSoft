@@ -11,5 +11,6 @@ namespace Commands {
   constexpr const char* TempData              = "temp_data";
   constexpr const char* CemData               = "cem_data";
   constexpr const char* CurrentData           = "current_data";
+  constexpr const char* OneFlagsData          = "flag_data";
   constexpr const char* Ack                   = "ack";
 };

@@ -238,15 +238,30 @@ class SourceState {
   public:
     SourceState();
     void reset();
-    void incrementCritical();
-    void decrementCritical();
+    // "Out" = fuera del rango normal. Una muestra critica (fuera del
+    // rango critico, mas ancho) esta POR DEFINICION tambien fuera del
+    // rango normal -- critico es un subconjunto mas severo de "fuera de
+    // lo normal", no una categoria aparte. incrementOut/decrementOut se
+    // llaman para CUALQUIER muestra fuera de lo normal, sea o no critica
+    // ademas.
     void incrementOut();
     void decrementOut();
-    uint16_t getCriticalCount() const;
+    // Racha de muestras consecutivas (no relacionado con la ventana del
+    // buffer): se incrementa mientras la condicion se sostiene muestra a
+    // muestra, y se resetea a 0 apenas llega una muestra que no la
+    // cumple. updateOutStreak sigue el mismo criterio de union que
+    // incrementOut (una muestra critica tambien avanza la racha "out").
+    // Independiente de incrementOut, que cuenta cuantas muestras hay
+    // ahora mismo dentro de la ventana del buffer.
+    void updateCriticalStreak(bool isCritical);
+    void updateOutStreak(bool isOutOfNormal);
     uint16_t getOutCount() const;
+    uint16_t getCriticalStreak() const;
+    uint16_t getOutStreak() const;
   private:
-    uint16_t _criticalCount;
     uint16_t _outCount;
+    uint16_t _criticalStreak;
+    uint16_t _outStreak;
 };
 
 inline SourceState::SourceState() {
@@ -254,18 +269,9 @@ inline SourceState::SourceState() {
 }
 
 inline void SourceState::reset() {
-  _criticalCount = 0;
   _outCount = 0;
-}
-
-inline void SourceState::incrementCritical() {
-  ++_criticalCount;
-}
-
-inline void SourceState::decrementCritical() {
-  if (_criticalCount > 0) {
-    --_criticalCount;
-  }
+  _criticalStreak = 0;
+  _outStreak = 0;
 }
 
 inline void SourceState::incrementOut() {
@@ -278,12 +284,36 @@ inline void SourceState::decrementOut() {
   }
 }
 
-inline uint16_t SourceState::getCriticalCount() const {
-  return _criticalCount;
+inline void SourceState::updateCriticalStreak(bool isCritical) {
+  if (!isCritical) {
+    _criticalStreak = 0;
+    return;
+  }
+  if (_criticalStreak < 0xFFFF) {
+    ++_criticalStreak;
+  }
+}
+
+inline void SourceState::updateOutStreak(bool isOutOfNormal) {
+  if (!isOutOfNormal) {
+    _outStreak = 0;
+    return;
+  }
+  if (_outStreak < 0xFFFF) {
+    ++_outStreak;
+  }
 }
 
 inline uint16_t SourceState::getOutCount() const {
   return _outCount;
+}
+
+inline uint16_t SourceState::getCriticalStreak() const {
+  return _criticalStreak;
+}
+
+inline uint16_t SourceState::getOutStreak() const {
+  return _outStreak;
 }
 
 // ===== ===== ===== ===== ===== ===== ===== ===== ===== =====
@@ -387,19 +417,30 @@ inline void Source::addSample(float sample) {
   float overwritten = 0.0f;
   bool hasOld = _buffer.addSample(sample, overwritten);
 
-  if (hasOld) {
-    if (isCritical(overwritten))
-      _state.decrementCritical();
-    else if (isOutOfNormal(overwritten))
-      _state.decrementOut();
+  // "out de normal" es un superconjunto de "critico" (rangos anidados:
+  // criticalMin<=normalMin<normalMax<=criticalMax) -- una muestra critica
+  // tambien esta, por definicion, fuera de lo normal. decrementOut se
+  // llama para CUALQUIER muestra evictada que estuviera fuera de lo
+  // normal, sea o no ademas critica.
+  if (hasOld && isOutOfNormal(overwritten)) {
+    _state.decrementOut();
   }
 
-  if (isCritical(sample))
-    _state.incrementCritical();
-  else if (isOutOfNormal(sample))
-    _state.incrementOut();
+  bool critical = isCritical(sample);
+  bool outOfNormal = isOutOfNormal(sample);
 
-    evaluate();
+  if (outOfNormal) {
+    _state.incrementOut();
+  }
+
+  // Racha consecutiva de la muestra que se acaba de agregar -- no se ve
+  // afectada por lo que sale del buffer (a diferencia de incrementOut,
+  // que si depende de la ventana). updateOutStreak sigue el mismo
+  // criterio de union: una muestra critica tambien avanza esta racha.
+  _state.updateCriticalStreak(critical);
+  _state.updateOutStreak(outOfNormal);
+
+  evaluate();
 }
 
 inline void Source::publish(JsonDocument& doc) {
@@ -465,20 +506,27 @@ inline void Source::evaluate() {
   _config.streak.updateCooldown(newSamples);
   _config.frequency.updateCooldown(newSamples);
 
+  // critical/streak: racha de muestras consecutivas (se resetea con
+  // cualquier muestra que no cumpla la condicion).
   evaluateRule(
     _config.critical,
     EventType::Critical,
-    _state.getCriticalCount());
+    _state.getCriticalStreak());
 
   evaluateRule(
     _config.streak,
     EventType::Streak,
-    _state.getOutCount());
+    _state.getOutStreak());
 
+  // frequency: a proposito sigue basada en la ventana del buffer (cuantas
+  // muestras "no normales" hay ahora mismo, esten o no seguidas) -- mide
+  // inestabilidad general en el tiempo, no un episodio puntual. getOutCount()
+  // ya incluye las criticas (ver incrementOut en addSample), asi que no
+  // hay que sumarlas aparte -- sumarlas de nuevo las contaria dos veces.
   evaluateRule(
     _config.frequency,
     EventType::Frequency,
-    _state.getCriticalCount() + _state.getOutCount());
+    _state.getOutCount());
 }
 
 inline void Source::evaluateRule(Rule& rule, EventType type, uint16_t value) {

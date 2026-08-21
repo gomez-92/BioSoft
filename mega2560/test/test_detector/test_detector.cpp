@@ -122,11 +122,13 @@ class RecordingSourceListener : public SourceListener {
 };
 
 SourceConfig makeCemLikeConfig() {
-    // Replica lo que Engine::_start() arma hoy para CEM1/TEMP1 (ver
-    // engine.hpp ~582-687): solo normalMin/Max y criticalMin/Max. Las Rule
-    // (critical/streak/frequency) quedan en su valor por defecto
-    // (threshold=0) porque ese camino nunca las toca -- solo lo hace el
-    // comando ConfigSource, que el ESP32 todavia no envia.
+    // Config base solo con los rangos (normalMin/Max, criticalMin/Max).
+    // Las Rule (critical/streak/frequency) quedan en su valor por defecto
+    // (threshold=0), que por diseno las deja inertes -- sirve como punto
+    // de partida neutro para los tests de abajo, que las configuran a
+    // mano segun lo que quieren probar. NO representa la config real de
+    // TEMP1: para eso ver makeRealTemp1Config(), que espeja lo que arma
+    // Engine::_start() hoy (engine.hpp).
     SourceConfig config;
     config.bufferSize = 8;
     config.normalMin = 10.0f;
@@ -136,12 +138,11 @@ SourceConfig makeCemLikeConfig() {
     return config;
 }
 
-void test_source_with_engine_start_config_never_flags_even_when_critical(void) {
-    // Documenta un bug real de integracion: con la config que arma
-    // Engine::_start() hoy, las Rule quedan con threshold=0 y
-    // Rule::evaluate() con threshold==0 siempre retorna false. Resultado:
-    // el Detector nunca dispara onFlag durante un experimento real, aunque
-    // el sensor este fuera de rango critico todo el tiempo.
+void test_source_default_rules_never_flag_regardless_of_input(void) {
+    // Rule::evaluate() con threshold==0 siempre retorna false (es el
+    // valor por defecto de una Rule sin configurar) -- ninguna de las 3
+    // reglas deberia disparar nunca, sin importar cuan fuera de rango
+    // este la muestra.
     Source source("CEM1");
     RecordingSourceListener listener;
     source.setListener(&listener);
@@ -176,9 +177,70 @@ void test_source_flags_critical_when_rules_are_configured(void) {
     TEST_ASSERT_EQUAL(static_cast<int>(EventType::Critical), static_cast<int>(listener.events[0].type));
 }
 
-void test_source_streak_rule_counts_out_of_normal_in_window(void) {
+// =====================================================================
+// Source — critical/streak evaluan RACHA CONSECUTIVA, no la ventana del
+// buffer (Source::evaluate en detector.hpp le pasa
+// getCriticalStreak()/getOutStreak(), no getCriticalCount()/getOutCount()).
+// Estos tests prueban explicitamente esa semantica: una interrupcion
+// (una sola muestra que no cumple la condicion) tiene que resetear la
+// racha a 0, aunque la ventana todavia contenga muestras viejas que si
+// cumplian.
+// =====================================================================
+
+void test_source_critical_streak_requires_consecutive_samples(void) {
     SourceConfig config = makeCemLikeConfig();
-    config.streak.threshold = 3; // 3 muestras fuera de [normalMin,normalMax] en el buffer
+    config.critical.threshold = 3;
+    config.critical.cooldown = 0;
+    config.critical.maxEvents = 0;
+
+    Source source("CEM1");
+    RecordingSourceListener listener;
+    source.setListener(&listener);
+    source.setConfig(config);
+
+    source.addSample(100.0f); // critical, racha=1
+    TEST_ASSERT_EQUAL_UINT8(0, listener.count);
+    source.addSample(100.0f); // critical, racha=2
+    TEST_ASSERT_EQUAL_UINT8(0, listener.count);
+    source.addSample(15.0f);  // normal (dentro de [10,20]) -> corta la racha a 0
+    TEST_ASSERT_EQUAL_UINT8(0, listener.count);
+    source.addSample(100.0f); // critical, la racha arranca de nuevo en 1
+    TEST_ASSERT_EQUAL_UINT8(0, listener.count);
+    source.addSample(100.0f); // critical, racha=2
+    TEST_ASSERT_EQUAL_UINT8(0, listener.count);
+
+    // Iban 4 muestras criticas en total (nunca 3 seguidas) -- bajo la
+    // vieja semantica de ventana esto ya habria disparado. Con racha
+    // consecutiva, todavia no.
+    source.addSample(100.0f); // critical, racha=3 -> recien ahora dispara
+    TEST_ASSERT_EQUAL_UINT8(1, listener.count);
+    TEST_ASSERT_EQUAL(static_cast<int>(EventType::Critical), static_cast<int>(listener.events[0].type));
+}
+
+void test_source_critical_streak_resets_on_out_of_normal_not_critical(void) {
+    // Una muestra "fuera de lo normal pero no critica" tampoco es
+    // critica -- tiene que cortar la racha de critical igual que una
+    // muestra normal.
+    SourceConfig config = makeCemLikeConfig();
+    config.critical.threshold = 2;
+    config.critical.cooldown = 0;
+    config.critical.maxEvents = 0;
+
+    Source source("CEM1");
+    RecordingSourceListener listener;
+    source.setListener(&listener);
+    source.setConfig(config);
+
+    source.addSample(100.0f); // critical, racha=1
+    source.addSample(22.0f);  // fuera de normal (>20) pero no critico (<25) -> corta racha
+    TEST_ASSERT_EQUAL_UINT8(0, listener.count);
+    source.addSample(100.0f); // critical, racha vuelve a arrancar en 1 (no en 2)
+    TEST_ASSERT_EQUAL_UINT8(0, listener.count);
+}
+
+void test_source_streak_rule_fires_on_consecutive_out_of_normal_samples(void) {
+    SourceConfig config = makeCemLikeConfig();
+    config.streak.threshold = 3; // 3 muestras SEGUIDAS fuera de [normalMin,normalMax]
     config.streak.cooldown = 0;
     config.streak.maxEvents = 0;
 
@@ -187,13 +249,268 @@ void test_source_streak_rule_counts_out_of_normal_in_window(void) {
     source.setListener(&listener);
     source.setConfig(config);
 
-    source.addSample(22.0f); // fuera de lo normal (>20) pero no critico (<25)
+    source.addSample(22.0f); // fuera de lo normal (>20) pero no critico (<25), racha=1
     TEST_ASSERT_EQUAL_UINT8(0, listener.count);
-    source.addSample(23.0f);
+    source.addSample(23.0f); // racha=2
     TEST_ASSERT_EQUAL_UINT8(0, listener.count);
-    source.addSample(24.0f); // 3ra muestra fuera de rango normal -> dispara streak
+    source.addSample(24.0f); // racha=3 -> dispara streak
     TEST_ASSERT_EQUAL_UINT8(1, listener.count);
     TEST_ASSERT_EQUAL(static_cast<int>(EventType::Streak), static_cast<int>(listener.events[0].type));
+}
+
+void test_source_streak_counts_critical_samples_too(void) {
+    // "streak" mide muestras fuera de lo normal en general. "Critico" es
+    // un subconjunto MAS SEVERO de "fuera de lo normal" (rangos
+    // anidados: criticalMin<=normalMin<normalMax<=criticalMax), no una
+    // categoria aparte -- una muestra critica tiene que sumar a la racha
+    // de streak igual que una fuera-de-normal-pero-no-critica.
+    SourceConfig config = makeCemLikeConfig();
+    config.streak.threshold = 3;
+    config.streak.cooldown = 0;
+    config.streak.maxEvents = 0;
+
+    Source source("CEM1");
+    RecordingSourceListener listener;
+    source.setListener(&listener);
+    source.setConfig(config);
+
+    source.addSample(100.0f); // critica (>25) -> tambien fuera de normal, racha=1
+    TEST_ASSERT_EQUAL_UINT8(0, listener.count);
+    source.addSample(100.0f); // critica, racha=2
+    TEST_ASSERT_EQUAL_UINT8(0, listener.count);
+    source.addSample(22.0f);  // fuera de normal, no critica -- SUMA a la misma racha
+    TEST_ASSERT_EQUAL_UINT8(1, listener.count); // racha=3 -> dispara streak
+    TEST_ASSERT_EQUAL(static_cast<int>(EventType::Streak), static_cast<int>(listener.events[0].type));
+}
+
+void test_source_streak_resets_only_on_fully_normal_sample(void) {
+    // La racha de streak NO se corta con una muestra critica (ver test de
+    // arriba) -- solo se corta con una muestra realmente dentro de
+    // [normalMin, normalMax].
+    SourceConfig config = makeCemLikeConfig();
+    config.streak.threshold = 2;
+    config.streak.cooldown = 0;
+    config.streak.maxEvents = 0;
+
+    Source source("CEM1");
+    RecordingSourceListener listener;
+    source.setListener(&listener);
+    source.setConfig(config);
+
+    source.addSample(100.0f); // critica, racha=1
+    source.addSample(15.0f);  // normal (dentro de [10,20]) -> SI corta la racha
+    TEST_ASSERT_EQUAL_UINT8(0, listener.count);
+    source.addSample(22.0f);  // fuera de normal, la racha arranca de nuevo en 1
+    TEST_ASSERT_EQUAL_UINT8(0, listener.count);
+    source.addSample(100.0f); // critica, racha=2 -> dispara
+    TEST_ASSERT_EQUAL_UINT8(1, listener.count);
+    TEST_ASSERT_EQUAL(static_cast<int>(EventType::Streak), static_cast<int>(listener.events[0].type));
+}
+
+void test_source_frequency_counts_window_regardless_of_order(void) {
+    // A diferencia de critical/streak, "frequency" SI sigue basada en la
+    // ventana del buffer -- cuenta muestras "no normales" (criticas o
+    // fuera de rango) sin importar si estan seguidas o salteadas.
+    SourceConfig config = makeCemLikeConfig();
+    config.bufferSize = 6;
+    config.frequency.threshold = 3;
+    config.frequency.cooldown = 0;
+    config.frequency.maxEvents = 0;
+
+    Source source("CEM1");
+    RecordingSourceListener listener;
+    source.setListener(&listener);
+    source.setConfig(config);
+
+    source.addSample(15.0f);  // normal
+    source.addSample(100.0f); // critical (1 no-normal en ventana)
+    TEST_ASSERT_EQUAL_UINT8(0, listener.count);
+    source.addSample(15.0f);  // normal
+    source.addSample(22.0f);  // fuera de normal, no critico (2 no-normales en ventana)
+    TEST_ASSERT_EQUAL_UINT8(0, listener.count);
+    source.addSample(15.0f);  // normal
+    source.addSample(100.0f); // critical (3 no-normales en ventana de 6) -> dispara,
+                               // aunque ninguna de las 3 este seguida de otra
+    TEST_ASSERT_EQUAL_UINT8(1, listener.count);
+    TEST_ASSERT_EQUAL(static_cast<int>(EventType::Frequency), static_cast<int>(listener.events[0].type));
+}
+
+void test_source_zone_classification_matches_normal_critical_boundaries(void) {
+    // Tabla de verdad de las 3 zonas (normal=[10,20], critical=[5,25]):
+    //   NORMAL       dentro de [normalMin,normalMax]      -> ningun flag
+    //   ADVERTENCIA  fuera de normal, dentro de critico    -> streak +
+    //                frequency, NO critical
+    //   CRITICA      fuera de [criticalMin,criticalMax]    -> los 3 tipos
+    //                (critical incluido; la regla critical es mas
+    //                estricta -- requiere racha -- pero la muestra en si
+    //                cuenta para todos)
+    SourceConfig config = makeCemLikeConfig();
+    config.critical.threshold = 1;
+    config.critical.cooldown = 0;
+    config.critical.maxEvents = 0;
+    config.streak.threshold = 1;
+    config.streak.cooldown = 0;
+    config.streak.maxEvents = 0;
+    config.frequency.threshold = 1;
+    config.frequency.cooldown = 0;
+    config.frequency.maxEvents = 0;
+
+    // NORMAL: 15.0 esta dentro de [10,20]
+    {
+        Source source("CEM1");
+        RecordingSourceListener listener;
+        source.setListener(&listener);
+        source.setConfig(config);
+        source.addSample(15.0f);
+        TEST_ASSERT_EQUAL_UINT8(0, listener.count);
+    }
+
+    // ADVERTENCIA: 22.0 fuera de normal (>20) pero dentro de critico (<25)
+    {
+        Source source("CEM1");
+        RecordingSourceListener listener;
+        source.setListener(&listener);
+        source.setConfig(config);
+        source.addSample(22.0f);
+
+        bool sawCritical = false, sawStreak = false, sawFrequency = false;
+        for (uint8_t i = 0; i < listener.count; i++) {
+            if (listener.events[i].type == EventType::Critical)  sawCritical = true;
+            if (listener.events[i].type == EventType::Streak)    sawStreak = true;
+            if (listener.events[i].type == EventType::Frequency) sawFrequency = true;
+        }
+        TEST_ASSERT_EQUAL_UINT8(2, listener.count); // streak + frequency, nada mas
+        TEST_ASSERT_FALSE(sawCritical);
+        TEST_ASSERT_TRUE(sawStreak);
+        TEST_ASSERT_TRUE(sawFrequency);
+    }
+
+    // CRITICA: 100.0 fuera de [5,25]
+    {
+        Source source("CEM1");
+        RecordingSourceListener listener;
+        source.setListener(&listener);
+        source.setConfig(config);
+        source.addSample(100.0f);
+
+        bool sawCritical = false, sawStreak = false, sawFrequency = false;
+        for (uint8_t i = 0; i < listener.count; i++) {
+            if (listener.events[i].type == EventType::Critical)  sawCritical = true;
+            if (listener.events[i].type == EventType::Streak)    sawStreak = true;
+            if (listener.events[i].type == EventType::Frequency) sawFrequency = true;
+        }
+        TEST_ASSERT_EQUAL_UINT8(3, listener.count); // los 3 tipos
+        TEST_ASSERT_TRUE(sawCritical);
+        TEST_ASSERT_TRUE(sawStreak);
+        TEST_ASSERT_TRUE(sawFrequency);
+    }
+}
+
+// =====================================================================
+// Source — configuracion REAL de TEMP1, espeja Engine::_start() (ver
+// engine.hpp, seccion "CONFIGURACION SOURCE TEMP"). Si esos numeros
+// cambian ahi, este helper y sus tests tienen que actualizarse -- son la
+// prueba de que la configuracion que de verdad se manda a la placa hace
+// lo que se espera, no solo la logica en abstracto.
+// =====================================================================
+
+SourceConfig makeRealTemp1Config() {
+    SourceConfig config;
+    config.bufferSize = 32; // default de SourceConfig, Engine no lo toca
+    config.normalMin = 10.0f;
+    config.normalMax = 20.0f;
+    config.criticalMin = 5.0f;
+    config.criticalMax = 25.0f;
+
+    config.critical.threshold = 3;
+    config.critical.cooldown = 1;
+    config.critical.maxEvents = 2;
+
+    config.streak.threshold = 5;
+    config.streak.cooldown = 4;
+    config.streak.maxEvents = 5;
+
+    config.frequency.threshold = 16;
+    config.frequency.cooldown = 16;
+    config.frequency.maxEvents = 3;
+
+    return config;
+}
+
+void test_source_real_temp1_config_cuts_after_second_critical_flag(void) {
+    // Con los numeros reales hacen falta 3 muestras criticas SEGUIDAS
+    // para el primer flag, y una 4ta seguida para el segundo (el limite
+    // configurado, maxEvents=2). Engine::onFlag() corta el experimento
+    // cuando event.count >= event.limit -- esta prueba confirma que el
+    // Detector llega ahi exactamente en la 4ta muestra critica
+    // consecutiva, ni antes ni despues.
+    Source source("TEMP1");
+    RecordingSourceListener listener;
+    source.setListener(&listener);
+    source.setConfig(makeRealTemp1Config());
+
+    source.addSample(100.0f); // critica (>>criticalMax=25), racha=1
+    TEST_ASSERT_EQUAL_UINT8(0, listener.count);
+    source.addSample(100.0f); // racha=2
+    TEST_ASSERT_EQUAL_UINT8(0, listener.count);
+    source.addSample(100.0f); // racha=3 -> 1er flag (count=1, limit=2)
+    TEST_ASSERT_EQUAL_UINT8(1, listener.count);
+    TEST_ASSERT_EQUAL_UINT16(1, listener.events[0].count);
+    TEST_ASSERT_EQUAL_UINT16(2, listener.events[0].limit);
+
+    source.addSample(100.0f); // racha=4, cooldown(1) ya paso -> 2do flag
+    TEST_ASSERT_EQUAL_UINT8(2, listener.count);
+    TEST_ASSERT_EQUAL_UINT16(2, listener.events[1].count);
+    TEST_ASSERT_EQUAL_UINT16(2, listener.events[1].limit);
+
+    // count >= limit es exactamente la condicion que usa Engine::onFlag()
+    // para decidir cortar el experimento.
+    TEST_ASSERT_TRUE(listener.events[1].count >= listener.events[1].limit);
+}
+
+void test_source_real_temp1_config_does_not_flag_on_isolated_critical_spikes(void) {
+    // Un pico critico aislado (rodeado de muestras normales) nunca junta
+    // 3 seguidas -- no tiene que disparar nunca, sin importar cuantas
+    // veces se repita el pico.
+    Source source("TEMP1");
+    RecordingSourceListener listener;
+    source.setListener(&listener);
+    source.setConfig(makeRealTemp1Config());
+
+    for (int i = 0; i < 10; i++) {
+        source.addSample(100.0f); // critica, racha=1
+        source.addSample(15.0f);  // normal -> corta la racha
+    }
+
+    TEST_ASSERT_EQUAL_UINT8(0, listener.count);
+}
+
+void test_source_real_temp1_config_critical_samples_also_advance_streak(void) {
+    // Con la config real, 3-4 muestras criticas seguidas disparan
+    // "critical" (llega a su maxEvents=2 en la 4ta). La MISMA racha de
+    // muestras criticas tambien cuenta para "streak" (union, no
+    // exclusion mutua) -- en la 5ta muestra critica seguida,
+    // streak.threshold=5 se cumple y dispara por su cuenta, aunque
+    // critical ya haya llegado a su propio limite.
+    Source source("TEMP1");
+    RecordingSourceListener listener;
+    source.setListener(&listener);
+    source.setConfig(makeRealTemp1Config());
+
+    for (int i = 0; i < 5; i++) {
+        source.addSample(100.0f); // critica seguida
+    }
+
+    uint8_t criticalEvents = 0;
+    uint8_t streakEvents = 0;
+    for (uint8_t i = 0; i < listener.count; i++) {
+        if (listener.events[i].type == EventType::Critical) criticalEvents++;
+        else if (listener.events[i].type == EventType::Streak) streakEvents++;
+    }
+
+    TEST_ASSERT_EQUAL_UINT8(2, criticalEvents); // llego a su maxEvents en la 4ta muestra
+    TEST_ASSERT_EQUAL_UINT8(1, streakEvents);   // recien dispara en la 5ta (su propio threshold)
+    TEST_ASSERT_EQUAL_UINT8(3, listener.count);
 }
 
 // =====================================================================
@@ -233,6 +550,26 @@ void test_detector_forwards_onFlag_to_its_listener(void) {
     TEST_ASSERT_EQUAL_UINT8(1, listener.flagCount);
 }
 
+void test_detector_real_temp1_config_reaches_limit_on_fourth_consecutive_critical(void) {
+    // Mismo escenario que test_source_real_temp1_config_cuts_after_second_
+    // critical_flag, pero pasando por el Detector completo (addSource +
+    // configureSource + addSample), igual que lo usa Engine en la placa
+    // real -- confirma que el reenvio Detector->listener no pierde nada.
+    Detector detector;
+    RecordingDetectorListener listener;
+    detector.setListener(&listener);
+    detector.addSource("TEMP1");
+    detector.configureSource("TEMP1", makeRealTemp1Config());
+
+    detector.addSample("TEMP1", 100.0f); // racha=1
+    detector.addSample("TEMP1", 100.0f); // racha=2
+    detector.addSample("TEMP1", 100.0f); // racha=3 -> 1er flag
+    TEST_ASSERT_EQUAL_UINT8(1, listener.flagCount);
+
+    detector.addSample("TEMP1", 100.0f); // racha=4 -> 2do flag (count==limit)
+    TEST_ASSERT_EQUAL_UINT8(2, listener.flagCount);
+}
+
 void test_detector_addSample_on_unknown_source_returns_false(void) {
     Detector detector;
     TEST_ASSERT_FALSE(detector.addSample("NOPE", 1.0f));
@@ -250,12 +587,24 @@ int main(int argc, char** argv) {
     RUN_TEST(test_rule_stops_after_maxEvents);
     RUN_TEST(test_rule_maxEvents_zero_means_unlimited);
 
-    RUN_TEST(test_source_with_engine_start_config_never_flags_even_when_critical);
+    RUN_TEST(test_source_default_rules_never_flag_regardless_of_input);
     RUN_TEST(test_source_flags_critical_when_rules_are_configured);
-    RUN_TEST(test_source_streak_rule_counts_out_of_normal_in_window);
+
+    RUN_TEST(test_source_critical_streak_requires_consecutive_samples);
+    RUN_TEST(test_source_critical_streak_resets_on_out_of_normal_not_critical);
+    RUN_TEST(test_source_streak_rule_fires_on_consecutive_out_of_normal_samples);
+    RUN_TEST(test_source_streak_counts_critical_samples_too);
+    RUN_TEST(test_source_streak_resets_only_on_fully_normal_sample);
+    RUN_TEST(test_source_frequency_counts_window_regardless_of_order);
+    RUN_TEST(test_source_zone_classification_matches_normal_critical_boundaries);
+
+    RUN_TEST(test_source_real_temp1_config_cuts_after_second_critical_flag);
+    RUN_TEST(test_source_real_temp1_config_does_not_flag_on_isolated_critical_spikes);
+    RUN_TEST(test_source_real_temp1_config_critical_samples_also_advance_streak);
 
     RUN_TEST(test_detector_addSource_rejects_duplicates);
     RUN_TEST(test_detector_forwards_onFlag_to_its_listener);
+    RUN_TEST(test_detector_real_temp1_config_reaches_limit_on_fourth_consecutive_critical);
     RUN_TEST(test_detector_addSample_on_unknown_source_returns_false);
 
     return UNITY_END();
