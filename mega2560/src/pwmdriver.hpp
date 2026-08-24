@@ -98,5 +98,7 @@ inline void PwmDriver::applyFrequency() {
     }
   }
 
+#ifndef UNIT_TEST
   TCCR5B = (TCCR5B & 0xF8) | bestBits;
+#endif
 }

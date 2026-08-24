@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <Adafruit_ADS1X15.h>
 #include "currentmanager.hpp"
+#include "rmscalculator.hpp"
 
 /*
  * ============================================================================
@@ -150,8 +151,9 @@ inline void CurrentSensorSct013::update() {
   if (samples == 0)
       return;
 
-  float sumSquares = 0;
-  float dcOffset = 0;
+  // RMS + remoción de offset DC: ver RmsAccumulator (rmscalculator.hpp),
+  // testeado en host en test_rmsaccumulator.
+  RmsAccumulator rms;
 
   for (uint16_t i = 0; i < samples; i++) {
     int16_t raw = readRaw();
@@ -160,18 +162,11 @@ inline void CurrentSensorSct013::update() {
     // configurada en el ADS1115.
     float volts = _ads.computeVolts(raw);
 
-    // Filtro de remoción de offset DC de un solo paso (igual al usado por
-    // EmonLib/OpenEnergyMonitor): dcOffset converge hacia la media de la
-    // señal muestra a muestra, sin necesidad de guardar toda la ventana.
-    dcOffset += (volts - dcOffset) / (i + 1);
-    float filtered = volts - dcOffset;
-
-    sumSquares += filtered * filtered;
+    rms.addSample(volts);
   }
 
-  float rmsVoltage = sqrt(sumSquares / samples);
-
-  if (isnan(rmsVoltage) || isinf(rmsVoltage))
+  float rmsVoltage;
+  if (!rms.result(rmsVoltage))
     return;
 
   _currentRms =

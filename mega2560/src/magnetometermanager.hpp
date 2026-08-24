@@ -1,5 +1,8 @@
 #pragma once
 
+#include <Arduino.h>
+#include <ArduinoJson.h>
+
 #define MAX_MAGNETOMETERS 10
 
 class IMagnetometer {
@@ -15,7 +18,7 @@ class IMagnetometer {
 class IMagnetometerListener {
   public:
     virtual ~IMagnetometerListener() = default;
-    virtual void onMagnetometerSample(IMagnetometer* magnetometer);
+    virtual void onMagnetometerSample(IMagnetometer* magnetometer) = 0;
 };
 
 class MagnetometerManager {

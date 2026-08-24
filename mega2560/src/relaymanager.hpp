@@ -52,9 +52,16 @@ class RelayManager {
 
 inline Relay::Relay(int pin, ActivationType type) : _pin(pin), _type(type), _state(false), _lastChange(0) {}
 
+// No usa open() -- open() respeta el blanking, y con _lastChange en su
+// valor inicial (0) un begin() llamado dentro de los primeros 200ms de
+// millis() (tipico en setup()) quedaria bloqueado por canToggle() y el pin
+// nunca se escribiria, dejando un rele ACTIVE_LOW fisicamente cerrado (ON)
+// al arrancar pese a que begin() deberia garantizar OFF.
 inline void Relay::begin() {
     pinMode(_pin, OUTPUT);
-    open(); // start with relay open (OFF)
+    _state = false;
+    applyState();
+    _lastChange = millis();
 }
 
 inline bool Relay::canToggle() {

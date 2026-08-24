@@ -4,18 +4,28 @@
 
 // Regulador de intensidad de CEM. NO es un PI clasico continuo (asi lo
 // describia el contrato original, ver auditoria de MOD-011 en Trello) --
-// combina dos mecanismos independientes en cada update():
-//   1) Paso proporcional discreto (coarse/fine): mientras el error supere
-//      deadBand, mueve _output un paso fijo hacia el setpoint (paso grande
-//      si el error es grande, paso fino si es chico). Es lo que hace la
-//      mayor parte del trabajo.
-//   2) Integral lenta condicional: solo se activa cuando el paso de arriba
-//      ya dejo de mover la salida (parece "asentado") pero la medicion
-//      sigue variando mas de lo esperado dentro de una ventana reciente --
-//      indicio de drift que el paso proporcional no corrige porque el
-//      error promedio ya esta dentro de la deadband. Compensa ese drift
-//      lento sin pelearse con el paso proporcional (por eso solo corre
-//      cuando el otro mecanismo esta inactivo).
+// combina dos mecanismos MUTUAMENTE EXCLUYENTES en cada update() (rama
+// if/else sobre el mismo `error`, ver mas abajo):
+//   1) Paso proporcional discreto (coarse/fine): si |error| > deadBand,
+//      mueve _output un paso fijo hacia el setpoint (paso grande si el
+//      error es grande, paso fino si es chico). Es lo que hace la mayor
+//      parte del trabajo.
+//   2) Integral lenta condicional: solo se evalua cuando el paso de arriba
+//      NO corrio en esta misma llamada (|error| <= deadBand, "asentado")
+//      pero la medicion sigue variando mas de lo esperado dentro de una
+//      ventana reciente -- indicio de drift que el paso proporcional no
+//      corrige porque el error promedio ya esta dentro de la deadband.
+//
+// Bug corregido (auditoria MOD-011, 2026-08-24): antes, el gate de la
+// integral comparaba _output contra un _lastOutput que se resincronizaba
+// con _output al final de CADA llamada -- por lo que, a partir de la 2da
+// llamada, esa comparacion daba siempre "no cambio" sin importar si el
+// paso proporcional habia corrido o no, y el if de la integral corria
+// ANTES del if del paso proporcional (bloques independientes, no
+// if/else), asi que ambos podian aplicar en la misma llamada. Se
+// reemplazo por un unico if/else sobre el mismo `error` de esta llamada:
+// asi la exclusion mutua es estructural, no depende de recordar estado
+// entre llamadas.
 class FieldController {
   public:
 
@@ -50,7 +60,6 @@ class FieldController {
     float _setpoint;
     float _output;
     float _slowIntegral;
-    float _lastOutput;
     float _window[MAX_WINDOW_SIZE];
     uint8_t _windowIndex;
     bool _windowFilled;
@@ -71,29 +80,22 @@ inline float FieldController::update(float measuredField) {
   updateWindow(measuredField);
   float error = _setpoint - measuredField;
   float variation = windowVariation();
-  // outputChanged en falso == "la ultima llamada no toco _output" --
-  // se usa como proxy de que el paso proporcional de abajo esta inactivo
-  // (error ya dentro de deadBand) antes de dejar correr la integral lenta.
-  bool outputChanged = fabs(_output - _lastOutput) > 0.0001f;
 
-  // Integral lenta: solo si hay ventana llena, el paso proporcional no
-  // estuvo corrigiendo en la ultima llamada, Y la medicion sigue variando
-  // mas que driftThreshold -- ver comentario de clase para el porque.
-  if (_windowFilled && !outputChanged && variation > _config.driftThreshold) {
+  // Paso proporcional discreto (coarse si el error es grande, >10% del
+  // setpoint; fine si es chico pero todavia fuera de la deadBand) e
+  // integral lenta (solo si hay ventana llena y la medicion sigue
+  // variando mas que driftThreshold) son ramas de un mismo if/else: nunca
+  // pueden aplicar los dos en la misma llamada a update().
+  if (fabs(error) > _config.deadBand) {
+      float step = (fabs(error) > 0.1f) ? _config.coarseStep : _config.fineStep;
+      _output += (error > 0.0f) ? step : -step;
+  } else if (_windowFilled && variation > _config.driftThreshold) {
     _slowIntegral += error * _config.sampleTime * _config.integralGain;
     _slowIntegral = clamp(_slowIntegral, -_config.integralLimit, _config.integralLimit);
     _output += _slowIntegral;
   }
 
-  // Paso proporcional discreto: coarse si el error es grande (>10% del
-  // setpoint), fine si es chico pero todavia fuera de la deadBand.
-  if (fabs(error) > _config.deadBand) {
-      float step = (fabs(error) > 0.1f) ? _config.coarseStep : _config.fineStep;
-      _output += (error > 0.0f) ? step : -step;
-  }
-
   _output = clamp(_output, _config.outputMin, _config.outputMax);
-  _lastOutput = _output;
   return _output;
 }
 
@@ -105,7 +107,6 @@ inline void FieldController::reset() {
   _setpoint = 0.0f;
   _output = 0.0f;
   _slowIntegral = 0.0f;
-  _lastOutput = -1.0f;
   _windowIndex = 0;
   _windowFilled = false;
 
