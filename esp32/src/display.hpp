@@ -6,6 +6,11 @@
 #include <XPT2046_Touchscreen.h>
 #include <SPI.h>
 #include "ui.h"
+#include "debugconfig.hpp"
+
+// Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
+// el interruptor maestro).
+constexpr bool DEBUG_DISPLAY = true;
 
 
 // ========================================================
@@ -101,11 +106,11 @@ inline void DisplayDriver::begin()
 
 
     // ---------- Inicializar Touch ----------
-    Serial.println("[TOUCH] Inicializando XPT2046...");
+    DEBUG_PRINTLN(DEBUG_DISPLAY, "[TOUCH] Inicializando XPT2046...");
     _tsSPI.begin(XPT2046_CLK, XPT2046_MISO, XPT2046_MOSI, XPT2046_CS);
     _ts.begin(_tsSPI);
     _ts.setRotation(3);
-    Serial.println("[TOUCH] XPT2046 inicializado");
+    DEBUG_PRINTLN(DEBUG_DISPLAY, "[TOUCH] XPT2046 inicializado");
 
     // ---------- Configurar display en LVGL ----------
     lv_display_t* disp = lv_display_create(SCREEN_WIDTH, SCREEN_HEIGHT);

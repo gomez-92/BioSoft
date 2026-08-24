@@ -9,6 +9,7 @@
 #include "timer.hpp"
 #include "tasks.hpp"
 #include "intervals.hpp"
+#include "topics.hpp"
 #include "wifimanager.hpp"
 #include "broker.hpp"
 #include "display.hpp"
@@ -16,6 +17,11 @@
 #include "configurationoptions.hpp"
 #include "tasks.hpp"
 #include "intervals.hpp"
+#include "debugconfig.hpp"
+
+// Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
+// el interruptor maestro).
+constexpr bool DEBUG_MYSYSTEM = true;
 
 
 
@@ -50,7 +56,9 @@ class MySystem :
     void _sendReset();
 
     bool _publish(const char* topic, const char* payload);
-    
+    void _publishMeasures();
+    void _publishStatus();
+
 
     void _processState(const char* status, bool forceStatus = false);
 
@@ -132,10 +140,10 @@ inline void MySystem::remoteUpdate() {
 
 inline void MySystem::_sendStart() {
 
-    Serial.println();
-    Serial.println("========================================");
-    Serial.println("[START] Preparando comando START");
-    Serial.println("========================================");
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, );
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, "========================================");
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, "[START] Preparando comando START");
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, "========================================");
 
     JsonDocument doc;
 
@@ -143,17 +151,17 @@ inline void MySystem::_sendStart() {
     // CEM
     // ========================================================
 
-    Serial.println("[START] Obteniendo target CEM...");
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, "[START] Obteniendo target CEM...");
 
     auto cem = ConfigurationOptions::optionsFieldIntensity[
         _data.configuration.targetFieldIntensityOption
     ].intensity;
 
-    Serial.print("[START] targetFieldIntensityOption = ");
-    Serial.println(_data.configuration.targetFieldIntensityOption);
+    DEBUG_PRINT(DEBUG_MYSYSTEM, "[START] targetFieldIntensityOption = ");
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, _data.configuration.targetFieldIntensityOption);
 
-    Serial.print("[START] cem = ");
-    Serial.println(cem, 4);
+    DEBUG_PRINT(DEBUG_MYSYSTEM, "[START] cem = ");
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, cem, 4);
 
     doc["cem"] = cem;
 
@@ -162,17 +170,17 @@ inline void MySystem::_sendStart() {
     // FRECUENCIA
     // ========================================================
 
-    Serial.println("[START] Obteniendo frecuencia...");
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, "[START] Obteniendo frecuencia...");
 
     auto freq = ConfigurationOptions::optionsFrequency[
         _data.configuration.targetFieldFrequencyOption
     ].freq;
 
-    Serial.print("[START] targetFieldFrequencyOption = ");
-    Serial.println(_data.configuration.targetFieldFrequencyOption);
+    DEBUG_PRINT(DEBUG_MYSYSTEM, "[START] targetFieldFrequencyOption = ");
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, _data.configuration.targetFieldFrequencyOption);
 
-    Serial.print("[START] freq = ");
-    Serial.println(freq);
+    DEBUG_PRINT(DEBUG_MYSYSTEM, "[START] freq = ");
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, freq);
 
     doc["freq"] = freq;
 
@@ -181,17 +189,17 @@ inline void MySystem::_sendStart() {
     // DURACION
     // ========================================================
 
-    Serial.println("[START] Obteniendo duracion...");
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, "[START] Obteniendo duracion...");
 
     auto dur = ConfigurationOptions::optionsDuration[
         _data.configuration.targetDurationOption
     ].duration;
 
-    Serial.print("[START] targetDurationOption = ");
-    Serial.println(_data.configuration.targetDurationOption);
+    DEBUG_PRINT(DEBUG_MYSYSTEM, "[START] targetDurationOption = ");
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, _data.configuration.targetDurationOption);
 
-    Serial.print("[START] dur = ");
-    Serial.println(dur);
+    DEBUG_PRINT(DEBUG_MYSYSTEM, "[START] dur = ");
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, dur);
 
 
     doc["dur"] = dur;
@@ -201,17 +209,17 @@ inline void MySystem::_sendStart() {
     // TOLERANCIA CEM
     // ========================================================
 
-    Serial.println("[START] Obteniendo tolerancia CEM...");
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, "[START] Obteniendo tolerancia CEM...");
 
     auto tol = ConfigurationOptions::optionsTolFieldIntensity[
         _data.configuration.fieldIntensityToleranceOption
     ].tol;
 
-    Serial.print("[START] fieldIntensityToleranceOption = ");
-    Serial.println(_data.configuration.fieldIntensityToleranceOption);
+    DEBUG_PRINT(DEBUG_MYSYSTEM, "[START] fieldIntensityToleranceOption = ");
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, _data.configuration.fieldIntensityToleranceOption);
 
-    Serial.print("[START] tol = ");
-    Serial.println(tol);
+    DEBUG_PRINT(DEBUG_MYSYSTEM, "[START] tol = ");
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, tol);
 
     doc["tol"] = tol;
 
@@ -220,17 +228,17 @@ inline void MySystem::_sendStart() {
     // TEMPERATURA NORMAL MIN
     // ========================================================
 
-    Serial.println("[START] Obteniendo temperatura normal minima...");
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, "[START] Obteniendo temperatura normal minima...");
 
     auto tnmin = ConfigurationOptions::optionsRangeNormalTemperature[
         _data.configuration.normalTemperatureRangeOption
     ].tmin;
 
-    Serial.print("[START] normalTemperatureRangeOption = ");
-    Serial.println(_data.configuration.normalTemperatureRangeOption);
+    DEBUG_PRINT(DEBUG_MYSYSTEM, "[START] normalTemperatureRangeOption = ");
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, _data.configuration.normalTemperatureRangeOption);
 
-    Serial.print("[START] tnmin = ");
-    Serial.println(tnmin, 2);
+    DEBUG_PRINT(DEBUG_MYSYSTEM, "[START] tnmin = ");
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, tnmin, 2);
 
     doc["tnmin"] = tnmin;
 
@@ -243,8 +251,8 @@ inline void MySystem::_sendStart() {
         _data.configuration.normalTemperatureRangeOption
     ].tmax;
 
-    Serial.print("[START] tnmax = ");
-    Serial.println(tnmax, 2);
+    DEBUG_PRINT(DEBUG_MYSYSTEM, "[START] tnmax = ");
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, tnmax, 2);
 
     doc["tnmax"] = tnmax;
 
@@ -253,17 +261,17 @@ inline void MySystem::_sendStart() {
     // TEMPERATURA CRITICA MIN
     // ========================================================
 
-    Serial.println("[START] Obteniendo temperatura critica minima...");
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, "[START] Obteniendo temperatura critica minima...");
 
     auto tcmin = ConfigurationOptions::optionsRangeCriticalTemperature[
         _data.configuration.criticalTemperatureRangeOption
     ].tmin;
 
-    Serial.print("[START] criticalTemperatureRangeOption = ");
-    Serial.println(_data.configuration.criticalTemperatureRangeOption);
+    DEBUG_PRINT(DEBUG_MYSYSTEM, "[START] criticalTemperatureRangeOption = ");
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, _data.configuration.criticalTemperatureRangeOption);
 
-    Serial.print("[START] tcmin = ");
-    Serial.println(tcmin, 2);
+    DEBUG_PRINT(DEBUG_MYSYSTEM, "[START] tcmin = ");
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, tcmin, 2);
 
     doc["tcmin"] = tcmin;
 
@@ -276,8 +284,8 @@ inline void MySystem::_sendStart() {
         _data.configuration.criticalTemperatureRangeOption
     ].tmax;
 
-    Serial.print("[START] tcmax = ");
-    Serial.println(tcmax, 2);
+    DEBUG_PRINT(DEBUG_MYSYSTEM, "[START] tcmax = ");
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, tcmax, 2);
 
     doc["tcmax"] = tcmax;
 
@@ -286,28 +294,28 @@ inline void MySystem::_sendStart() {
     // JSON FINAL
     // ========================================================
 
-    Serial.println();
-    Serial.println("[START] JSON generado:");
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, );
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, "[START] JSON generado:");
 
     serializeJsonPretty(doc, Serial);
 
-    Serial.println();
-    Serial.println();
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, );
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, );
 
     // ========================================================
     // ENVIO
     // ========================================================
 
-    Serial.println("[START] Enviando comando START...");
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, "[START] Enviando comando START...");
 
     _serial.sendCommand(Commands::Start, doc);
 
-    Serial.println("[START] Comando START enviado correctamente");
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, "[START] Comando START enviado correctamente");
 
-    Serial.println("========================================");
-    Serial.println("[START] Fin _sendStart()");
-    Serial.println("========================================");
-    Serial.println();
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, "========================================");
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, "[START] Fin _sendStart()");
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, "========================================");
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, );
 }
 
 inline void MySystem::_sendStop() {
@@ -318,6 +326,37 @@ inline void MySystem::_sendStop() {
 inline void MySystem::_sendReset() {
   JsonDocument doc;
   _serial.sendCommand(Commands::Reset, doc);
+}
+
+inline bool MySystem::_publish(const char* topic, const char* payload) {
+  return _brokerManager.publish(topic, payload);
+}
+
+// Nombres de campo (CEM1/TEMP1/BOB1/ESTADO/PROGRESS/ELAPSED_TIME) elegidos
+// para calzar con el Decoder ya configurado del lado de Datacake -- no
+// cambiar sin actualizar tambien ese Decoder. BOB1 es el nombre historico
+// del Decoder para la bobina; se reusa para la corriente medida
+// (measureCurrent, sensor SCT013) en vez de agregar un campo nuevo.
+inline void MySystem::_publishMeasures() {
+  JsonDocument doc;
+  doc["CEM1"] = _data.measures.measureMagneticField;
+  doc["TEMP1"] = _data.measures.measureTemperature;
+  doc["BOB1"] = _data.measures.measureCurrent;
+
+  char payload[128];
+  serializeJson(doc, payload, sizeof(payload));
+  _publish(Topics::Telemetry, payload);
+}
+
+inline void MySystem::_publishStatus() {
+  JsonDocument doc;
+  doc["ESTADO"] = _data.progress.health;
+  doc["PROGRESS"] = (int)_data.progressPercent();
+  doc["ELAPSED_TIME"] = _data.elapsedTime();
+
+  char payload[128];
+  serializeJson(doc, payload, sizeof(payload));
+  _publish(Topics::Telemetry, payload);
 }
 
 
@@ -382,27 +421,27 @@ inline void MySystem::_processState(const char* status, bool forceStatus) {
 }
 
 inline void MySystem::onCommand(const char* command, JsonVariantConst params) {
-  Serial.print("Command: ");
-  Serial.println(command);
+  DEBUG_PRINT(DEBUG_MYSYSTEM, "Command: ");
+  DEBUG_PRINTLN(DEBUG_MYSYSTEM, command);
   if(strcmp(command, Commands::Ping) == 0) {
     if (!params["value"].is<long>()) return;
     long value = params["value"].as<long>();
-    Serial.print("value: ");
-    Serial.println(value);
+    DEBUG_PRINT(DEBUG_MYSYSTEM, "value: ");
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, value);
     _serial.sendPong(value);
   }
   else if(strcmp(command, Commands::Pong) == 0) {
     if (!params["value"].is<long>()) return;
     long value = params["value"].as<long>();
-    Serial.print("value: ");
-    Serial.println(value);
+    DEBUG_PRINT(DEBUG_MYSYSTEM, "value: ");
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, value);
     _serial.handlePingResponse(value);
   }
   else if(strcmp(command, Commands::StateData) == 0) {
     if (params.containsKey("status") && params["status"].is<const char*>()) {
       const char* status = params["status"].as<const char*>();
-      Serial.print("status: ");
-      Serial.println(status);
+      DEBUG_PRINT(DEBUG_MYSYSTEM, "status: ");
+      DEBUG_PRINTLN(DEBUG_MYSYSTEM, status);
       _processState(status);
     }
   }
@@ -435,10 +474,10 @@ inline void MySystem::onCommand(const char* command, JsonVariantConst params) {
     _data.result.progressPercent = _data.progressPercent();
     snprintf(_data.result.elapsed, sizeof(_data.result.elapsed), "%s", _data.elapsedTime());
 
-    Serial.print(F("[RESULT] reason="));
-    Serial.print(reason);
-    Serial.print(F(" description="));
-    Serial.println(description);
+    DEBUG_PRINT(DEBUG_MYSYSTEM, F("[RESULT] reason="));
+    DEBUG_PRINT(DEBUG_MYSYSTEM, reason);
+    DEBUG_PRINT(DEBUG_MYSYSTEM, F(" description="));
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, description);
 
     _screenManager.show(ScreenType::RESULT);
   }
@@ -448,14 +487,14 @@ inline void MySystem::onCommand(const char* command, JsonVariantConst params) {
     int count = params["count"] | 0;
     int limit = params["limit"] | 0;
 
-    Serial.print(F("[FLAG] "));
-    Serial.print(source);
-    Serial.print(F(" tipo="));
-    Serial.print(type);
-    Serial.print(F(" count="));
-    Serial.print(count);
-    Serial.print(F("/"));
-    Serial.println(limit);
+    DEBUG_PRINT(DEBUG_MYSYSTEM, F("[FLAG] "));
+    DEBUG_PRINT(DEBUG_MYSYSTEM, source);
+    DEBUG_PRINT(DEBUG_MYSYSTEM, F(" tipo="));
+    DEBUG_PRINT(DEBUG_MYSYSTEM, type);
+    DEBUG_PRINT(DEBUG_MYSYSTEM, F(" count="));
+    DEBUG_PRINT(DEBUG_MYSYSTEM, count);
+    DEBUG_PRINT(DEBUG_MYSYSTEM, F("/"));
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, limit);
 
     _data.pushAlert(type, source, count, limit);
 
@@ -506,6 +545,12 @@ inline void MySystem::onTimer(const char* name) {
   else if(strcmp(name, Tasks::ReSendReset) == 0) {
     _sendReset();
   }
+  else if(strcmp(name, Tasks::PublishMeasures) == 0) {
+    _publishMeasures();
+  }
+  else if(strcmp(name, Tasks::PublishStatus) == 0) {
+    _publishStatus();
+  }
 }
 
 inline void MySystem::onSerialConnected() {
@@ -537,8 +582,8 @@ inline void MySystem::onMessageReceived(const char* topic, const char* payload) 
 inline void MySystem::onScreenChanged(ScreenType from, ScreenType to) {}
 
 inline void MySystem::onScreenEvent(ScreenEvent e) {
-  Serial.print("Screen event: ");
-  Serial.println(e.name);
+  DEBUG_PRINT(DEBUG_MYSYSTEM, "Screen event: ");
+  DEBUG_PRINTLN(DEBUG_MYSYSTEM, e.name);
 
   if(e.type == ScreenType::SPLASH && e.name == EventName::Timeout) {
     _data.setInitialized(true);
@@ -547,14 +592,20 @@ inline void MySystem::onScreenEvent(ScreenEvent e) {
     _screenManager.show(ScreenType::CONFIG);
   }
   else if(e.type == ScreenType::PRINCIPAL && e.name == EventName::Start) {
-    Serial.println("Procesando start!");
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, "Procesando start!");
     _sendStart();
+    // addTask acá y de nuevo en onStateChanged() cuando newState pasa a
+    // Starting (esta misma llamada a _processState dispara ese callback) --
+    // Timer::addTask no duplica tareas con el mismo nombre (ver
+    // Timer::includeTask), asi que el segundo intento es un no-op seguro,
+    // no un bug.
     _timer.addTask(Tasks::ReSendStart, Intervals::ReSendStart);
     _processState(StateData::Starting);
   }
   else if(e.type == ScreenType::RUNNING && e.name == EventName::Stop) {
-    Serial.println("Procesando stop!");
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, "Procesando stop!");
     _sendStop();
+    // Mismo patron redundante-pero-seguro que el caso Start de arriba.
     _timer.addTask(Tasks::ReSendStop, Intervals::ReSendStop);
     _processState(StateData::Stopping);
   }
@@ -562,6 +613,9 @@ inline void MySystem::onScreenEvent(ScreenEvent e) {
     _screenManager.show(ScreenType::PRINCIPAL);
   }
   else if(e.type == ScreenType::CONFIG && e.name == EventName::Save) {
+    // No hay nada que persistir aca -- ConfigurationController::onSave()
+    // (screencontroller.hpp) ya escribio _data.configuration ANTES de
+    // emitir este evento; este handler solo navega de vuelta.
     _screenManager.show(ScreenType::PRINCIPAL);
   }
   else if(e.type == ScreenType::RESULT && e.name == EventName::Back) {
@@ -579,11 +633,11 @@ inline void MySystem::onScreenEvent(ScreenEvent e) {
 }
 
 inline void MySystem::onStateChanged(const char* oldState, const char* newState) {
-  Serial.print("oldstate: ");
-  Serial.println(oldState);
+  DEBUG_PRINT(DEBUG_MYSYSTEM, "oldstate: ");
+  DEBUG_PRINTLN(DEBUG_MYSYSTEM, oldState);
 
-  Serial.print("newstate: ");
-  Serial.println(newState);
+  DEBUG_PRINT(DEBUG_MYSYSTEM, "newstate: ");
+  DEBUG_PRINTLN(DEBUG_MYSYSTEM, newState);
 
   if(strcmp(oldState, StateData::Starting) == 0) {
     _timer.removeTask(Tasks::ReSendStart);
@@ -596,13 +650,19 @@ inline void MySystem::onStateChanged(const char* oldState, const char* newState)
   }
   else if(strcmp(oldState, StateData::Running) == 0) {
     _timer.removeTask(Tasks::UpdateProgress);
+    _timer.removeTask(Tasks::PublishMeasures);
+    _timer.removeTask(Tasks::PublishStatus);
   }
-  
+
   if(strcmp(newState, StateData::Ready) == 0) {
     _timer.addTask(Tasks::ReSendReset, Intervals::ReSendReset);
   }
   else if(strcmp(newState, StateData::Running) == 0) {
     _timer.addTask(Tasks::UpdateProgress, Intervals::UpdateProgress);
+    // Telemetria a Datacake (via EMQX) -- solo mientras corre el
+    // experimento, no tiene sentido gastar cuota del plan en idle.
+    _timer.addTask(Tasks::PublishMeasures, Intervals::PublishMeasures);
+    _timer.addTask(Tasks::PublishStatus, Intervals::PublishStatus);
   }
   else if(strcmp(newState, StateData::Starting) == 0) {
     _timer.addTask(Tasks::ReSendStart, Intervals::ReSendStart);

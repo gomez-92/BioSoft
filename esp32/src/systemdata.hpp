@@ -1,5 +1,10 @@
 #pragma once
 #include "configurationoptions.hpp"
+#include "debugconfig.hpp"
+
+// Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
+// el interruptor maestro).
+constexpr bool DEBUG_SYSTEMDATA = true;
 
 
 struct PrincipalData {
@@ -325,8 +330,8 @@ inline bool SystemData::isInitialized() {
 }
 
 inline void SystemData::setInitialized(bool initialized) {
-  Serial.print("initialized: ");
-  Serial.println(initialized);
+  DEBUG_PRINT(DEBUG_SYSTEMDATA, "initialized: ");
+  DEBUG_PRINTLN(DEBUG_SYSTEMDATA, initialized);
   _initialized = initialized;
 }
 

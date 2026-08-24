@@ -7,7 +7,13 @@
 #include "display.hpp"
 #include "screenmanager.hpp"
 #include "screencontroller.hpp"
+#include "sdstorage.hpp"
 #include "mysystem.hpp"
+#include "debugconfig.hpp"
+
+// Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
+// el interruptor maestro).
+constexpr bool DEBUG_MAIN = true;
 
 #define SERIAL_RX_BUFFER_SIZE 512
 #define RXD2 22  // RX del ESP32 ← TX del Mega
@@ -44,6 +50,7 @@ WiFiManager wiFiManager;
 BrokerManager brokerManager;
 DisplayDriver display;
 ScreenManager screenManager;
+SdStorage sdStorage;
 
 MySystem mySystem(serial, timer, wiFiManager, brokerManager, display, screenManager);
 
@@ -51,6 +58,10 @@ void setup() {
   Serial.begin(115200);
   Serial2.begin(9600, SERIAL_8N1, RXD2, TXD2);
   delay(2000);
+
+  if (!sdStorage.begin()) {
+    DEBUG_PRINTLN(DEBUG_MAIN, F("[SD] Continuando sin tarjeta SD"));
+  }
 
   WiFiConfig config1;
   config1.add(SECRET_WIFI_SSID_1, SECRET_WIFI_PASS_1); // agregar aca todas las redes
@@ -86,7 +97,7 @@ void loop() {
 
 
 void communicationTask(void* parameter) {
-  Serial.println("[COMM TASK] iniciada");
+  DEBUG_PRINTLN(DEBUG_MAIN, "[COMM TASK] iniciada");
   for (;;) {
     mySystem.remoteUpdate();
     vTaskDelay(pdMS_TO_TICKS(10));

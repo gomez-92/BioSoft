@@ -2,6 +2,11 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
+#include "debugconfig.hpp"
+
+// Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
+// el interruptor maestro).
+constexpr bool DEBUG_WIFI = true;
 
 /* ============================================================
  *  DATA TYPES
@@ -75,6 +80,10 @@ private:
         unsigned long lastFail = 0;
     };
 
+    // 5 hardcodeado a mano para calzar con WiFiConfig::MAX_NETWORKS (privado
+    // en esa clase, tambien 5) -- no hay forma de referenciarlo desde aca.
+    // Si se cambia uno hay que cambiar el otro, si no connectTo()/
+    // findBestNetwork() indexan _runtime[] fuera de sus limites.
     Runtime _runtime[5];
 
     /* -------- internals -------- */
@@ -174,7 +183,7 @@ inline bool WiFiManager::connectTo(int index) {
 
     const WiFiNetwork& net = _config.get(index);
 
-    Serial.printf("[WiFi] Connecting to %s\n", net.ssid);
+    DEBUG_PRINTF(DEBUG_WIFI, "[WiFi] Connecting to %s\n", net.ssid);
 
     WiFi.begin(net.ssid, net.password);
 
@@ -184,13 +193,13 @@ inline bool WiFiManager::connectTo(int index) {
            millis() - start < _timeout) {
 
         delay(200);
-        Serial.print(".");
+        DEBUG_PRINT(DEBUG_WIFI, ".");
     }
 
-    Serial.println();
+    DEBUG_PRINTLN(DEBUG_WIFI, );
 
     if (WiFi.status() == WL_CONNECTED) {
-        Serial.println("[WiFi] Connected");
+        DEBUG_PRINTLN(DEBUG_WIFI, "[WiFi] Connected");
         notifyConnected(net.ssid);
         _runtime[index].blocked = false;
         _currentIndex = index;

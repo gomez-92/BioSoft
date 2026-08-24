@@ -2,6 +2,11 @@
 
 #include <Arduino.h>
 #include <string.h>
+#include "debugconfig.hpp"
+
+// Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
+// el interruptor maestro).
+constexpr bool DEBUG_TIMER = true;
 
 // =========================
 // Configuración
@@ -185,6 +190,7 @@ inline void Timer::stop() {
 // Loop del scheduler (llamar en loop() de Arduino)
 inline void Timer::tick() {
     if (!_running) return;
+
     for (int i = 0; i < MAX_TASKS; i++) {
         if (_tasks[i].isUsed() && _tasks[i].isActive()) {
 
@@ -217,6 +223,9 @@ inline bool Timer::addTask(const char* name, unsigned long intervalMs) {
     }
 
     // No hay espacio
+    DEBUG_PRINT(DEBUG_TIMER, F("[TIMER][ERROR] addTask: sin espacio para la tarea '"));
+    DEBUG_PRINT(DEBUG_TIMER, name);
+    DEBUG_PRINTLN(DEBUG_TIMER, F("' (MAX_TASKS alcanzado)"));
     return false;
 }
 

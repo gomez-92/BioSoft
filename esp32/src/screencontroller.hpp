@@ -6,6 +6,11 @@
 #include "systemdata.hpp"
 #include "iscreen.hpp"
 #include "ui.h"
+#include "debugconfig.hpp"
+
+// Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
+// el interruptor maestro).
+constexpr bool DEBUG_SCREENCONTROLLER = true;
 
 static void btnPrincipalGoToRunningClick(lv_event_t * e);
 static void btnPrincipalGoToConfigClick(lv_event_t * e);
@@ -19,6 +24,12 @@ static void btnRunningDetenerClick(lv_event_t * e);
 static void btnResultadoVolverClick(lv_event_t * e);
 
 
+// "count" es SIEMPRE un literal hardcodeado en cada call site (ver
+// ConfigurationController::init()), no sizeof(options)/sizeof(options[0])
+// -- si se agrega o saca una opcion de un arreglo en configurationoptions.hpp
+// hay que actualizar el literal a mano tambien, o buildDropdown lee fuera
+// de los limites del arreglo (paso en la tolerancia de CEM, ver Trello
+// MOD-025: quedo en 3 despues de sacar una opcion, hasta que se corrigio).
 template<typename T>
 inline void buildDropdown(lv_obj_t* dropdown, const T* options, int count) {
   std::string items;
@@ -159,7 +170,7 @@ inline void PrincipalController::goToRunning() {
 inline void btnPrincipalGoToRunningClick(lv_event_t * e) {
     PrincipalController * self = (PrincipalController *) lv_event_get_user_data(e);
     if(lv_event_get_code(e) == LV_EVENT_CLICKED) {
-        Serial.println("BtnIniciar clicked!");
+        DEBUG_PRINTLN(DEBUG_SCREENCONTROLLER, "BtnIniciar clicked!");
         self->goToRunning();
     }
 }
@@ -167,7 +178,7 @@ inline void btnPrincipalGoToRunningClick(lv_event_t * e) {
 inline void btnPrincipalGoToConfigClick(lv_event_t * e) {
     PrincipalController * self = (PrincipalController *) lv_event_get_user_data(e);
     if(lv_event_get_code(e) == LV_EVENT_CLICKED) {
-        Serial.println("BtnConfiguracion clicked!");
+        DEBUG_PRINTLN(DEBUG_SCREENCONTROLLER, "BtnConfiguracion clicked!");
         self->goToConfig();
     }
 }
@@ -175,6 +186,11 @@ inline void btnPrincipalGoToConfigClick(lv_event_t * e) {
 /* ============================================================
  *  CONFIGURACION
  * ============================================================ */
+// Los _lastOptionXxx son un staging area: cambiar un dropdown
+// (onDropdownChanged) solo actualiza estos campos, NO _data.configuration.
+// El valor elegido recien se aplica a _data.configuration en onSave() --
+// si el operador entra a Configuraciones, cambia algo y sale por
+// onBack() (Volver) en vez de Guardar, el cambio se descarta sin avisar.
 class ConfigurationController : public BaseScreenController {
   public:
     ConfigurationController(SystemData& data);
@@ -186,7 +202,7 @@ class ConfigurationController : public BaseScreenController {
     void onBack();
   private:
     SystemData& _data;
-    
+
     uint8_t _lastOptionFieldIntensity = 0;
     uint8_t _lastOptionFrequency = 0;
     uint8_t _lastOptionDuration = 0;
@@ -212,7 +228,7 @@ inline void ConfigurationController::init() {
   buildDropdown(ui_DuracionOpciones, ConfigurationOptions::optionsDuration, 6);
   buildDropdown(ui_CampoOpciones, ConfigurationOptions::optionsFieldIntensity, 2);
   buildDropdown(ui_FrecuenciaOpciones, ConfigurationOptions::optionsFrequency, 2);
-  buildDropdown(ui_ToleranciaCampoOpciones, ConfigurationOptions::optionsTolFieldIntensity, 3);
+  buildDropdown(ui_ToleranciaCampoOpciones, ConfigurationOptions::optionsTolFieldIntensity, 2);
   buildDropdown(ui_RangoTempNormalOpciones, ConfigurationOptions::optionsRangeNormalTemperature, 3);
   buildDropdown(ui_RangoTempCritOpciones, ConfigurationOptions::optionsRangeCriticalTemperature, 3);
 
@@ -537,6 +553,11 @@ inline void RunningController::_updateAlertsData() {
   _applyAlertPanel(
       _data.alerts.items[2],
       ui_Alert3,
+      // ui_Alert2WarningImg1, no ui_Alert3WarningImg -- asi lo exporto
+      // SquareLine (probablemente el panel Alert3 se duplico a partir de
+      // Alert2 una vez de mas), no es un typo de este archivo. El objeto
+      // referenciado es igual el icono de warning debajo del panel Alert3;
+      // renombrarlo requeriria tocar el .c/.h generado.
       ui_Alert3CritImg, ui_Alert2WarningImg1,
       ui_Alert3TypeAlertText, ui_Alert3SourceText,
       ui_Alert3StatsCountText, ui_Alert3StatsMaxText,

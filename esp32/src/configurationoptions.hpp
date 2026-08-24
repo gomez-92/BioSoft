@@ -32,7 +32,6 @@ namespace ConfigurationOptions {
   };
   
   inline constexpr OptionTolFieldIntensity optionsTolFieldIntensity[] = {
-    {"1%", 1},
     {"5%", 5},
     {"10%", 10}
   };

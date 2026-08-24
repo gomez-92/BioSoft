@@ -3,6 +3,11 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include "commands.hpp"
+#include "debugconfig.hpp"
+
+// Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
+// el interruptor maestro).
+constexpr bool DEBUG_SERIALLINK = true;
 
 // =========================
 // Configuración del protocolo
@@ -249,7 +254,7 @@ inline bool SerialLink::update() {
         sendPing();
     }
     else if(!_connected && millis() - _lastPingTime > LAST_PING_INTERVAL_MS) {
-        Serial.println("Es tiempo de intentar reconectar la comunicación serial");
+        DEBUG_PRINTLN(DEBUG_SERIALLINK, "Es tiempo de intentar reconectar la comunicación serial");
         sendPing();
     }
 
@@ -347,7 +352,7 @@ inline bool SerialLink::update() {
                     }
             }
             else {
-                Serial.println("ETX FAIL");
+                DEBUG_PRINTLN(DEBUG_SERIALLINK, "ETX FAIL");
                 _frameErrors++;
             }
 
@@ -454,11 +459,11 @@ inline void SerialLink::sendPing() {
     StaticJsonDocument<32> p;
     p["value"] = _pingValue;
 
-    Serial.print("Enviando ping: ");
+    DEBUG_PRINT(DEBUG_SERIALLINK, "Enviando ping: ");
     // LOG JSON
     String json;
     serializeJson(p, json);
-    Serial.println(json);
+    DEBUG_PRINTLN(DEBUG_SERIALLINK, json);
 
     sendCommand(Commands::Ping, p);
     _lastPingTime = millis();
@@ -468,27 +473,31 @@ inline void SerialLink::sendPong(long value) {
     StaticJsonDocument<32> p;
     p["value"] = value;
 
-    Serial.print("Respondiendo pong: ");
+    DEBUG_PRINT(DEBUG_SERIALLINK, "Respondiendo pong: ");
     // LOG JSON
     String json;
     serializeJson(p, json);
-    Serial.println(json);
+    DEBUG_PRINTLN(DEBUG_SERIALLINK, json);
 
     sendCommand(Commands::Pong, p);
 }
 
+// La conexion se infiere unicamente de que vuelva el MISMO valor que se
+// mando en el ultimo ping -- no alcanza con recibir cualquier byte/mensaje.
+// Esto descarta un pong tardio de un ping anterior (que ya no coincide con
+// _pingValue) como si fuera prueba de conexion viva.
 inline void SerialLink::handlePingResponse(long value) {
     bool result = (value == _pingValue);
     if(result != _connected){
-        Serial.print("El estado de la comunicación serial a cambiado a: ");
+        DEBUG_PRINT(DEBUG_SERIALLINK, "El estado de la comunicación serial a cambiado a: ");
         _connected = result; 
         if(_listener == nullptr) return;
         if(_connected){
-            Serial.println("conectado!");
+            DEBUG_PRINTLN(DEBUG_SERIALLINK, "conectado!");
             _listener->onSerialConnected();
         }
         else {
-            Serial.println("desconectado!");
+            DEBUG_PRINTLN(DEBUG_SERIALLINK, "desconectado!");
             _listener->onSerialDisconnected();
         }
     }
@@ -503,6 +512,9 @@ inline bool SerialLink::isConnected() {
 // Queue helpers
 // =========================
 
+// Truco clasico de buffer circular: se sacrifica un slot para distinguir
+// "lleno" de "vacio" sin necesitar un contador aparte. Con TX_QUEUE_SIZE=10
+// la cola realmente guarda 9 mensajes como maximo, no 10.
 inline bool SerialLink::_isQueueFull() {
     return ((_txTail + 1) % TX_QUEUE_SIZE) == _txHead;
 }

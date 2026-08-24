@@ -103,10 +103,16 @@ inline void ScreenManager::show(ScreenType type) {
         return;
     }
 
+    // _currentIndex nunca deberia ser menor a -1 (-1 = "todavia no se
+    // mostro ninguna pantalla") -- guarda defensiva de sanidad, no un caso
+    // esperado en uso normal.
     if (_currentIndex < -1 || _currentIndex >= _count) {
         return;
     }
 
+    // Default a "type" (el destino) para el primer show() de todos, cuando
+    // no hay pantalla previa (_currentIndex == -1) -- en ese caso
+    // onScreenChanged() notifica from==to en vez de un "previous" invalido.
     ScreenType previousType = type;
 
     for (int i = 0; i < _count; i++) {

@@ -4,6 +4,11 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <PubSubClient.h>
+#include "debugconfig.hpp"
+
+// Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
+// el interruptor maestro).
+constexpr bool DEBUG_BROKER = true;
 
 /* ============================================================
  *  CONFIG
@@ -111,10 +116,10 @@ inline BrokerManager::BrokerManager()
 inline void BrokerManager::begin(const MqttConfig& config) {
     _publishQueue = xQueueCreate(10, sizeof(PublishMessage));
     if (_publishQueue == nullptr) {
-        Serial.println("[BROKER] ERROR creando publish queue");
+        DEBUG_PRINTLN(DEBUG_BROKER, "[BROKER] ERROR creando publish queue");
     }
     else {
-        Serial.println("[BROKER] Publish queue creada");
+        DEBUG_PRINTLN(DEBUG_BROKER, "[BROKER] Publish queue creada");
     }
     _config = config;
     _initialized = true;
@@ -237,11 +242,11 @@ inline void BrokerManager::processPublishQueue() {
         return;
     PublishMessage msg;
     while (xQueuePeek(_publishQueue, &msg, 0) == pdTRUE) {
-        Serial.printf("[BROKER] Publishing topic=%s\n", msg.topic);
+        DEBUG_PRINTF(DEBUG_BROKER, "[BROKER] Publishing topic=%s\n", msg.topic);
 
         bool success = _client.publish(msg.topic, msg.payload);
         if (!success) {
-            Serial.println("[BROKER] Publish fallo, mensaje queda en cola");
+            DEBUG_PRINTLN(DEBUG_BROKER, "[BROKER] Publish fallo, mensaje queda en cola");
             break;
         }
 
@@ -253,7 +258,7 @@ inline void BrokerManager::processPublishQueue() {
 
 inline bool BrokerManager::publish(const char* topic, const char* message) {
     if (_publishQueue == nullptr) {
-        Serial.println("[BROKER] Queue no inicializada");
+        DEBUG_PRINTLN(DEBUG_BROKER, "[BROKER] Queue no inicializada");
         return false;
     }
 
@@ -270,14 +275,14 @@ inline bool BrokerManager::publish(const char* topic, const char* message) {
     PublishMessage discarded;
 
     if (xQueueReceive(_publishQueue, &discarded, 0) == pdTRUE) {
-        Serial.println("[BROKER] Queue llena -> descartando mensaje mas antiguo");
+        DEBUG_PRINTLN(DEBUG_BROKER, "[BROKER] Queue llena -> descartando mensaje mas antiguo");
         // Intentar nuevamente
         if (xQueueSend(_publishQueue, &msg, 0) == pdTRUE) {
             return true;
         }
     }
 
-    Serial.println("[BROKER] ERROR: no se pudo agregar mensaje");
+    DEBUG_PRINTLN(DEBUG_BROKER, "[BROKER] ERROR: no se pudo agregar mensaje");
     return false;
 }
 
