@@ -12,6 +12,8 @@ class SignalGenerator {
     SignalGenerator(SPIClass& spi, uint8_t cs);
     ~SignalGenerator();
     void begin();
+    // freq=0 (el default) no significa "0 Hz" -- significa "reusar la
+    // ultima frecuencia aplicada" (_freq no se pisa si freq no es > 0).
     void setSineWave(float freq = 0);
     void setTriangleWave(float freq = 0);
     void setSquareWave(float freq = 0);
@@ -42,6 +44,11 @@ inline void SignalGenerator::off() {
     _gen->setWave(AD9833_OFF);
 }
 
+// Las 3 formas de onda siguen el mismo patron: guardar la frecuencia
+// (si se paso una nueva), apagar la salida, reconfigurar frecuencia+forma,
+// y recien ahi reactivar via setWave(). El off() previo evita que el AD9833
+// saque un pico/glitch transitorio con la config vieja mientras se escriben
+// los registros nuevos.
 inline void SignalGenerator::setSineWave(float freq) {
     _ensureInitialized();
     if (freq > 0)

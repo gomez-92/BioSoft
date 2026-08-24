@@ -1,5 +1,10 @@
 #pragma once;
 #include <Arduino.h>
+#include "debugconfig.hpp"
+
+// Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
+// el interruptor maestro).
+constexpr bool DEBUG_RELAY = true;
 
 const unsigned long BLANKING_TIME = 200; // ms protection time
 
@@ -57,6 +62,11 @@ inline bool Relay::canToggle() {
     return (now - _lastChange >= BLANKING_TIME);
 }
 
+// open()/close()/toggle() son no-ops SILENCIOSOS (sin log, sin valor de
+// retorno) si se llaman antes de que pase BLANKING_TIME desde el ultimo
+// cambio -- proteccion de hardware contra conmutacion rapida. Quien llama
+// no tiene forma de saber si el pedido realmente se aplico; si hace falta
+// confirmarlo, consultar isClosed()/isOpen() despues.
 inline void Relay::open() {
     if (canToggle()) {
         _state = false;
@@ -105,7 +115,7 @@ inline RelayManager::RelayManager() : _relayCount(0) {
 
 inline bool RelayManager::addRelay(Relay* relay) {
   if (_relayCount >= MAX_RELAYS) {
-      Serial.println("RelayManager: Max relays reached");
+      DEBUG_PRINTLN(DEBUG_RELAY, "RelayManager: Max relays reached");
       return false;
   }
 

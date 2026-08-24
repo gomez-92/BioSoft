@@ -3,6 +3,14 @@
 #include "thermometermanager.hpp"
 #include <DallasTemperature.h>
 
+// Rango de temperatura fisicamente plausible para este experimento -- se
+// usa para descartar lecturas invalidas. En particular filtra el -127.0
+// que DallasTemperature devuelve como codigo de error (sensor desconectado
+// / fallo de lectura CRC), pero de paso tambien rechaza cualquier lectura
+// <=0 o >=127, no solo el valor exacto de error.
+constexpr float DALLAS_MIN_PLAUSIBLE_TEMP_C = 0.0f;
+constexpr float DALLAS_MAX_PLAUSIBLE_TEMP_C = 127.0f;
+
 class ThermometerDS18B20 : public IThermometer {
   private:
     const char* _name;
@@ -46,7 +54,7 @@ inline void ThermometerDS18B20::begin() {
 inline void ThermometerDS18B20::update() {
   _dallasThermometer.requestTemperatures();
   _temperature = _dallasThermometer.getTempC(_address);
-  _isValid = _temperature > 0.0f && _temperature < 127.0f;
+  _isValid = _temperature > DALLAS_MIN_PLAUSIBLE_TEMP_C && _temperature < DALLAS_MAX_PLAUSIBLE_TEMP_C;
 }
 
 // =====================================================

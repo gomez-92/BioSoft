@@ -6,6 +6,7 @@
 #include "seriallink.hpp"
 #include "magnetometermanager.hpp"
 #include "magnetometermlx90993.hpp"
+#include "magnetometervoltagesim.hpp"
 #include "thermometermanager.hpp"
 #include "thermometerds18b20.hpp"
 #include "currentmanager.hpp"
@@ -15,8 +16,14 @@
 #include "pwmdriver.hpp"
 #include "signalgenerator.hpp"
 #include "detector.hpp"
+#include "emergencybutton.hpp"
 #include "engine.hpp"
+#include "debugconfig.hpp"
 #include <avr/wdt.h>
+
+// Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
+// el interruptor maestro).
+constexpr bool DEBUG_MAIN = true;
 
 void printResetCause() {
 
@@ -24,27 +31,27 @@ void printResetCause() {
 
   MCUSR = 0;
 
-  Serial.print(F("[RESET] MCUSR = 0x"));
-  Serial.println(resetCause, HEX);
+  DEBUG_PRINT(DEBUG_MAIN, F("[RESET] MCUSR = 0x"));
+  DEBUG_PRINTLN(DEBUG_MAIN, resetCause, HEX);
 
   if (resetCause & _BV(PORF)) {
-    Serial.println(F("[RESET] Power-on reset"));
+    DEBUG_PRINTLN(DEBUG_MAIN, F("[RESET] Power-on reset"));
   }
 
   if (resetCause & _BV(EXTRF)) {
-    Serial.println(F("[RESET] External reset"));
+    DEBUG_PRINTLN(DEBUG_MAIN, F("[RESET] External reset"));
   }
 
   if (resetCause & _BV(BORF)) {
-    Serial.println(F("[RESET] Brown-out reset"));
+    DEBUG_PRINTLN(DEBUG_MAIN, F("[RESET] Brown-out reset"));
   }
 
   if (resetCause & _BV(WDRF)) {
-    Serial.println(F("[RESET] WATCHDOG reset"));
+    DEBUG_PRINTLN(DEBUG_MAIN, F("[RESET] WATCHDOG reset"));
   }
 
   if (resetCause & _BV(JTRF)) {
-    Serial.println(F("[RESET] JTAG reset"));
+    DEBUG_PRINTLN(DEBUG_MAIN, F("[RESET] JTAG reset"));
   }
 }
 
@@ -60,8 +67,12 @@ int freeMemory() {
 /* ===== definiciones =====*/
 #define WIRE_PIN 2
 #define RELE1_PIN 3
+#define EMERGENCY_BUTTON_PIN 4
 #define TEMP1_ADDRESS { 0x28, 0x3F, 0xE5, 0x57, 0x04, 0xE1, 0x3D, 0xED }
-#define PWM_PIN A0
+#define PWM_PIN 44  // Pin con timer de hardware real (Timer5/OC5C). A0 no tiene
+                     // timer asociado en el Mega2560: analogWrite() ahi cae a un
+                     // digitalWrite binario, no genera PWM real. Requiere mover
+                     // el cable de A0 a pin 44 en la placa fisica.
 #define SPI_CS_PIN 5
 
 
@@ -83,9 +94,10 @@ FieldController::Config config;
 FieldController fieldController(config);
 RelayManager relayManager;
 Detector detector;
+EmergencyButton emergencyButton(EMERGENCY_BUTTON_PIN);
 
 Engine engine(
-  timer, 
+  timer,
   serial,
   magnetometermanager,
   thermometermanager,
@@ -93,15 +105,16 @@ Engine engine(
   signalGenerator,
   pwmDriver,
   fieldController,
-  relayManager, 
-  detector
+  relayManager,
+  detector,
+  emergencyButton
 );
 
 
 void setup() {
   Serial.begin(115200);
-  Serial.println(F(""));
-  Serial.println(F("========== BOOT =========="));
+  DEBUG_PRINTLN(DEBUG_MAIN, F(""));
+  DEBUG_PRINTLN(DEBUG_MAIN, F("========== BOOT =========="));
   printResetCause();
   wdt_disable();
 
@@ -112,8 +125,18 @@ void setup() {
 
   /* ===== magnetometers =====*/
   magnetometermanager.clearMagnetometers();
+  // PENDIENTE (bloqueado por hardware): descomentar cuando haya
+  // bobinas/acceso al laboratorio -- ver MOD-007 en Trello.
   //MagnetometerMlx90393* magnetometer = new MagnetometerMlx90393("CEM1");
   //magnetometermanager.addMagnetometer(magnetometer);
+
+  // SIMULADO (2026-08-24): lee un voltaje en A0 (libre desde que PWM_PIN
+  // se movio a 44) y lo mapea a un CEM ficticio en mT -- solo para validar
+  // la logica de monitoreo/deteccion, NO sirve para control real de
+  // intensidad. Reemplazar por MagnetometerMlx90393 antes de cualquier
+  // prueba con bobinas reales.
+  MagnetometerVoltageSim* magnetometer = new MagnetometerVoltageSim("CEM1", A0);
+  magnetometermanager.addMagnetometer(magnetometer);
 
   /* ===== thermometers =====*/
   thermometermanager.clearThermometers();
@@ -128,7 +151,7 @@ void setup() {
   ads1.begin();
   /*
   if (!ads1.begin()) {
-    Serial.println("ERROR: ADS1115 no encontrado");
+    DEBUG_PRINTLN(DEBUG_MAIN, "ERROR: ADS1115 no encontrado");
     while (true) {
       delay(1000);
     }
@@ -161,7 +184,9 @@ void setup() {
 
   /* ===== detector =====*/
   detector.clear();
-  //detector.addSource("CEM1");
+  // Habilitado 2026-08-24 junto con el magnetometro simulado (MOD-007) --
+  // umbrales de PRUEBA en engine.hpp, sin calibrar contra campo real.
+  detector.addSource("CEM1");
   detector.addSource("TEMP1");
 
   /* ===== engine =====*/
@@ -173,8 +198,8 @@ void loop() {
   static unsigned long lastRamLog = 0;
   if (millis() - lastRamLog >= 10000) {
     lastRamLog = millis();
-    Serial.print("[RAM] libre = ");
-    Serial.println(freeMemory());
+    DEBUG_PRINT(DEBUG_MAIN, "[RAM] libre = ");
+    DEBUG_PRINTLN(DEBUG_MAIN, freeMemory());
   }
   engine.update();
 }

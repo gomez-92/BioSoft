@@ -1,4 +1,9 @@
 #pragma once
+#include "debugconfig.hpp"
+
+// Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
+// el interruptor maestro).
+constexpr bool DEBUG_ENGINESTATE = true;
 
 namespace State {
   constexpr const char* Idle      = "idle";
@@ -32,13 +37,13 @@ inline const char* EngineState::getState() const {
 }
 
 inline void EngineState::setState(const char* state) {
-  Serial.print("_engineState.setState(");
-  Serial.print(state);
-  Serial.println(")");
+  DEBUG_PRINT(DEBUG_ENGINESTATE, "_engineState.setState(");
+  DEBUG_PRINT(DEBUG_ENGINESTATE, state);
+  DEBUG_PRINTLN(DEBUG_ENGINESTATE, ")");
 
   _state = state;
   if(_listener == nullptr) {
-    Serial.println("_listener es null");
+    DEBUG_PRINTLN(DEBUG_ENGINESTATE, "_listener es null");
     return;
   }
   if(_state == State::Ready) {

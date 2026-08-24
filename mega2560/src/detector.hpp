@@ -1,5 +1,10 @@
 #pragma once
 #include <Arduino.h>
+#include "debugconfig.hpp"
+
+// Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
+// el interruptor maestro).
+constexpr bool DEBUG_DETECTOR = true;
 
 #define MAX_SOURCES 10
 
@@ -443,6 +448,10 @@ inline void Source::addSample(float sample) {
   evaluate();
 }
 
+// Unico caller es Engine::_sendFlagsData(), cuyo cuerpo esta comentado hoy
+// (dump periodico de todas las sources, reemplazado por el push individual
+// por evento via Detector::onFlag/flag_data -- ver CLAUDE.md). En la
+// practica esta funcion no se ejecuta.
 inline void Source::publish(JsonDocument& doc) {
   SourceStatistics stats = statistics();
   doc["crit"]    = stats.criticalEvents;
@@ -464,11 +473,19 @@ inline SourceStatistics Source::statistics() const {
   return stats;
 }
 
+// SIN USO hoy (grep confirma que nadie la llama) -- resto del scoring de
+// salud de un source individual, de cuando esa logica vivia en el Detector.
+// Se removio de aca en un refactor: la salud general ahora la calcula la
+// ESP32 a partir de las flags que recibe (SystemData::evaluateHealth(),
+// ver CLAUDE.md). Se deja el metodo por si se retoma, pero no forma parte
+// del camino activo.
 inline bool Source::hasCriticalFlags() const {
   SourceStatistics stats = statistics();
   return stats.criticalEvents > 0;
 }
 
+// SIN USO hoy, mismo origen que hasCriticalFlags() arriba -- pesos 50/10
+// sin calibrar ni referenciados desde ningun lado activo.
 inline float Source::score() const {
   SourceStatistics stats = statistics();
 
@@ -678,7 +695,7 @@ inline void Detector::setListener(DetectorListener* listener){
 
 inline void Detector::onSourceEvent(SourceEvent& event) {
   if (_listener == nullptr) return;
-  Serial.print(F("Source event! Flag: "));
-  Serial.println(event.source->getName());
+  DEBUG_PRINT(DEBUG_DETECTOR, F("Source event! Flag: "));
+  DEBUG_PRINTLN(DEBUG_DETECTOR, event.source->getName());
   _listener->onFlag(event);
 }

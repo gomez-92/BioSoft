@@ -16,16 +16,25 @@
 #include "fieldcontroller.hpp"
 #include "relaymanager.hpp"
 #include "detector.hpp"
+#include "emergencybutton.hpp"
+#include "safetymargins.hpp"
+#include "detectorconfigbuilder.hpp"
+#include "debugconfig.hpp"
 
-class Engine : 
+// Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
+// el interruptor maestro).
+constexpr bool DEBUG_ENGINE = true;
+
+class Engine :
   public EngineStateListener,
   public RuntimeStateListener,
-  public TimerListener, 
+  public TimerListener,
   public CommandListener,
   public IMagnetometerListener,
   public IThermometerListener,
   public ICurrentSensorListener,
-  public DetectorListener
+  public DetectorListener,
+  public EmergencyButtonListener
 {
   private:
     EngineState _engineState;
@@ -40,6 +49,14 @@ class Engine :
     FieldController& _fieldController;
     RelayManager& _relayManager;
     Detector& _detector;
+    EmergencyButton& _emergencyButton;
+    // Mientras esta en true (ver _start()), las muestras de sensores se
+    // siguen registrando/enviando pero NO se pasan al Detector -- ventana
+    // inicial para que el sistema se estabilice sin que arranques
+    // ficticios disparen flags. Se apaga via Tasks::SettlingTime (onStart()
+    // la agrega, el handler en onTimer() la apaga). Si esa tarea alguna vez
+    // deja de agregarse, esta bandera queda en true para siempre y el
+    // Detector no vuelve a evaluar nada por el resto del experimento.
     bool _isSettlingTime;
 
     unsigned long _temperatureSampleSendInterval = 3000;
@@ -60,8 +77,9 @@ class Engine :
       SignalGenerator& signalGenerator,
       PwmDriver& pwmDriver,
       FieldController& fieldController,
-      RelayManager& relayManager, 
-      Detector& detector
+      RelayManager& relayManager,
+      Detector& detector,
+      EmergencyButton& emergencyButton
     );
 
     void begin();
@@ -104,6 +122,7 @@ class Engine :
     void onThermometerSample(IThermometer* thermometer) override;
     void onCurrentSensorSample(ICurrentSensor* sensor) override;
     void onFlag(SourceEvent& event) override;
+    void onEmergencyButtonPressed() override;
 };
 
 inline Engine::Engine(
@@ -115,9 +134,10 @@ inline Engine::Engine(
   SignalGenerator& signalGenerator,
   PwmDriver& pwmDriver,
   FieldController& fieldController,
-  RelayManager& relayManager, 
-  Detector& detector
-) : 
+  RelayManager& relayManager,
+  Detector& detector,
+  EmergencyButton& emergencyButton
+) :
   _timer(timer),
   _serial(serial),
   _magnetometerManager(magnetometerManager),
@@ -128,6 +148,7 @@ inline Engine::Engine(
   _fieldController(fieldController),
   _relayManager(relayManager),
   _detector(detector),
+  _emergencyButton(emergencyButton),
   _isSettlingTime(false),
   _lastTemperatureSampleSent(0),
   _lastCurrentSampleSent(0),
@@ -139,18 +160,20 @@ inline Engine::Engine(
   _thermometerManager.setThermometerListener(this);
   _currentSensorsManager.setCurrentSensorListener(this);
   _detector.setListener(this);
+  _emergencyButton.setListener(this);
   _engineState.setListener(this);
   _runtimeState.setListener(this);
 }
 
 inline void Engine::begin() {
-  
+
   _relayManager.beginAll();
   _pwmDriver.disable();
   _fieldController.reset();
   _timer.begin();
   _serial.begin();
   _signalGenerator.begin();
+  _emergencyButton.begin();
   _timer.start();
   _engineState.setState(State::Ready);
 }
@@ -158,9 +181,11 @@ inline void Engine::begin() {
 inline void Engine::update() {
   _timer.tick();
   _serial.update();
+  _emergencyButton.update();
 }
 
 inline void Engine::_start() {
+  // Ver comentario de _isSettlingTime en la declaracion de la clase.
   _isSettlingTime = true;
   TargetData target = _runtimeState.target();
   _signalGenerator.setSineWave(target.frequencyTarget);
@@ -206,8 +231,8 @@ inline void Engine::_finish(const char* reason, const char* description) {
 inline void Engine::_sendState() {
   JsonDocument doc;
   doc["status"] = _engineState.getState();
-  Serial.print("send status: ");
-  Serial.println(_engineState.getState());
+  DEBUG_PRINT(DEBUG_ENGINE, "send status: ");
+  DEBUG_PRINTLN(DEBUG_ENGINE, _engineState.getState());
   _serial.sendCommand(Commands::StateData, doc);
 }
 
@@ -284,6 +309,13 @@ inline void Engine::_readRule(JsonVariantConst json, Rule& rule) {
   rule.threshold = json["threshold"] | rule.threshold;
 }
 
+// _readRule/_sendConfirmSourceConfig/_sendFlagsData (y su unico caller,
+// Tasks::SendFlags en onTimer) forman un cluster INACTIVO: el dump
+// periodico completo de todas las sources fue reemplazado por el push
+// individual por evento via Detector::onFlag/flag_data (ver CLAUDE.md).
+// Los cuerpos comentados no son un olvido -- Tasks::SendFlags tampoco se
+// llega a agregar nunca en onStart() (esta comentado ahi tambien), asi que
+// todo el cluster esta deliberadamente apagado, no roto a medias.
 inline void Engine::_sendConfirmSourceConfig(const char* sourceName) {
   /*
   JsonDocument doc;
@@ -301,7 +333,7 @@ inline void Engine::_sendFlagsData() {
     sourceData["source"] = source->getName();
     source->publish(sourceData);
     _serial.sendCommand(Commands::FlagsData, sourceData);
-  }  
+  }
   */
 }
 
@@ -321,13 +353,13 @@ inline void Engine::_sendCurrentData() {
   JsonDocument doc;
   _currentSensorsManager.publishMeasures(doc);
   bool queued = _serial.sendCommand(Commands::CurrentData, doc);
-  Serial.print(F("[CURRENT] current_data encolado: "));
-  Serial.println(queued ? F("OK") : F("FALLO (cola TX llena)"));
+  DEBUG_PRINT(DEBUG_ENGINE, F("[CURRENT] current_data encolado: "));
+  DEBUG_PRINTLN(DEBUG_ENGINE, queued ? F("OK") : F("FALLO (cola TX llena)"));
 }
 
 // Engine State Callbacks
 inline void Engine::onReady() {
-  Serial.println("On Ready!");
+  DEBUG_PRINTLN(DEBUG_ENGINE, "On Ready!");
   _timer.removeTask(Tasks::SendResult);
   _timer.addTask(Tasks::SendState, Intervals::SendState);
 }
@@ -338,9 +370,12 @@ inline void Engine::onStart() {
 
   _timer.addTask(Tasks::MeasureTemperature, Intervals::MeasureTemperature);
   _timer.addTask(Tasks::MeasureCurrent, Intervals::MeasureCurrent);
-  //_timer.addTask(Tasks::MeasureMagneticField, Intervals::MeasureMagneticField);
+  _timer.addTask(Tasks::MeasureMagneticField, Intervals::MeasureMagneticField);
   //_timer.addTask(Tasks::UpdateProgress, Intervals::UpdateProgress);
   //_timer.addTask(Tasks::SendFlags, Intervals::SendFlags);
+  // Critico: es la unica tarea que apaga _isSettlingTime (ver su
+  // comentario en la declaracion de la clase). Si esta linea se borra o se
+  // comenta, el Detector nunca vuelve a evaluar nada en todo el experimento.
   _timer.addTask(Tasks::SettlingTime, Intervals::SettlingTime);
 }
 
@@ -372,8 +407,8 @@ inline void Engine::onResult() {
 
 // Timer Callback
 inline void Engine::onTimer(const char* name) {
-  Serial.print("Iniciando: ");
-  Serial.println(name);
+  DEBUG_PRINT(DEBUG_ENGINE, "Iniciando: ");
+  DEBUG_PRINTLN(DEBUG_ENGINE, name);
   unsigned long t1 = millis();
   if(strcmp(name, Tasks::SendState) == 0) {
     _sendState();
@@ -385,17 +420,17 @@ inline void Engine::onTimer(const char* name) {
     _thermometerManager.updateAll();
     JsonDocument doc;
     _thermometerManager.publishMeasures(doc);
-    Serial.print(F("[TEMP] JSON: "));
+    DEBUG_PRINT(DEBUG_ENGINE, F("[TEMP] JSON: "));
     serializeJson(doc, Serial);
-    Serial.println();
+    DEBUG_PRINTLN(DEBUG_ENGINE, );
   }
   else if(strcmp(name, Tasks::MeasureCurrent) == 0) {
     _currentSensorsManager.updateAll();
     JsonDocument doc;
     _currentSensorsManager.publishMeasures(doc);
-    Serial.print(F("[CURRENT] JSON: "));
+    DEBUG_PRINT(DEBUG_ENGINE, F("[CURRENT] JSON: "));
     serializeJson(doc, Serial);
-    Serial.println();
+    DEBUG_PRINTLN(DEBUG_ENGINE, );
   }
   else if(strcmp(name, Tasks::MeasureMagneticField) == 0) {
     _magnetometerManager.updateAll();
@@ -417,23 +452,23 @@ inline void Engine::onTimer(const char* name) {
     _finish("completed", "Duracion completa alcanzada");
   }
   unsigned long t2 = millis();
-  Serial.print(name);
-  Serial.print(" tardó ");
-  Serial.print(t2 - t1);
-  Serial.println(" ms");
+  DEBUG_PRINT(DEBUG_ENGINE, name);
+  DEBUG_PRINT(DEBUG_ENGINE, " tardó ");
+  DEBUG_PRINT(DEBUG_ENGINE, t2 - t1);
+  DEBUG_PRINTLN(DEBUG_ENGINE, " ms");
   
 }
 
 // Serial Callbacks
 inline void Engine::onCommand(const char* command, JsonVariantConst params) {
 
-  Serial.print(F("command: "));
-  Serial.println(command);
+  DEBUG_PRINT(DEBUG_ENGINE, F("command: "));
+  DEBUG_PRINTLN(DEBUG_ENGINE, command);
 
   if (strcmp(command, Commands::Ping) == 0) {
 
     if (!params["value"].is<long>()) {
-      Serial.println(F("[PING][ERROR] Parametro 'value' invalido o ausente"));
+      DEBUG_PRINTLN(DEBUG_ENGINE, F("[PING][ERROR] Parametro 'value' invalido o ausente"));
       return;
     }
 
@@ -444,7 +479,7 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
   else if (strcmp(command, Commands::Pong) == 0) {
 
     if (!params["value"].is<long>()) {
-      Serial.println(F("[PONG][ERROR] Parametro 'value' invalido o ausente"));
+      DEBUG_PRINTLN(DEBUG_ENGINE, F("[PONG][ERROR] Parametro 'value' invalido o ausente"));
       return;
     }
 
@@ -463,61 +498,61 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
 
   else if (strcmp(command, Commands::Start) == 0) {
 
-    Serial.println();
-    Serial.println(F("========================================"));
-    Serial.println(F("[START] Comando START recibido"));
-    Serial.println(F("========================================"));
+    DEBUG_PRINTLN(DEBUG_ENGINE, );
+    DEBUG_PRINTLN(DEBUG_ENGINE, F("========================================"));
+    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Comando START recibido"));
+    DEBUG_PRINTLN(DEBUG_ENGINE, F("========================================"));
 
     // ========================================================
     // CONFIGURANDO TARGETS
     // ========================================================
 
-    Serial.println(F("Configurando targets..."));
+    DEBUG_PRINTLN(DEBUG_ENGINE, F("Configurando targets..."));
 
     // --- CEM ---
-    Serial.println(F("[START] Validando parametro 'cem'..."));
+    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Validando parametro 'cem'..."));
 
     if (!params["cem"].is<float>()) {
-      Serial.println(F("[START][ERROR] Parametro 'cem' invalido o ausente"));
+      DEBUG_PRINTLN(DEBUG_ENGINE, F("[START][ERROR] Parametro 'cem' invalido o ausente"));
       return;
     }
 
     float cemTarget = params["cem"].as<float>();
 
-    Serial.print(F("[START] cemTarget = "));
-    Serial.println(cemTarget, 4);
+    DEBUG_PRINT(DEBUG_ENGINE, F("[START] cemTarget = "));
+    DEBUG_PRINTLN(DEBUG_ENGINE, cemTarget, 4);
 
 
     // --- FRECUENCIA ---
-    Serial.println(F("[START] Validando parametro 'freq'..."));
+    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Validando parametro 'freq'..."));
 
     if (!params["freq"].is<int>()) {
-      Serial.println(F("[START][ERROR] Parametro 'freq' invalido o ausente"));
+      DEBUG_PRINTLN(DEBUG_ENGINE, F("[START][ERROR] Parametro 'freq' invalido o ausente"));
       return;
     }
 
     int freqTarget = params["freq"].as<int>();
 
-    Serial.print(F("[START] freqTarget = "));
-    Serial.println(freqTarget);
+    DEBUG_PRINT(DEBUG_ENGINE, F("[START] freqTarget = "));
+    DEBUG_PRINTLN(DEBUG_ENGINE, freqTarget);
 
 
     // --- DURACION ---
-    Serial.println(F("[START] Validando parametro 'dur'..."));
+    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Validando parametro 'dur'..."));
 
     if (!params["dur"].is<unsigned long>()) {
-      Serial.println(F("[START][ERROR] Parametro 'dur' invalido o ausente"));
+      DEBUG_PRINTLN(DEBUG_ENGINE, F("[START][ERROR] Parametro 'dur' invalido o ausente"));
       return;
     }
 
     unsigned long durTarget = params["dur"].as<unsigned long>();
 
-    Serial.print(F("[START] durTarget = "));
-    Serial.println(durTarget);
+    DEBUG_PRINT(DEBUG_ENGINE, F("[START] durTarget = "));
+    DEBUG_PRINTLN(DEBUG_ENGINE, durTarget);
 
 
     // --- GUARDAR TARGETS ---
-    Serial.println(F("[START] Guardando targets en RuntimeState..."));
+    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Guardando targets en RuntimeState..."));
 
     _runtimeState.setTarget(
       cemTarget,
@@ -525,206 +560,167 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
       durTarget
     );
 
-    Serial.println(F("[START] Targets configuradas correctamente"));
+    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Targets configuradas correctamente"));
 
 
     // ========================================================
     // CONFIGURACION SOURCE CEM
     // ========================================================
 
-    Serial.println();
-    Serial.println(F("[START] Configurando source CEM1..."));
+    DEBUG_PRINTLN(DEBUG_ENGINE, );
+    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Configurando source CEM1..."));
 
-    Serial.println(F("[START] Validando parametro 'tol'..."));
+    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Validando parametro 'tol'..."));
 
     if (!params["tol"].is<int>()) {
-      Serial.println(F("[START][ERROR] Parametro 'tol' invalido o ausente"));
-      Serial.println(F("[START] Abortando comando START"));
+      DEBUG_PRINTLN(DEBUG_ENGINE, F("[START][ERROR] Parametro 'tol' invalido o ausente"));
+      DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Abortando comando START"));
       return;
     }
 
     int cemTol = params["tol"].as<int>();
 
-    Serial.print(F("[START] cemTol = "));
-    Serial.print(cemTol);
-    Serial.println(F("%"));
+    DEBUG_PRINT(DEBUG_ENGINE, F("[START] cemTol = "));
+    DEBUG_PRINT(DEBUG_ENGINE, cemTol);
+    DEBUG_PRINTLN(DEBUG_ENGINE, F("%"));
 
 
-    SourceConfig configCem;
+    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Calculando configuracion de CEM1..."));
 
-    Serial.println(F("[START] Calculando limites CEM..."));
+    SourceConfig configCem = DetectorConfigBuilder::buildCemConfig(cemTarget, cemTol);
 
-    configCem.criticalMin =
-      cemTarget * (1.0f - 1.25f * cemTol / 100.0f);
+    DEBUG_PRINT(DEBUG_ENGINE, F("[START] CEM criticalMin = "));
+    DEBUG_PRINTLN(DEBUG_ENGINE, configCem.criticalMin, 4);
 
-    configCem.criticalMax =
-      cemTarget * (1.0f + 1.25f * cemTol / 100.0f);
+    DEBUG_PRINT(DEBUG_ENGINE, F("[START] CEM normalMin   = "));
+    DEBUG_PRINTLN(DEBUG_ENGINE, configCem.normalMin, 4);
 
-    configCem.normalMin =
-      cemTarget * (1.0f - cemTol / 100.0f);
+    DEBUG_PRINT(DEBUG_ENGINE, F("[START] CEM normalMax   = "));
+    DEBUG_PRINTLN(DEBUG_ENGINE, configCem.normalMax, 4);
 
-    configCem.normalMax =
-      cemTarget * (1.0f + cemTol / 100.0f);
-
-
-    Serial.print(F("[START] CEM criticalMin = "));
-    Serial.println(configCem.criticalMin, 4);
-
-    Serial.print(F("[START] CEM normalMin   = "));
-    Serial.println(configCem.normalMin, 4);
-
-    Serial.print(F("[START] CEM normalMax   = "));
-    Serial.println(configCem.normalMax, 4);
-
-    Serial.print(F("[START] CEM criticalMax = "));
-    Serial.println(configCem.criticalMax, 4);
+    DEBUG_PRINT(DEBUG_ENGINE, F("[START] CEM criticalMax = "));
+    DEBUG_PRINTLN(DEBUG_ENGINE, configCem.criticalMax, 4);
 
 
-    Serial.println(F("[START] Aplicando configuracion a CEM1..."));
+    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Aplicando configuracion a CEM1..."));
 
     _detector.configureSource("CEM1", configCem);
 
-    Serial.println(F("[START] Source CEM1 configurada correctamente"));
+    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Source CEM1 configurada correctamente"));
 
 
     // ========================================================
     // CONFIGURACION SOURCE TEMP
     // ========================================================
 
-    SourceConfig configTemp;
-
-    Serial.println();
-    Serial.println(F("[START] Configurando source TEMP1..."));
+    DEBUG_PRINTLN(DEBUG_ENGINE, );
+    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Configurando source TEMP1..."));
 
 
     // --- TEMP NORMAL MIN ---
-    Serial.println(F("[START] Validando parametro 'tnmin'..."));
+    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Validando parametro 'tnmin'..."));
 
     if (!params["tnmin"].is<float>()) {
-      Serial.println(F("[START][ERROR] Parametro 'tnmin' invalido o ausente"));
+      DEBUG_PRINTLN(DEBUG_ENGINE, F("[START][ERROR] Parametro 'tnmin' invalido o ausente"));
       return;
     }
 
-    configTemp.normalMin = params["tnmin"].as<float>();
+    float tempNormalMin = params["tnmin"].as<float>();
 
-    Serial.print(F("[START] TEMP normalMin = "));
-    Serial.println(configTemp.normalMin, 2);
+    DEBUG_PRINT(DEBUG_ENGINE, F("[START] TEMP normalMin = "));
+    DEBUG_PRINTLN(DEBUG_ENGINE, tempNormalMin, 2);
 
 
     // --- TEMP NORMAL MAX ---
-    Serial.println(F("[START] Validando parametro 'tnmax'..."));
+    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Validando parametro 'tnmax'..."));
 
     if (!params["tnmax"].is<float>()) {
-      Serial.println(F("[START][ERROR] Parametro 'tnmax' invalido o ausente"));
+      DEBUG_PRINTLN(DEBUG_ENGINE, F("[START][ERROR] Parametro 'tnmax' invalido o ausente"));
       return;
     }
 
-    configTemp.normalMax = params["tnmax"].as<float>();
+    float tempNormalMax = params["tnmax"].as<float>();
 
-    Serial.print(F("[START] TEMP normalMax = "));
-    Serial.println(configTemp.normalMax, 2);
+    DEBUG_PRINT(DEBUG_ENGINE, F("[START] TEMP normalMax = "));
+    DEBUG_PRINTLN(DEBUG_ENGINE, tempNormalMax, 2);
 
 
     // --- TEMP CRITICAL MIN ---
-    Serial.println(F("[START] Validando parametro 'tcmin'..."));
+    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Validando parametro 'tcmin'..."));
 
     if (!params["tcmin"].is<float>()) {
-      Serial.println(F("[START][ERROR] Parametro 'tcmin' invalido o ausente"));
+      DEBUG_PRINTLN(DEBUG_ENGINE, F("[START][ERROR] Parametro 'tcmin' invalido o ausente"));
       return;
     }
 
-    configTemp.criticalMin = params["tcmin"].as<float>();
+    float tempCriticalMin = params["tcmin"].as<float>();
 
-    Serial.print(F("[START] TEMP criticalMin = "));
-    Serial.println(configTemp.criticalMin, 2);
+    DEBUG_PRINT(DEBUG_ENGINE, F("[START] TEMP criticalMin = "));
+    DEBUG_PRINTLN(DEBUG_ENGINE, tempCriticalMin, 2);
 
 
     // --- TEMP CRITICAL MAX ---
-    Serial.println(F("[START] Validando parametro 'tcmax'..."));
+    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Validando parametro 'tcmax'..."));
 
     if (!params["tcmax"].is<float>()) {
-      Serial.println(F("[START][ERROR] Parametro 'tcmax' invalido o ausente"));
+      DEBUG_PRINTLN(DEBUG_ENGINE, F("[START][ERROR] Parametro 'tcmax' invalido o ausente"));
       return;
     }
 
-    configTemp.criticalMax = params["tcmax"].as<float>();
+    float tempCriticalMax = params["tcmax"].as<float>();
 
-    Serial.print(F("[START] TEMP criticalMax = "));
-    Serial.println(configTemp.criticalMax, 2);
+    DEBUG_PRINT(DEBUG_ENGINE, F("[START] TEMP criticalMax = "));
+    DEBUG_PRINTLN(DEBUG_ENGINE, tempCriticalMax, 2);
 
 
-    // Reglas de deteccion de flags para TEMP1. bufferSize se deja en el
-    // default (32 muestras) -- esa ventana la usa "frequency"; critical y
-    // streak usan racha consecutiva (Source::evaluate en detector.hpp),
-    // no la ventana. Con Intervals::MeasureTemperature = 25000ms:
-    //
-    // critical: 3 muestras CRITICAS seguidas = flag. cooldown 1 (deja
-    // pasar al menos 1 muestra entre disparos). maxEvents 2 -> con la 2da
-    // (4ta muestra critica seguida) se corta el experimento.
-    configTemp.critical.threshold = 3;
-    configTemp.critical.cooldown = 1;
-    configTemp.critical.maxEvents = 2;
+    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Calculando configuracion de TEMP1..."));
 
-    // streak: 5 muestras fuera de lo normal (pero no criticas) SEGUIDAS =
-    // flag. cooldown 4. maxEvents 5 -> corta si la desviacion se sostiene
-    // mucho mas tiempo que para "critical" (umbral mas alto a proposito,
-    // es una condicion menos grave).
-    configTemp.streak.threshold = 5;
-    configTemp.streak.cooldown = 4;
-    configTemp.streak.maxEvents = 5;
+    SourceConfig configTemp = DetectorConfigBuilder::buildTempConfig(
+      tempNormalMin, tempNormalMax, tempCriticalMin, tempCriticalMax);
 
-    // frequency: 16 de las ultimas 32 muestras (mitad de la ventana) NO
-    // normales (criticas o fuera de rango), sin importar el orden = flag.
-    // cooldown 16 (practicamente espera a renovar la ventana antes de
-    // reevaluar). maxEvents 3 -> mide inestabilidad sostenida en el
-    // tiempo, no un pico puntual.
-    configTemp.frequency.threshold = 16;
-    configTemp.frequency.cooldown = 16;
-    configTemp.frequency.maxEvents = 3;
-
-    Serial.println(F("[START] Aplicando configuracion a TEMP1..."));
+    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Aplicando configuracion a TEMP1..."));
 
     _detector.configureSource("TEMP1", configTemp);
 
-    Serial.println(F("[START] Source TEMP1 configurada correctamente"));
+    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Source TEMP1 configurada correctamente"));
 
 
     // ========================================================
     // ACK
     // ========================================================
 
-    Serial.println();
-    Serial.println(F("[START] Preparando ACK..."));
+    DEBUG_PRINTLN(DEBUG_ENGINE, );
+    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Preparando ACK..."));
 
     JsonDocument doc;
 
     doc["command"] = Commands::Start;
 
-    Serial.println(F("[START] Enviando ACK..."));
+    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Enviando ACK..."));
 
     _serial.sendCommand(
       Commands::Ack,
       doc
     );
 
-    Serial.println(F("[START] ACK enviado correctamente"));
+    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] ACK enviado correctamente"));
 
 
     // ========================================================
     // INICIO
     // ========================================================
 
-    Serial.println();
-    Serial.println(F("[START] Iniciando experimento..."));
+    DEBUG_PRINTLN(DEBUG_ENGINE, );
+    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Iniciando experimento..."));
 
     _start();
 
-    Serial.println(F("[START] _start() finalizado"));
+    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] _start() finalizado"));
 
-    Serial.println(F("========================================"));
-    Serial.println(F("[START] Comando START procesado"));
-    Serial.println(F("========================================"));
-    Serial.println();
+    DEBUG_PRINTLN(DEBUG_ENGINE, F("========================================"));
+    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Comando START procesado"));
+    DEBUG_PRINTLN(DEBUG_ENGINE, F("========================================"));
+    DEBUG_PRINTLN(DEBUG_ENGINE, );
   }
 
   else if (strcmp(command, Commands::Stop) == 0) {
@@ -757,6 +753,20 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
 inline void Engine::onSerialConnected() {}
 inline void Engine::onSerialDisconnected() {}
 
+inline void Engine::onEmergencyButtonPressed() {
+  DEBUG_PRINTLN(DEBUG_ENGINE, F("[EMERGENCY] Pulsador de parada de emergencia presionado"));
+
+  // Si no hay experimento corriendo, no hay nada que detener -- evita
+  // mandarle a la ESP32 un result_data "stopped" para un experimento que
+  // nunca arranco (la llevaria a la pantalla Resultado sin motivo).
+  if (strcmp(_engineState.getState(), State::Running) != 0) {
+    DEBUG_PRINTLN(DEBUG_ENGINE, F("[EMERGENCY] Ignorado: no hay experimento en curso"));
+    return;
+  }
+
+  _finish("stopped", "Parada de emergencia fisica activada por el operador");
+}
+
 // Sample Sensor Callbacks
 inline void Engine::onMagnetometerSample(IMagnetometer* magnetometer) {
   _fieldController.update(magnetometer->getMagneticField());
@@ -786,12 +796,16 @@ inline void Engine::onThermometerSample(IThermometer* thermometer) {
 }
 
 inline void Engine::onCurrentSensorSample(ICurrentSensor* sensor) {
-  Serial.print(F("[CURRENT] sample "));
-  Serial.print(sensor->getName());
-  Serial.print(F(" = "));
-  Serial.print(sensor->getCurrent());
-  Serial.println(F(" A"));
+  DEBUG_PRINT(DEBUG_ENGINE, F("[CURRENT] sample "));
+  DEBUG_PRINT(DEBUG_ENGINE, sensor->getName());
+  DEBUG_PRINT(DEBUG_ENGINE, F(" = "));
+  DEBUG_PRINT(DEBUG_ENGINE, sensor->getCurrent());
+  DEBUG_PRINTLN(DEBUG_ENGINE, F(" A"));
 
+  // addSample() aca es un no-op en la practica: "SCT013-1" nunca se
+  // registra como source del Detector (detector.addSource en el .ino) --
+  // por diseno, la corriente no es una fuente de seguridad, solo se
+  // monitorea/telemetriza. Ver MOD-006 en Trello.
   if(!_isSettlingTime) {
     _detector.addSample(sensor->getName(), sensor->getCurrent());
   }
@@ -799,7 +813,7 @@ inline void Engine::onCurrentSensorSample(ICurrentSensor* sensor) {
   unsigned long now = millis();
   if(now - _lastCurrentSampleSent >= _currentSampleSendInterval) {
     _lastCurrentSampleSent = now;
-    Serial.println(F("[CURRENT] enviando current_data al ESP32..."));
+    DEBUG_PRINTLN(DEBUG_ENGINE, F("[CURRENT] enviando current_data al ESP32..."));
     _sendCurrentData();
   }
 }
@@ -824,21 +838,26 @@ inline void Engine::onFlag(SourceEvent& event) {
   }
   sourceData["type"] = typeStr;
 
-  Serial.print(F("[FLAG] "));
-  Serial.print(source->getName());
-  Serial.print(F(" tipo="));
-  Serial.print(typeStr);
-  Serial.print(F(" count="));
-  Serial.print(event.count);
-  Serial.print(F("/"));
-  Serial.println(event.limit);
+  DEBUG_PRINT(DEBUG_ENGINE, F("[FLAG] "));
+  DEBUG_PRINT(DEBUG_ENGINE, source->getName());
+  DEBUG_PRINT(DEBUG_ENGINE, F(" tipo="));
+  DEBUG_PRINT(DEBUG_ENGINE, typeStr);
+  DEBUG_PRINT(DEBUG_ENGINE, F(" count="));
+  DEBUG_PRINT(DEBUG_ENGINE, event.count);
+  DEBUG_PRINT(DEBUG_ENGINE, F("/"));
+  DEBUG_PRINTLN(DEBUG_ENGINE, event.limit);
 
   _serial.sendCommand(Commands::OneFlagsData, sourceData);
 
+  // Corta el experimento cuando CUALQUIERA de los 3 tipos de regla llega a
+  // su propio maxEvents -- no es exclusivo del tipo "critical". Una racha
+  // (streak) o una inestabilidad sostenida (frequency) que se repitan
+  // suficientes veces cortan igual, aunque la muestra individual nunca haya
+  // sido "critica".
   if(event.limit > 0 && event.count >= event.limit) {
-    Serial.print(F("[FLAG] limite alcanzado para "));
-    Serial.print(source->getName());
-    Serial.println(F(" -> interrumpiendo experimento"));
+    DEBUG_PRINT(DEBUG_ENGINE, F("[FLAG] limite alcanzado para "));
+    DEBUG_PRINT(DEBUG_ENGINE, source->getName());
+    DEBUG_PRINTLN(DEBUG_ENGINE, F(" -> interrumpiendo experimento"));
 
     char description[64];
     snprintf(

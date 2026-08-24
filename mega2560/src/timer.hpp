@@ -2,6 +2,11 @@
 
 #include <Arduino.h>
 #include <string.h>
+#include "debugconfig.hpp"
+
+// Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
+// el interruptor maestro).
+constexpr bool DEBUG_TIMER = true;
 
 // =========================
 // Configuración
@@ -218,6 +223,9 @@ inline bool Timer::addTask(const char* name, unsigned long intervalMs) {
     }
 
     // No hay espacio
+    DEBUG_PRINT(DEBUG_TIMER, F("[TIMER][ERROR] addTask: sin espacio para la tarea '"));
+    DEBUG_PRINT(DEBUG_TIMER, name);
+    DEBUG_PRINTLN(DEBUG_TIMER, F("' (MAX_TASKS alcanzado)"));
     return false;
 }
 

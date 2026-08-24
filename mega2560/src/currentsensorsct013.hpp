@@ -151,6 +151,7 @@ inline void CurrentSensorSct013::update() {
       return;
 
   float sumSquares = 0;
+  float dcOffset = 0;
 
   for (uint16_t i = 0; i < samples; i++) {
     int16_t raw = readRaw();
@@ -159,7 +160,13 @@ inline void CurrentSensorSct013::update() {
     // configurada en el ADS1115.
     float volts = _ads.computeVolts(raw);
 
-    sumSquares += volts * volts;
+    // Filtro de remoción de offset DC de un solo paso (igual al usado por
+    // EmonLib/OpenEnergyMonitor): dcOffset converge hacia la media de la
+    // señal muestra a muestra, sin necesidad de guardar toda la ventana.
+    dcOffset += (volts - dcOffset) / (i + 1);
+    float filtered = volts - dcOffset;
+
+    sumSquares += filtered * filtered;
   }
 
   float rmsVoltage = sqrt(sumSquares / samples);
