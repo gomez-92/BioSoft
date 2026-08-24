@@ -19,9 +19,13 @@ Two independent PlatformIO projects, one per board, connected by a serial link:
   (time elapsed, danger detected, or loss of scientific rigor).
 
 There is no shared source directory — `esp32/src/seriallink.hpp` and
-`mega2560/src/seriallink.hpp` (and `commands.hpp`) are **intentionally duplicated,
-byte-for-byte, in each project**. When changing the serial protocol, edit both
-copies and keep them in sync manually.
+`mega2560/src/seriallink.hpp` (and `commands.hpp`, `timer.hpp`, `debugconfig.hpp`)
+are **meant to be duplicated, byte-for-byte, in each project**. When changing the
+serial protocol, edit both copies and keep them in sync manually. In practice
+`seriallink.hpp` has already drifted — the ESP32 copy has extra
+`Serial.print`-era logging (ping/pong, connection-state changes) the Mega copy
+never had; the framing/CRC/queue logic itself is still identical. Don't assume
+the two copies are interchangeable without diffing first.
 
 ## Commands
 
@@ -134,6 +138,41 @@ Key collaborators:
   evaluates anything for the rest of the run — always verify `onStart()` still
   adds `Tasks::SettlingTime` after touching that code path.
 
+- `DetectorConfigBuilder` (`detectorconfigbuilder.hpp`) builds the `SourceConfig`
+  Engine applies to the Detector on `start`, extracted out of
+  `Engine::onCommand`/`Start` (which used to build it inline across ~70 lines).
+  Engine still validates the incoming JSON params itself; only the "turn
+  validated values into detector rules" part moved out. CEM1's
+  critical/streak/frequency thresholds here are **test placeholders** (same
+  numbers as TEMP1's), not calibrated against real field.
+- `EmergencyButton` (`emergencybutton.hpp`) is the physical e-stop: edge-detected
+  (not level), software-debounced, wired to pin 4. `Engine::onEmergencyButtonPressed()`
+  only calls `_finish()` while `State::Running` — pressing it while idle is a
+  no-op, so it doesn't push a bogus `result_data` (and bounce the ESP32 to
+  Resultado) for an experiment that never ran.
+- CEM1 (magnetic field) is currently fed by `MagnetometerVoltageSim`
+  (`magnetometervoltagesim.hpp`), **not** the real `MagnetometerMlx90393` driver
+  — that instantiation is still commented out in `SoftMega2560.ino` (no
+  bobinas/lab access yet). The sim reads a plain analog voltage on `A0` and maps
+  it linearly to mT, purely so the Detector → `flag_data` → ESP32 telemetry path
+  can be exercised without hardware; it does **not** validate `FieldController`
+  against anything physically meaningful. Swap back to `MagnetometerMlx90393`
+  (and drop the sim) before any real-coil test.
+- `PWM_PIN` is `44` (Timer5/OC5C), not `A0` — `A0`..`A15` have no hardware timer
+  on the Mega2560, so `analogWrite()` there silently degrades to a binary
+  `digitalWrite`, not real PWM. `PwmDriver`'s `frequency` constructor param is
+  now actually applied via `applyFrequency()`, called from `enable()` and *not*
+  the constructor — `pwmDriver` is a global object and its constructor runs
+  before Arduino's `init()` configures the timers, which would silently
+  overwrite anything touched earlier. Only works for pins 44/45/46, and only
+  snaps to the nearest of 5 fixed prescaler-derived frequencies, not an
+  arbitrary value.
+- Current (`SCT013-1`) is measured and sent to the ESP32 but is not, and was
+  never meant to be, a Detector source — by design the only sources are `TEMP1`
+  and `CEM1`. `Engine::onCurrentSensorSample` still calls
+  `_detector.addSample("SCT013-1", ...)` but it's a no-op today (source never
+  registered in `SoftMega2560.ino`).
+
 Several code paths (`SetTarget`, `ConfigSource`) are present but commented out —
 the protocol supports them but the ESP32 side does not yet drive them. Check
 before assuming a command name is unused. Per-flag telemetry (`flag_data`,
@@ -160,6 +199,22 @@ and `StateListener` (own app state, from `SystemData`).
 - `_sendStart()` builds the `start` command JSON from `SystemData::configuration`,
   resolving each setting through `ConfigurationOptions` lookup tables (intensity,
   frequency, duration, tolerance, temperature ranges) before sending it to the Mega.
+- `SdStorage` (`sdstorage.hpp`) is a generic SD-card file read/write module
+  (agnostic of content, per its own contract) for the ESP32-2432S028 (CYD)
+  board's onboard SD slot — shares the TFT's SPI bus (pins 12/13/14) with its
+  own CS on pin 5. Instantiated and `begin()`-called in `SoftEsp32.ino` but
+  **not** wired into `MySystem`/`Engine` — nothing persists to it yet, that's a
+  deliberate next step, not an oversight.
+- `buildDropdown()` (`screencontroller.hpp`) takes its option count as a
+  hardcoded literal per call site (`ConfigurationController::init()`), not
+  `sizeof(options)/sizeof(options[0])` — if an entry is added to or removed from
+  one of the `ConfigurationOptions::optionsXxx[]` arrays, the matching literal
+  has to be updated by hand or it reads past the array. Already bit once: the
+  CEM tolerance list went from `{1%, 5%, 10%}` to `{5%, 10%}` and the call site
+  briefly kept passing `3`. The critical/normal multiplier that derives CEM1's
+  critical range from this tolerance lives in `mega2560/src/safetymargins.hpp`
+  (`SafetyMargins::CemCriticalMultiplier`), not hardcoded inline in `engine.hpp`
+  anymore, but it's still firmware-fixed, not sent from the ESP32.
 - Commands with retry: `start`/`stop`/`reset` are re-sent on a timer
   (`Tasks::ReSendStart` etc.) until the Mega's `ack` arrives, then the resend task
   is cancelled — see `onCommand`'s handling of `Commands::Ack`.
@@ -234,6 +289,13 @@ and `StateListener` (own app state, from `SystemData`).
 - Heavy use of the listener/observer pattern for decoupling between managers;
   when adding behavior, look for the relevant `*Listener` interface before adding
   direct calls between classes.
-- Extensive `Serial.print`/`printf` tracing (especially around `start`/`ack`
-  handling) is intentional for on-device debugging over USB serial — match this
-  style when touching those code paths rather than stripping it out.
+- Extensive debug tracing (especially around `start`/`ack` handling) is
+  intentional for on-device debugging over USB serial — match this style when
+  touching those code paths rather than stripping it out. It goes through
+  `debugconfig.hpp`'s `DEBUG_PRINT`/`DEBUG_PRINTLN`/`DEBUG_PRINTF` macros now,
+  not raw `Serial.print`/`println`/`printf` — every `.hpp`/`.ino` that logs
+  declares its own `constexpr bool DEBUG_<MODULE>` near its includes, gated by
+  the global `DEBUG_ENABLED` in `debugconfig.hpp` (duplicated per board like the
+  files above). Both flags are compile-time constants, so a disabled log is
+  dead-code-eliminated, not just skipped at runtime. New logging in an existing
+  file should reuse its `DEBUG_<MODULE>` flag; a new file needs to declare one.
