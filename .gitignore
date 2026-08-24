@@ -11,3 +11,7 @@ esp32/include/secrets.h
 *.o
 *.elf
 *.bin
+
+# Documentacion de tesis / inventario de Mario (informes .docx, borradores) --
+# se mantiene fuera del repo de codigo a proposito.
+BioSoft/
