@@ -73,6 +73,7 @@ private:
 
     int _currentIndex = -1;
     bool _connected = false;
+    String _lastSsid;
 
     /* -------- runtime por red -------- */
     struct Runtime {
@@ -119,12 +120,16 @@ inline void WiFiManager::update() {
 
     bool nowConnected = (WiFi.status() == WL_CONNECTED);
 
-    /* --- detectar cambio de estado --- */
-    if (nowConnected && !_connected) {
-        _connected = true;
-        notifyConnected(WiFi.SSID().c_str());
+    /* --- detectar cambio de estado (o migracion de SSID) --- */
+    if (nowConnected) {
+        String ssid = WiFi.SSID();
+        if (!_connected || ssid != _lastSsid) {
+            _connected = true;
+            _lastSsid = ssid;
+            notifyConnected(ssid.c_str());
+        }
     }
-    else if (!nowConnected && _connected) {
+    else if (_connected) {
         _connected = false;
         notifyDisconnected();
     }
@@ -200,14 +205,12 @@ inline bool WiFiManager::connectTo(int index) {
 
     if (WiFi.status() == WL_CONNECTED) {
         DEBUG_PRINTLN(DEBUG_WIFI, "[WiFi] Connected");
-        notifyConnected(net.ssid);
         _runtime[index].blocked = false;
         _currentIndex = index;
 
         return true;
     }
 
-    notifyDisconnected();
     _runtime[index].blocked = true;
     _runtime[index].lastFail = millis();
 
