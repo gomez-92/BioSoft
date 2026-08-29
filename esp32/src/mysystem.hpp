@@ -627,7 +627,7 @@ inline void MySystem::onScreenEvent(ScreenEvent e) {
       _processState(StateData::Ready);
     }
     else if(_data.getState() == StateData::Stopping) {
-      _processState(StateData::Running);
+      _processState(StateData::Ready);
     }
   }
 }
