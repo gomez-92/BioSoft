@@ -158,6 +158,28 @@ Key collaborators:
   can be exercised without hardware; it does **not** validate `FieldController`
   against anything physically meaningful. Swap back to `MagnetometerMlx90393`
   (and drop the sim) before any real-coil test.
+- `detector.addSource("CEM1")` is commented out in `SoftMega2560.ino`
+  (2026-08-29, bring-up sin A0 cableado): with `A0` floating, the sim's noisy
+  reading falls outside `DetectorConfigBuilder::buildCemConfig`'s critical band
+  and hits the 3-consecutive-reading streak within ~1.5s of the settling
+  window ending, firing a false `"critical"` flag and cutting the experiment
+  early. `TEMP1` stays registered. Re-enable the `addSource("CEM1")` line once
+  `A0` has a real potentiometer/voltage source wired.
+- **I2C hang hazard**: `ThermometerDS18B20::update()`
+  (`dallasThermometer.requestTemperatures()`) always blocks ~750ms per call
+  regardless of whether a sensor is on the bus, and
+  `CurrentSensorSct013::update()` (`Adafruit_ADS1115::readADC_Differential_*()`)
+  can **hang `loop()` indefinitely** waiting for an I2C ACK that never comes
+  when the ADS1115 isn't wired (floating/no-pull-up bus) — confirmed on-device:
+  the debug log cut off mid-tick right after `"Iniciando: MEASURE_CURRENT"`,
+  with `Tasks::Finish` silently never firing because the MCU was frozen well
+  before the configured duration elapsed. `ThermometerManager::updateAll()` /
+  `CurrentSensorsManager::updateAll()` are safe no-ops with zero sensors
+  registered (they only touch hardware per registered sensor), so for bring-up
+  without these chips wired, comment out `thermometermanager.addThermometer(...)`
+  and `currentsensormanager.addCurrentSensor(...)` in `SoftMega2560.ino` rather
+  than leaving them registered "because it's probably fine" — the current
+  sensor path in particular is not fine.
 - `PWM_PIN` is `44` (Timer5/OC5C), not `A0` — `A0`..`A15` have no hardware timer
   on the Mega2560, so `analogWrite()` there silently degrades to a binary
   `digitalWrite`, not real PWM. `PwmDriver`'s `frequency` constructor param is
@@ -217,7 +239,22 @@ and `StateListener` (own app state, from `SystemData`).
   anymore, but it's still firmware-fixed, not sent from the ESP32.
 - Commands with retry: `start`/`stop`/`reset` are re-sent on a timer
   (`Tasks::ReSendStart` etc.) until the Mega's `ack` arrives, then the resend task
-  is cancelled — see `onCommand`'s handling of `Commands::Ack`.
+  is cancelled — see `onCommand`'s handling of `Commands::Ack`. The `ack` itself
+  only cancels the resend; it never drives a screen transition. That only
+  happens when `state_data` arrives (`_processState()`), which on the Mega side
+  is a periodic broadcast (`Tasks::SendState`, added in `onReady()`), so after a
+  `stop` the ESP32 can wait up to ~5s for the confirming `"ready"` before the
+  Busy screen's own 6s timeout (`BusyController::update()`,
+  `screencontroller.hpp`) fires first.
+- That Busy-timeout race has a fallback in `MySystem::onScreenEvent()`
+  (`ScreenType::BUSY` + `EventName::Timeout`): for `StateData::Starting` it
+  calls `_processState(StateData::Ready)` (back to Principal); for
+  `StateData::Stopping` it used to call `_processState(StateData::Running)` —
+  wrong, since the Mega had already reached `Ready` with nothing running, and
+  that call resets `progress.startTime`/`progress.duration` and shows a
+  "ghost" Running screen with a freshly-reset counter that will never receive
+  a finish signal. Fixed (2026-08-29) to call `_processState(StateData::Ready)`
+  for the Stopping case too, matching the Starting case.
 - `loop()` runs the LVGL display + `MySystem::update()` on the main core; a
   separate FreeRTOS task pinned to core 1 (`communicationTask`) drives
   `MySystem::remoteUpdate()` (WiFi + MQTT) independently, so blocking network I/O
