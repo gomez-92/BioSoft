@@ -184,9 +184,14 @@ void setup() {
 
   /* ===== detector =====*/
   detector.clear();
-  // Habilitado 2026-08-24 junto con el magnetometro simulado (MOD-007) --
-  // umbrales de PRUEBA en engine.hpp, sin calibrar contra campo real.
-  detector.addSource("CEM1");
+  // CEM1 deshabilitado temporalmente (2026-08-29): bring-up de enlace
+  // serie ESP32<->Mega y pantallas (duracion + boton Detener) con A0 sin
+  // cablear -- un pin flotante genera lecturas fuera de rango que disparan
+  // un falso flag "critical" y cortan el experimento antes de tiempo (ver
+  // MagnetometerVoltageSim::update(), magnetometervoltagesim.hpp). Volver a
+  // habilitar esta linea apenas A0 tenga el potenciometro/fuente real
+  // cableado (MOD-007 en Trello).
+  //detector.addSource("CEM1");
   detector.addSource("TEMP1");
 
   /* ===== engine =====*/
