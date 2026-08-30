@@ -140,22 +140,17 @@ void setup() {
 
   /* ===== thermometers =====*/
   thermometermanager.clearThermometers();
-  // Registro deshabilitado temporalmente (2026-08-29): bring-up sin DS18B20
-  // cableado. ThermometerManager::updateAll() con cero termometros
-  // registrados es un loop vacio (no toca hardware), pero CON el sensor
-  // registrado, ThermometerDS18B20::update() llama
-  // dallasThermometer.requestTemperatures(), que bloquea ~750ms por
-  // conversion SIEMPRE (este delay no depende de si hay sensor real en el
-  // bus) -- confirmado en el log de bring-up (MEASURE_TEMPERATURE tardo 752
-  // ms). El dato en si ya se filtraba como invalido (-127), pero el bloqueo
-  // en si segui pasando cada 5s. Volver a habilitar cuando el DS18B20 este
-  // cableado (MOD-007 en Trello).
-  //OneWire* oneWire = new OneWire(WIRE_PIN);
-  //DallasTemperature* dallas = new DallasTemperature(oneWire);
-  //dallas->begin();
-  //DeviceAddress temp1Address = TEMP1_ADDRESS;
-  //ThermometerDS18B20* thermometer1 = new ThermometerDS18B20(*dallas, "TEMP1", temp1Address);
-  //thermometermanager.addThermometer(thermometer1);
+  // Re-habilitado (2026-08-29): DS18B20 cableado para bring-up. TEMP1_ADDRESS
+  // es el ROM code de 64 bits del sensor original -- si el DS18B20 fisico
+  // conectado ahora es OTRA unidad, esta direccion no va a matchear y
+  // getTempC() va a devolver -127 (filtrado como invalido por
+  // ThermometerDS18B20, no crashea, pero tampoco vas a ver lecturas).
+  OneWire* oneWire = new OneWire(WIRE_PIN);
+  DallasTemperature* dallas = new DallasTemperature(oneWire);
+  dallas->begin();
+  DeviceAddress temp1Address = TEMP1_ADDRESS;
+  ThermometerDS18B20* thermometer1 = new ThermometerDS18B20(*dallas, "TEMP1", temp1Address);
+  thermometermanager.addThermometer(thermometer1);
 
   /* ===== current sensors =====*/
   ads1.begin();
