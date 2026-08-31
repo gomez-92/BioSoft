@@ -7,6 +7,10 @@ namespace ConfigurationOptions {
   struct OptionDuration { const char* label; unsigned long duration; };
   struct OptionTolFieldIntensity { const char* label; int tol; };
   struct OptionRangeTemperature { const char* label; float tmin; float tmax; };
+  // Bring-up temporal INT-001 (2026-08-31, ver tarjeta Trello "Prueba de
+  // integracion -- Control de intensidad CEM"): quitar junto con el resto
+  // del combo de testMode una vez terminadas las 6 pruebas de laboratorio.
+  struct OptionTestMode { const char* label; uint8_t value; };
 
   /* ============================================================
    *  OPCIONES (DEFINICIÓN)
@@ -46,6 +50,15 @@ namespace ConfigurationOptions {
     {"25~45 C", 25, 45},
     {"23~47 C", 23, 47},
     {"20~50 C", 20, 50}
+  };
+
+  inline constexpr OptionTestMode optionsTestMode[] = {
+    {"Test 1", 1},
+    {"Test 2", 2},
+    {"Test 3", 3},
+    {"Test 4", 4},
+    {"Test 5", 5},
+    {"Test 6", 6}
   };
 
 };

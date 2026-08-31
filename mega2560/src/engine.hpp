@@ -19,6 +19,7 @@
 #include "emergencybutton.hpp"
 #include "safetymargins.hpp"
 #include "detectorconfigbuilder.hpp"
+#include "testmoderesolver.hpp"
 #include "debugconfig.hpp"
 
 // Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
@@ -59,6 +60,20 @@ class Engine :
     // Detector no vuelve a evaluar nada por el resto del experimento.
     bool _isSettlingTime;
 
+    // Bring-up temporal INT-001 (2026-08-31, ver tarjeta Trello "Prueba de
+    // integracion -- Control de intensidad CEM"): referencias a AMBOS
+    // magnetometros (sim y real) para poder elegir cual esta activo por
+    // software segun el parametro "testMode" del comando start, sin
+    // reflashear en el laboratorio. Ver _applyTestMode().
+    IMagnetometer& _simMagnetometer;
+    IMagnetometer& _realMagnetometer;
+    // true si el lazo FieldController->PwmDriver debe correr en este run
+    // (testMode 2,3,5,6). Con testMode 1/4 ("solo sensado") se mantiene en
+    // false y onMagnetometerSample()/_start() no tocan el PWM. Quitar junto
+    // con testMode una vez terminado el bring-up (en ese punto el lazo
+    // vuelve a correr siempre, como antes de esta rama).
+    bool _controlLoopEnabled = false;
+
     unsigned long _temperatureSampleSendInterval = 3000;
     unsigned long _currentSampleSendInterval = 3000;
     unsigned long _magnetometerSampleSendInterval = 3000;
@@ -79,17 +94,20 @@ class Engine :
       FieldController& fieldController,
       RelayManager& relayManager,
       Detector& detector,
-      EmergencyButton& emergencyButton
+      EmergencyButton& emergencyButton,
+      IMagnetometer& simMagnetometer,
+      IMagnetometer& realMagnetometer
     );
 
     void begin();
     void update();
-    
+
   private:
     void _start();
     void _stop();
     void _reset();
     void _finish(const char* reason, const char* description);
+    void _applyTestMode(uint8_t testMode);
 
     void _sendState();
     //void _sendTargetData();
@@ -136,7 +154,9 @@ inline Engine::Engine(
   FieldController& fieldController,
   RelayManager& relayManager,
   Detector& detector,
-  EmergencyButton& emergencyButton
+  EmergencyButton& emergencyButton,
+  IMagnetometer& simMagnetometer,
+  IMagnetometer& realMagnetometer
 ) :
   _timer(timer),
   _serial(serial),
@@ -150,6 +170,8 @@ inline Engine::Engine(
   _detector(detector),
   _emergencyButton(emergencyButton),
   _isSettlingTime(false),
+  _simMagnetometer(simMagnetometer),
+  _realMagnetometer(realMagnetometer),
   _lastTemperatureSampleSent(0),
   _lastCurrentSampleSent(0),
   _lastMagnetometerSampleSent(0)
@@ -190,9 +212,13 @@ inline void Engine::_start() {
   TargetData target = _runtimeState.target();
   _signalGenerator.setSineWave(target.frequencyTarget);
   _fieldController.reset();
-  _fieldController.setSetpoint(target.cemTarget);
-  _pwmDriver.write(_fieldController.getOutput());
-  _pwmDriver.enable();
+  // Bring-up INT-001: con testMode "solo sensado" (_controlLoopEnabled ==
+  // false) el PWM se deja apagado -- ver _applyTestMode().
+  if (_controlLoopEnabled) {
+    _fieldController.setSetpoint(target.cemTarget);
+    _pwmDriver.write(_fieldController.getOutput());
+    _pwmDriver.enable();
+  }
   _relayManager.closeAll();
   _engineState.setState(State::Running);
 }
@@ -213,6 +239,29 @@ inline void Engine::_reset() {
   _detector.reset();
   _engineState.setState(State::Ready);
   _runtimeState.reset();
+}
+
+// Bring-up temporal INT-001: ver comentario de _controlLoopEnabled en la
+// declaracion de la clase y testmoderesolver.hpp para la tabla completa.
+inline void Engine::_applyTestMode(uint8_t testMode) {
+  TestModeConfig cfg = resolveTestMode(testMode);
+  _controlLoopEnabled = cfg.controlLoopEnabled;
+
+  _magnetometerManager.clearMagnetometers();
+  _magnetometerManager.addMagnetometer(
+    cfg.useRealSensor ? &_realMagnetometer : &_simMagnetometer
+  );
+
+  _detector.removeSource("CEM1");
+  if (cfg.closedLoop) {
+    _detector.addSource("CEM1");
+  }
+
+  DEBUG_PRINT(DEBUG_ENGINE, F("[TESTMODE] testMode="));
+  DEBUG_PRINT(DEBUG_ENGINE, testMode);
+  DEBUG_PRINT(DEBUG_ENGINE, cfg.useRealSensor ? F(" sensor=real") : F(" sensor=sim"));
+  DEBUG_PRINT(DEBUG_ENGINE, cfg.closedLoop ? F(" detector=on") : F(" detector=off"));
+  DEBUG_PRINTLN(DEBUG_ENGINE, cfg.controlLoopEnabled ? F(" control=on") : F(" control=off"));
 }
 
 // Punto unico donde termina un experimento (tiempo cumplido, stop manual o
@@ -564,6 +613,26 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
 
 
     // ========================================================
+    // TEST MODE (bring-up temporal INT-001, ver tarjeta Trello
+    // "Prueba de integracion -- Control de intensidad CEM" -- quitar este
+    // bloque y Engine::_applyTestMode() una vez terminadas las 6 pruebas
+    // de laboratorio)
+    // ========================================================
+
+    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Validando parametro 'testMode'..."));
+
+    if (!params["testMode"].is<int>()) {
+      DEBUG_PRINTLN(DEBUG_ENGINE, F("[START][ERROR] Parametro 'testMode' invalido o ausente"));
+      return;
+    }
+
+    uint8_t testMode = params["testMode"].as<int>();
+
+    DEBUG_PRINT(DEBUG_ENGINE, F("[START] testMode = "));
+    DEBUG_PRINTLN(DEBUG_ENGINE, testMode);
+
+
+    // ========================================================
     // CONFIGURACION SOURCE CEM
     // ========================================================
 
@@ -711,6 +780,10 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
     // ========================================================
 
     DEBUG_PRINTLN(DEBUG_ENGINE, );
+    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Aplicando testMode..."));
+
+    _applyTestMode(testMode);
+
     DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Iniciando experimento..."));
 
     _start();
@@ -769,8 +842,19 @@ inline void Engine::onEmergencyButtonPressed() {
 
 // Sample Sensor Callbacks
 inline void Engine::onMagnetometerSample(IMagnetometer* magnetometer) {
-  _fieldController.update(magnetometer->getMagneticField());
-  _pwmDriver.write(_fieldController.getOutput());
+  // Bring-up INT-001: ver _applyTestMode()/_controlLoopEnabled.
+  if (_controlLoopEnabled) {
+    _fieldController.update(magnetometer->getMagneticField());
+    float duty = _fieldController.getOutput();
+    _pwmDriver.write(duty);
+
+    DEBUG_PRINT(DEBUG_ENGINE, F("[TESTMODE][PWM] "));
+    DEBUG_PRINT(DEBUG_ENGINE, magnetometer->getName());
+    DEBUG_PRINT(DEBUG_ENGINE, F("="));
+    DEBUG_PRINT(DEBUG_ENGINE, magnetometer->getMagneticField(), 4);
+    DEBUG_PRINT(DEBUG_ENGINE, F(" duty="));
+    DEBUG_PRINTLN(DEBUG_ENGINE, duty, 4);
+  }
 
   if(!_isSettlingTime) {
     _detector.addSample(magnetometer->getName(), magnetometer->getMagneticField());

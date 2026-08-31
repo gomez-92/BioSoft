@@ -83,6 +83,14 @@ SPIClass spi;
 
 /*===== inputs =====*/
 MagnetometerManager magnetometermanager;
+// Bring-up de pruebas INT-001 (2026-08-31): ambos magnetometros quedan
+// instanciados a la vez (sim + real) para poder alternar por software cual
+// esta activo via el parametro "testMode" del comando start, sin reflashear
+// en el laboratorio. Ninguno se registra en magnetometermanager en setup();
+// Engine::_applyTestMode() decide cual agregar en cada start. Ver tarjeta
+// Trello "Prueba de integracion -- Control de intensidad CEM (INT-001)".
+MagnetometerVoltageSim magnetometerSim("CEM1", A0);
+MagnetometerMlx90393 magnetometerReal("CEM1");
 ThermometerManager thermometermanager;
 Adafruit_ADS1115 ads1;
 CurrentSensorsManager currentsensormanager;
@@ -107,7 +115,9 @@ Engine engine(
   fieldController,
   relayManager,
   detector,
-  emergencyButton
+  emergencyButton,
+  magnetometerSim,
+  magnetometerReal
 );
 
 
@@ -125,18 +135,15 @@ void setup() {
 
   /* ===== magnetometers =====*/
   magnetometermanager.clearMagnetometers();
-  // PENDIENTE (bloqueado por hardware): descomentar cuando haya
-  // bobinas/acceso al laboratorio -- ver MOD-007 en Trello.
-  //MagnetometerMlx90393* magnetometer = new MagnetometerMlx90393("CEM1");
-  //magnetometermanager.addMagnetometer(magnetometer);
-
-  // SIMULADO (2026-08-24): lee un voltaje en A0 (libre desde que PWM_PIN
-  // se movio a 44) y lo mapea a un CEM ficticio en mT -- solo para validar
-  // la logica de monitoreo/deteccion, NO sirve para control real de
-  // intensidad. Reemplazar por MagnetometerMlx90393 antes de cualquier
-  // prueba con bobinas reales.
-  MagnetometerVoltageSim* magnetometer = new MagnetometerVoltageSim("CEM1", A0);
-  magnetometermanager.addMagnetometer(magnetometer);
+  // Bring-up de pruebas INT-001 (2026-08-31): se inicializan los dos
+  // sensores (sim y real) pero ninguno se registra aca -- Engine decide
+  // cual activar en cada "start" segun el parametro "testMode" (1-6, ver
+  // Engine::_applyTestMode). MagnetometerMlx90393::begin() no cuelga el
+  // loop si el sensor no responde (begin_I2C devuelve false y update()
+  // queda en no-op), asi que es seguro llamarlo aunque el MLX90393 todavia
+  // no este cableado.
+  magnetometerSim.begin();
+  magnetometerReal.begin();
 
   /* ===== thermometers =====*/
   thermometermanager.clearThermometers();
@@ -167,17 +174,10 @@ void setup() {
   ads1.setDataRate(RATE_ADS1115_860SPS);
 
   currentsensormanager.clearCurrentSensors();
-  // Registro deshabilitado temporalmente (2026-08-29): bring-up sin ADS1115
-  // cableado -- CurrentSensorSct013::update() (via readADC_Differential_*(),
-  // Adafruit_ADS1115) CUELGA INDEFINIDAMENTE el loop() esperando un ACK I2C
-  // que nunca llega con el chip desconectado/sin pull-ups. Confirmado en el
-  // log de bring-up: se corto en seco despues de "Iniciando:
-  // MEASURE_CURRENT", sin mas ticks del Timer (ni siquiera el log de RAM
-  // cada 10s) -- coincide con esta llamada, no con un problema de duracion.
-  // CurrentSensorsManager::updateAll() con cero sensores registrados es un
-  // loop vacio y no toca el bus I2C. Volver a habilitar cuando el ADS1115
-  // este cableado (MOD-006 en Trello).
-  /*
+  // Re-habilitado (2026-08-30): ADS1115 cableado y confirmado con ACK en
+  // 0x48 (scan de diagnostico, ya retirado). Antes de esto,
+  // CurrentSensorSct013::update() colgaba loop() indefinidamente con el chip
+  // desconectado -- ver CLAUDE.md.
   CurrentSensorConfig sensor1Config = {
     .channel = 0,              // AIN0-AIN1
     .ratedCurrent = 5.0f,
@@ -192,7 +192,6 @@ void setup() {
     sensor1Config
   );
   currentsensormanager.addCurrentSensor(currentSensor1);
-  */
 
   /* ===== relays =====*/
   Relay* rele1 = new Relay(RELE1_PIN, Relay::ACTIVE_LOW);

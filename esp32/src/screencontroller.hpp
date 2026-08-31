@@ -208,8 +208,11 @@ class ConfigurationController : public BaseScreenController {
     uint8_t _lastOptionDuration = 0;
     uint8_t _lastOptionTolFieldIntensity = 0;
     uint8_t _lastOptionRangeNormalTemperature = 0;
-    uint8_t _lastOptionRangeCriticalTemperature = 0;    
-  
+    uint8_t _lastOptionRangeCriticalTemperature = 0;
+    // Bring-up temporal INT-001 (2026-08-31): quitar junto con
+    // ui_TestModeOpciones una vez terminadas las 6 pruebas de laboratorio.
+    uint8_t _lastOptionTestMode = 0;
+
   private:
     void _applyState();
 };
@@ -231,6 +234,9 @@ inline void ConfigurationController::init() {
   buildDropdown(ui_ToleranciaCampoOpciones, ConfigurationOptions::optionsTolFieldIntensity, 2);
   buildDropdown(ui_RangoTempNormalOpciones, ConfigurationOptions::optionsRangeNormalTemperature, 3);
   buildDropdown(ui_RangoTempCritOpciones, ConfigurationOptions::optionsRangeCriticalTemperature, 3);
+  // Bring-up temporal INT-001 (2026-08-31): quitar junto con
+  // ui_TestModeOpciones una vez terminadas las 6 pruebas de laboratorio.
+  buildDropdown(ui_TestModeOpciones, ConfigurationOptions::optionsTestMode, 6);
 
   // Callbacks dropdown (wrapper estático)
   lv_obj_add_event_cb(ui_DuracionOpciones, dropdownConfigSelectedChanged, LV_EVENT_VALUE_CHANGED, this);
@@ -239,6 +245,7 @@ inline void ConfigurationController::init() {
   lv_obj_add_event_cb(ui_ToleranciaCampoOpciones, dropdownConfigSelectedChanged, LV_EVENT_VALUE_CHANGED, this);
   lv_obj_add_event_cb(ui_RangoTempNormalOpciones, dropdownConfigSelectedChanged, LV_EVENT_VALUE_CHANGED, this);
   lv_obj_add_event_cb(ui_RangoTempCritOpciones, dropdownConfigSelectedChanged, LV_EVENT_VALUE_CHANGED, this);
+  lv_obj_add_event_cb(ui_TestModeOpciones, dropdownConfigSelectedChanged, LV_EVENT_VALUE_CHANGED, this);
 
   lv_obj_add_event_cb(ui_ConfiguracionGuardarBtn, btnConfigSaveClick, LV_EVENT_CLICKED, this);
   lv_obj_add_event_cb(ui_ConfiguracionVolverBtn, btnConfigBackClick, LV_EVENT_CLICKED, this);
@@ -253,6 +260,7 @@ inline void ConfigurationController::_applyState() {
   lv_dropdown_set_selected(ui_ToleranciaCampoOpciones, _data.configuration.fieldIntensityToleranceOption);
   lv_dropdown_set_selected(ui_RangoTempNormalOpciones, _data.configuration.normalTemperatureRangeOption);
   lv_dropdown_set_selected(ui_RangoTempCritOpciones, _data.configuration.criticalTemperatureRangeOption);
+  lv_dropdown_set_selected(ui_TestModeOpciones, _data.configuration.testModeOption);
 
   // Sincronizar cache local
   _lastOptionFieldIntensity = _data.configuration.targetFieldIntensityOption;
@@ -261,7 +269,8 @@ inline void ConfigurationController::_applyState() {
   _lastOptionTolFieldIntensity = _data.configuration.fieldIntensityToleranceOption;
   _lastOptionRangeNormalTemperature = _data.configuration.normalTemperatureRangeOption;
   _lastOptionRangeCriticalTemperature = _data.configuration.criticalTemperatureRangeOption;
-  
+  _lastOptionTestMode = _data.configuration.testModeOption;
+
 }
 
 inline void ConfigurationController::onDropdownChanged(lv_event_t * e) {
@@ -285,6 +294,9 @@ inline void ConfigurationController::onDropdownChanged(lv_event_t * e) {
   else if(widget == ui_RangoTempCritOpciones) {
     _lastOptionRangeCriticalTemperature = optionSelectedIndex;
   }
+  else if(widget == ui_TestModeOpciones) {
+    _lastOptionTestMode = optionSelectedIndex;
+  }
 
 }
 
@@ -295,6 +307,7 @@ inline void ConfigurationController::onSave() {
   _data.configuration.fieldIntensityToleranceOption = _lastOptionTolFieldIntensity;
   _data.configuration.normalTemperatureRangeOption = _lastOptionRangeNormalTemperature;
   _data.configuration.criticalTemperatureRangeOption = _lastOptionRangeCriticalTemperature;
+  _data.configuration.testModeOption = _lastOptionTestMode;
   _data.updatePrincipalConfigurationLabels();
 
   if (_listener == nullptr)

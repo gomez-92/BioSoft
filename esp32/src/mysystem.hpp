@@ -291,6 +291,27 @@ inline void MySystem::_sendStart() {
 
 
     // ========================================================
+    // TEST MODE (bring-up temporal INT-001, ver tarjeta Trello "Prueba de
+    // integracion -- Control de intensidad CEM" -- quitar este bloque una
+    // vez terminadas las 6 pruebas de laboratorio)
+    // ========================================================
+
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, "[START] Obteniendo testMode...");
+
+    auto testMode = ConfigurationOptions::optionsTestMode[
+        _data.configuration.testModeOption
+    ].value;
+
+    DEBUG_PRINT(DEBUG_MYSYSTEM, "[START] testModeOption = ");
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, _data.configuration.testModeOption);
+
+    DEBUG_PRINT(DEBUG_MYSYSTEM, "[START] testMode = ");
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, testMode);
+
+    doc["testMode"] = testMode;
+
+
+    // ========================================================
     // JSON FINAL
     // ========================================================
 

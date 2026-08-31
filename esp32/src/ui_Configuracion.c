@@ -27,6 +27,10 @@ lv_obj_t * ui_RangoTempNormalImg = NULL;
 lv_obj_t * ui_RangoTempNormalOpciones = NULL;
 lv_obj_t * ui_RangoTempCritImg = NULL;
 lv_obj_t * ui_RangoTempCritOpciones = NULL;
+// Bring-up temporal INT-001 (2026-08-31): agregado a mano, NO viene del
+// .sll de SquareLine Studio -- quitar (junto con la declaracion en
+// ui_Configuracion.h) una vez terminadas las 6 pruebas de laboratorio.
+lv_obj_t * ui_TestModeOpciones = NULL;
 // event funtions
 
 // build funtions
@@ -214,6 +218,15 @@ void ui_Configuracion_screen_init(void)
     lv_obj_set_align(ui_RangoTempCritOpciones, LV_ALIGN_CENTER);
     lv_obj_add_flag(ui_RangoTempCritOpciones, LV_OBJ_FLAG_SCROLL_ON_FOCUS);     /// Flags
 
+    // Bring-up temporal INT-001 (2026-08-31): agregado a mano, sin icono
+    // propio (no hay asset en el proyecto SquareLine) -- quitar una vez
+    // terminadas las 6 pruebas de laboratorio.
+    ui_TestModeOpciones = lv_dropdown_create(ui_ConfiguracionMain);
+    lv_obj_set_width(ui_TestModeOpciones, 150);
+    lv_obj_set_height(ui_TestModeOpciones, LV_SIZE_CONTENT);    /// 1
+    lv_obj_set_align(ui_TestModeOpciones, LV_ALIGN_CENTER);
+    lv_obj_add_flag(ui_TestModeOpciones, LV_OBJ_FLAG_SCROLL_ON_FOCUS);     /// Flags
+
 }
 
 void ui_Configuracion_screen_destroy(void)
@@ -243,5 +256,6 @@ void ui_Configuracion_screen_destroy(void)
     ui_RangoTempNormalOpciones = NULL;
     ui_RangoTempCritImg = NULL;
     ui_RangoTempCritOpciones = NULL;
+    ui_TestModeOpciones = NULL;
 
 }
