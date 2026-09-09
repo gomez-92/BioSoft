@@ -109,6 +109,21 @@ Key collaborators:
   `intervals.hpp`).
 - `FieldController` — closed-loop control (setpoint from `start` command) driving
   `PwmDriver` based on live magnetometer readings.
+- `CoilExcitationManager` (`coilexcitationmanager.hpp`) — the only place that
+  decides *what signal the coils get*. `Engine` no longer touches
+  `SignalGenerator` directly: `_start()`/`_stop()` go through
+  `start(freq)`/`stop()`, and the experiment mode (`FieldMode::X` / `Null`) is a
+  single digital pin driving the analog mux. **`setMode()` returns false and
+  changes nothing while running** — flipping a live experiment between field and
+  null field changes the experimental condition of animals already being exposed,
+  which invalidates the run; the mode is chosen before starting. It arrives as an
+  *optional* `mode` param on `start` ("null" ⇒ `Null`, anything else or absent ⇒
+  `X`), so an older ESP32 build keeps working; the default is `X` on purpose,
+  since a silently-null experiment would look exactly like a normal one. The
+  ESP32 does not send it yet — the Configuración selector is its own card.
+  `ISignalGenerator` is declared here (same pattern as `IMagnetometer` living in
+  `magnetometermanager.hpp`) so the manager can be host-tested without pulling in
+  `AD9833.h`/SPI; `SignalGenerator` implements it.
 - `Detector` — evaluates per-source (`CEM1`, `TEMP1`, ...) rules (critical
   threshold, streak, frequency) from sensor sample history and raises `onFlag`
   events. Overall health scoring used to live here (`Engine::_evaluateHealthData()`)

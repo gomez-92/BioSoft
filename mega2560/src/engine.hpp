@@ -11,7 +11,7 @@
 #include "magnetometermanager.hpp"
 #include "thermometermanager.hpp"
 #include "currentmanager.hpp"
-#include "signalgenerator.hpp"
+#include "coilexcitationmanager.hpp"
 #include "pwmdriver.hpp"
 #include "fieldcontroller.hpp"
 #include "relaymanager.hpp"
@@ -45,7 +45,7 @@ class Engine :
     MagnetometerManager& _magnetometerManager;
     ThermometerManager& _thermometerManager;
     CurrentSensorsManager& _currentSensorsManager;
-    SignalGenerator& _signalGenerator;
+    CoilExcitationManager& _coilExcitation;
     PwmDriver& _pwmDriver;
     FieldController& _fieldController;
     RelayManager& _relayManager;
@@ -89,7 +89,7 @@ class Engine :
       MagnetometerManager& magnetometerManager, 
       ThermometerManager& thermometerManager,
       CurrentSensorsManager& currentSensorsManager, 
-      SignalGenerator& signalGenerator,
+      CoilExcitationManager& coilExcitation,
       PwmDriver& pwmDriver,
       FieldController& fieldController,
       RelayManager& relayManager,
@@ -149,7 +149,7 @@ inline Engine::Engine(
   MagnetometerManager& magnetometerManager, 
   ThermometerManager& thermometerManager,
   CurrentSensorsManager& currentSensorsManager, 
-  SignalGenerator& signalGenerator,
+  CoilExcitationManager& coilExcitation,
   PwmDriver& pwmDriver,
   FieldController& fieldController,
   RelayManager& relayManager,
@@ -163,7 +163,7 @@ inline Engine::Engine(
   _magnetometerManager(magnetometerManager),
   _thermometerManager(thermometerManager),
   _currentSensorsManager(currentSensorsManager),
-  _signalGenerator(signalGenerator),
+  _coilExcitation(coilExcitation),
   _pwmDriver(pwmDriver),
   _fieldController(fieldController),
   _relayManager(relayManager),
@@ -194,7 +194,7 @@ inline void Engine::begin() {
   _fieldController.reset();
   _timer.begin();
   _serial.begin();
-  _signalGenerator.begin();
+  _coilExcitation.begin();
   _emergencyButton.begin();
   _timer.start();
   _engineState.setState(State::Ready);
@@ -210,7 +210,7 @@ inline void Engine::_start() {
   // Ver comentario de _isSettlingTime en la declaracion de la clase.
   _isSettlingTime = true;
   TargetData target = _runtimeState.target();
-  _signalGenerator.setSineWave(target.frequencyTarget);
+  _coilExcitation.start(target.frequencyTarget);
   _fieldController.reset();
   // Bring-up INT-001: con testMode "solo sensado" (_controlLoopEnabled ==
   // false) el PWM se deja apagado -- ver _applyTestMode().
@@ -225,7 +225,7 @@ inline void Engine::_start() {
 
 inline void Engine::_stop() {
   _relayManager.openAll();
-  _signalGenerator.off();
+  _coilExcitation.stop();
   _pwmDriver.disable();
   _fieldController.reset();
   _engineState.setState(State::Finished);
@@ -233,7 +233,7 @@ inline void Engine::_stop() {
 
 inline void Engine::_reset() {
   _relayManager.openAll();
-  _signalGenerator.off();
+  _coilExcitation.stop();
   _pwmDriver.disable();
   _fieldController.reset();
   _detector.reset();
@@ -594,6 +594,33 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
     );
 
     DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Targets configuradas correctamente"));
+
+
+    // ========================================================
+    // MODO DE EXPERIMENTO (campo X / campo nulo)
+    // ========================================================
+
+    // Parametro OPCIONAL: si la ESP32 no lo manda, se asume campo X. Es la
+    // unica forma de que una version vieja de la pantalla siga arrancando
+    // experimentos sin romper. El default es X (y no Null) a proposito: si
+    // el modo se pierde en el camino, el experimento corre con campo, que
+    // es la condicion visible y verificable; un campo nulo silencioso
+    // pareceria un experimento normal sin serlo.
+    FieldMode mode = FieldMode::X;
+    if (params["mode"].is<const char*>()) {
+      const char* modeParam = params["mode"].as<const char*>();
+      if (strcmp(modeParam, "null") == 0) {
+        mode = FieldMode::Null;
+      }
+      DEBUG_PRINT(DEBUG_ENGINE, F("[START] mode recibido = "));
+      DEBUG_PRINTLN(DEBUG_ENGINE, modeParam);
+    } else {
+      DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] sin parametro 'mode', se asume campo X"));
+    }
+
+    // setMode() se rechaza si ya hay un experimento corriendo, pero acá
+    // todavia no arranco: _start() va al final de este handler.
+    _coilExcitation.setMode(mode);
 
 
     // ========================================================

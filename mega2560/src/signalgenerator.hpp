@@ -1,7 +1,11 @@
 #pragma once
 #include <AD9833.h>
+#include "coilexcitationmanager.hpp"
 
-class SignalGenerator {
+// Implementa ISignalGenerator (declarada en coilexcitationmanager.hpp, mismo
+// patron que IMagnetometer en magnetometermanager.hpp) para que
+// CoilExcitationManager pueda testearse en host con un doble.
+class SignalGenerator : public ISignalGenerator {
   private:
     AD9833* _gen;
     uint8_t _cs;
@@ -10,14 +14,14 @@ class SignalGenerator {
     void _ensureInitialized();
   public:
     SignalGenerator(SPIClass& spi, uint8_t cs);
-    ~SignalGenerator();
-    void begin();
+    ~SignalGenerator() override;
+    void begin() override;
     // freq=0 (el default) no significa "0 Hz" -- significa "reusar la
     // ultima frecuencia aplicada" (_freq no se pisa si freq no es > 0).
-    void setSineWave(float freq = 0);
+    void setSineWave(float freq = 0) override;
     void setTriangleWave(float freq = 0);
     void setSquareWave(float freq = 0);
-    void off();
+    void off() override;
 };
 
 inline SignalGenerator::SignalGenerator(SPIClass& spi, uint8_t cs) : _cs(cs), _initialized(false), _freq(50) {

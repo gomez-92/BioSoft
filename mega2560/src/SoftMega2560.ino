@@ -15,6 +15,7 @@
 #include "fieldcontroller.hpp"
 #include "pwmdriver.hpp"
 #include "signalgenerator.hpp"
+#include "coilexcitationmanager.hpp"
 #include "detector.hpp"
 #include "emergencybutton.hpp"
 #include "engine.hpp"
@@ -103,6 +104,11 @@ int freeMemory() {
                      // digitalWrite binario, no genera PWM real. Requiere mover
                      // el cable de A0 a pin 44 en la placa fisica.
 #define SPI_CS_PIN 5
+#define FIELD_MODE_PIN 22  // Selector del mux de fase (campo X / campo nulo).
+                           // Pin sin timer a proposito: es una senal digital
+                           // simple y los pines con PWM (2-13, 44-46) quedan
+                           // libres para los canales de intensidad por bobina
+                           // (ver docs/coil-excitation.md).
 
 
 
@@ -126,6 +132,13 @@ CurrentSensorsManager currentsensormanager;
 
 /*===== outputs =====*/
 SignalGenerator signalGenerator(spi, SPI_CS_PIN);
+// Selector de modo de experimento: un unico pin hacia el multiplexor
+// analogico que elige si el par de bobinas 3-4 recibe la senal directa
+// (campo X) o la invertida por el op-amp (campo nulo, grupo control). La
+// inversion de 180 grados es analogica, no por software -- ver
+// docs/adr/001-inversion-de-fase.md. nullLevel queda en HIGH hasta que se
+// confirme como se cablea el mux en la placa.
+CoilExcitationManager coilExcitation(signalGenerator, FIELD_MODE_PIN, HIGH);
 // 3906 Hz (prescaler 8) es la frecuencia acordada como contrato de salida
 // para la excitacion de bobinas -- ver docs/coil-excitation.md. Es la mas
 // alta alcanzable sin cambiar el modo del timer, y deja margen holgado para
@@ -144,7 +157,7 @@ Engine engine(
   magnetometermanager,
   thermometermanager,
   currentsensormanager,
-  signalGenerator,
+  coilExcitation,
   pwmDriver,
   fieldController,
   relayManager,
