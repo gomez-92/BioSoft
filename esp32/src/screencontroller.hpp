@@ -228,15 +228,15 @@ inline void ConfigurationController::update() {}
 
 inline void ConfigurationController::init() {
   BaseScreenController::init();
-  buildDropdown(ui_DuracionOpciones, ConfigurationOptions::optionsDuration, 6);
-  buildDropdown(ui_CampoOpciones, ConfigurationOptions::optionsFieldIntensity, 2);
-  buildDropdown(ui_FrecuenciaOpciones, ConfigurationOptions::optionsFrequency, 2);
-  buildDropdown(ui_ToleranciaCampoOpciones, ConfigurationOptions::optionsTolFieldIntensity, 2);
-  buildDropdown(ui_RangoTempNormalOpciones, ConfigurationOptions::optionsRangeNormalTemperature, 3);
-  buildDropdown(ui_RangoTempCritOpciones, ConfigurationOptions::optionsRangeCriticalTemperature, 3);
+  buildDropdown(ui_DuracionOpciones, ConfigurationOptions::optionsDuration, ConfigurationOptions::countDuration);
+  buildDropdown(ui_CampoOpciones, ConfigurationOptions::optionsFieldIntensity, ConfigurationOptions::countFieldIntensity);
+  buildDropdown(ui_FrecuenciaOpciones, ConfigurationOptions::optionsFrequency, ConfigurationOptions::countFrequency);
+  buildDropdown(ui_ToleranciaCampoOpciones, ConfigurationOptions::optionsTolFieldIntensity, ConfigurationOptions::countTolFieldIntensity);
+  buildDropdown(ui_RangoTempNormalOpciones, ConfigurationOptions::optionsRangeNormalTemperature, ConfigurationOptions::countRangeNormalTemperature);
+  buildDropdown(ui_RangoTempCritOpciones, ConfigurationOptions::optionsRangeCriticalTemperature, ConfigurationOptions::countRangeCriticalTemperature);
   // Bring-up temporal INT-001 (2026-08-31): quitar junto con
   // ui_TestModeOpciones una vez terminadas las 6 pruebas de laboratorio.
-  buildDropdown(ui_TestModeOpciones, ConfigurationOptions::optionsTestMode, 6);
+  buildDropdown(ui_TestModeOpciones, ConfigurationOptions::optionsTestMode, ConfigurationOptions::countTestMode);
 
   // Callbacks dropdown (wrapper estático)
   lv_obj_add_event_cb(ui_DuracionOpciones, dropdownConfigSelectedChanged, LV_EVENT_VALUE_CHANGED, this);

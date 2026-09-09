@@ -8,6 +8,7 @@
 #include "screenmanager.hpp"
 #include "screencontroller.hpp"
 #include "sdstorage.hpp"
+#include "configloader.hpp"
 #include "mysystem.hpp"
 #include "debugconfig.hpp"
 
@@ -62,6 +63,13 @@ void setup() {
   if (!sdStorage.begin()) {
     DEBUG_PRINTLN(DEBUG_MAIN, F("[SD] Continuando sin tarjeta SD"));
   }
+
+  // Tiene que correr ANTES de que MySystem registre sus tareas y de que la
+  // pantalla Configuracion arme sus dropdowns: pisa los intervalos y las
+  // opciones que ambos leen. Si no hay archivo o esta mal, quedan los
+  // defaults compilados y el arranque sigue igual -- no hay rama de error
+  // que atender acá.
+  ConfigLoader::load(sdStorage);
 
   WiFiConfig config1;
   config1.add(SECRET_WIFI_SSID_1, SECRET_WIFI_PASS_1); // agregar aca todas las redes

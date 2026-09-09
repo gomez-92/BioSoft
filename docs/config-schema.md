@@ -65,6 +65,8 @@ parametriza**: esta marcado para eliminarse junto con el resto del combo de
   "schemaVersion": 1,
   "menus": { },
   "intervals": { "esp32": { }, "mega": { } },
+  "control": { },
+  "coils": [ ],
   "detector": { "sources": [ ] },
   "currentSensors": [ ],
   "telemetry": { }
@@ -147,10 +149,10 @@ positivos. Un `0` o un valor negativo se rechaza y esa clave queda en default.
 ```
 
 Los intervalos de publicacion remota **no** viven aca: son parte de la seccion
-`telemetry` (seccion 7), junto a los campos que publican.
+`telemetry` (seccion 9), junto a los campos que publican.
 
 `intervals.mega` es la primera de las porciones que viajan al Mega2560 (ver
-seccion 8).
+seccion 10).
 
 ### Advertencias de acoplamiento
 
@@ -165,7 +167,99 @@ seccion 8).
 
 ---
 
-## 5. Seccion `detector.sources` — fuentes y reglas
+## 5. Seccion `control` — regulador de intensidad
+
+Parametros de calibracion de `FieldController` (`mega2560/src/fieldcontroller.hpp`).
+Hoy viven en `SoftMega2560.ino`, que es el punto donde este archivo los pisa.
+
+```json
+"control": {
+  "kp": 0.1,
+  "maxStep": 0.05,
+  "deadBand": 0.01
+}
+```
+
+| Clave | Unidad | Que hace |
+|---|---|---|
+| `kp` | duty/mT | ganancia proporcional: el paso de duty es `kp * error` |
+| `maxStep` | duty | clamp del paso por llamada a `update()` |
+| `deadBand` | mT | error por debajo del cual no se toca el output |
+
+**`kp` no es un numero que se elija a ojo.** Se calcula como `alfa / K`, donde
+`K` es la ganancia de planta (mT por unidad de duty) medida en lazo abierto y
+`alfa` va entre 0,1 y 0,3. Sale del procedimiento de banco documentado en
+`docs/protocolo-calibracion-intensidad.md`. Los valores del ejemplo son los
+defaults del firmware, **sin calibrar contra bobinas reales**.
+
+`maxStep` tiene que ser mayor que el paso tipico `kp * error` en operacion, o
+el clamp actua siempre y el control degenera en pasos fijos.
+
+`sampleTime` **no** esta en esta seccion a proposito: se deriva del intervalo
+real de medicion (`intervals.mega.measureMagneticField`) via
+`makeFieldControllerConfig()`. Exponerlo como clave independiente permitiria
+desincronizarlo justamente de lo que tiene que seguir.
+
+Esta seccion viaja al Mega2560 (ver seccion 10).
+
+---
+
+## 6. Seccion `coils` — canales de bobina
+
+Un elemento por bobina, **maximo 4**. Corresponde a `CoilChannel` /
+`CoilChannels` (`mega2560/src/coilchannel.hpp`).
+
+```json
+"coils": [
+  { "name": "BOB1", "enabled": true,  "calibrationFactor": 1.0 },
+  { "name": "BOB2", "enabled": true,  "calibrationFactor": 1.0 },
+  { "name": "BOB3", "enabled": false, "calibrationFactor": 1.0 },
+  { "name": "BOB4", "enabled": false, "calibrationFactor": 1.0 }
+]
+```
+
+| Clave | Tipo | Notas |
+|---|---|---|
+| `name` | string | Maximo 15 caracteres. Identifica el canal en los logs |
+| `enabled` | bool | Con `false` el canal no se registra: sin PWM ni enable |
+| `calibrationFactor` | float | Escala el duty comun del lazo para esta bobina |
+
+### El factor no es una intensidad por bobina
+
+Hay **un solo magnetometro** en el sistema, asi que no existe realimentacion
+por bobina y no puede haber un lazo cerrado por canal. Lo que hay es un unico
+`FieldController` que produce un duty **comun**, y cada canal lo escala:
+
+```
+duty_canal = duty_comun * calibrationFactor
+```
+
+El factor sale de medir cuanto duty necesita cada bobina para dar el mismo
+campo, dividido por el de la bobina de referencia (ver el paso 3 del protocolo
+de calibracion). **Un `1.0` significa "todavia sin medir", no "medido y sin
+desvio".** Rango aceptado: `0.1` a `5.0`; un valor fuera de eso, o cero o
+negativo, se rechaza y el canal queda en 1.0.
+
+Si `duty_comun * calibrationFactor` supera 1,0, el canal satura: se limita y
+**queda registrado en el log**, porque significa que esa bobina no alcanza la
+consigna y va a entregar menos campo que las demas.
+
+### Habilitacion y grupos de fase
+
+Las bobinas 1 y 3 reciben la senoidal directa (grupo fijo); las 2 y 4 pasan
+por el multiplexor y se invierten en modo campo nulo. **El agrupamiento es
+cableado, no configurable desde este archivo.**
+
+Como los grupos son alternados, habilitar solo `BOB1` y `BOB2` deja una bobina
+de cada grupo y permite ejercitar los dos modos de experimento — que es el
+default del firmware hoy. Habilitar un subconjunto que caiga entero en un solo
+grupo hace que el modo nulo no cancele nada.
+
+Esta seccion viaja al Mega2560 (ver seccion 10).
+
+---
+
+## 7. Seccion `detector.sources` — fuentes y reglas
 
 Parametriza lo que hoy arma `mega2560/src/detectorconfigbuilder.hpp`. Es la
 seccion de mayor impacto en seguridad: define cuando el sistema considera que
@@ -274,7 +368,7 @@ no recompilando.
 
 ---
 
-## 6. Seccion `currentSensors` — canales de corriente
+## 8. Seccion `currentSensors` — canales de corriente
 
 El gabinete admite **4 canales**; hoy se instancia 1 solo, con pines y
 calibracion fijados en `SoftMega2560.ino`. `CurrentSensorsManager` ya soporta
@@ -324,7 +418,7 @@ miden y se envian a la pantalla, nada mas. Las unicas fuentes son `CEM1` y
 
 ---
 
-## 7. Seccion `telemetry` — publicacion remota
+## 9. Seccion `telemetry` — publicacion remota
 
 Parametriza `MySystem::_publishMeasures()` / `_publishStatus()`
 (`esp32/src/mysystem.hpp`) y el topic de `esp32/src/topics.hpp`. Solo ESP32.
@@ -368,7 +462,7 @@ antes de publicar.
 
 ---
 
-## 8. Reparto ESP32 / Mega2560
+## 10. Reparto ESP32 / Mega2560
 
 La SD esta fisicamente en la ESP32, que es la unica que lee el archivo. El
 Mega no ve la tarjeta: recibe su porcion por el protocolo serie ya existente.
@@ -378,11 +472,13 @@ Mega no ve la tarjeta: recibe su porcion por el protocolo serie ya existente.
 | `menus` | si | no |
 | `intervals.esp32` | si | no |
 | `intervals.mega` | reenvia | **si** |
+| `control` | reenvia | **si** |
+| `coils` | reenvia | **si** |
 | `detector.sources` | reenvia | **si** |
 | `currentSensors` | reenvia | **si** |
 | `telemetry` | si | no |
 
-### 8.1 Fragmentacion
+### 10.1 Fragmentacion
 
 El protocolo serie limita cada trama a `MAX_JSON_SIZE = 256` bytes, con un
 `StaticJsonDocument<256>` del lado de recepcion (`seriallink.hpp`, duplicado
@@ -395,14 +491,16 @@ Mega. Por eso se envia **fragmentada, un frame por unidad logica**:
 | 1 | `config_intervals` | las 9 claves de `intervals.mega` |
 | 2 | `config_source` | una fuente completa de `detector.sources` (rangos + 3 reglas) |
 | 3 | `config_source` | la otra fuente |
-| 4..7 | `config_current` | un canal de `currentSensors` cada uno |
+| 4 | `config_control` | las 3 claves de `control` |
+| 5..8 | `config_coil` | un canal de `coils` cada uno (nombre, enabled, factor) |
+| 9..12 | `config_current` | un canal de `currentSensors` cada uno |
 
 Cada frame se confirma con un `ack` propio y se reenvia hasta recibirlo, con
 el mismo patron `Tasks::ReSendXxx` que ya usan `start`/`stop`/`reset`. Un
 frame sin ack no bloquea a los demas: cada unidad logica que si llego queda
 aplicada, y la que no, queda en su default compilado.
 
-### 8.2 Momento del envio
+### 10.2 Momento del envio
 
 El envio se dispara desde `CommandListener::onSerialConnected`, es decir al
 establecerse el enlace y en cada reconexion. El Mega queda configurado antes
@@ -412,7 +510,7 @@ un reset del Mega lo reconfigura sola.
 La configuracion **no** viaja dentro del `start`: ese comando sigue llevando
 unicamente los parametros de la corrida.
 
-### 8.3 Comandos a declarar
+### 10.3 Comandos a declarar
 
 `Commands::ConfigSource` no existe: el handler `Engine::_configureSource()`
 esta comentado en `engine.hpp`, pero el nombre de comando nunca llego a
@@ -426,12 +524,12 @@ constexpr const char* ConfigCurrent   = "config_current";
 ```
 
 `_configureSource()` se descomenta y se completa con los clamps de la seccion
-5. Su `_sendConfirmSourceConfig()` se reemplaza por el `ack` estandar, para no
+7. Su `_sendConfirmSourceConfig()` se reemplaza por el `ack` estandar, para no
 tener dos mecanismos de confirmacion distintos conviviendo.
 
 ---
 
-## 9. Orden de implementacion
+## 11. Orden de implementacion
 
 De menor a mayor riesgo. Cada paso deja el sistema funcionando.
 
@@ -439,16 +537,17 @@ De menor a mayor riesgo. Cada paso deja el sistema funcionando.
 |---|---|---|---|
 | 1 | `menus` | solo ESP32, sustitucion de arrays | bajo |
 | 2 | `intervals` | `constexpr` a variables runtime, ambas placas | bajo, mecanico |
-| 3 | `detector.sources` | revive `ConfigSource` + clamps en el Mega | medio: toca seguridad |
-| 4 | `telemetry` | solo ESP32; coordinar con el Decoder de Datacake | medio: dependencia externa |
-| 5 | `currentSensors` | compilacion a runtime, riesgo de cuelgue I2C | alto |
+| 3 | `control` + `coils` | parametros del regulador y factores por canal | medio: toca el lazo |
+| 4 | `detector.sources` | revive `ConfigSource` + clamps en el Mega | medio: toca seguridad |
+| 5 | `telemetry` | solo ESP32; coordinar con el Decoder de Datacake | medio: dependencia externa |
+| 6 | `currentSensors` | compilacion a runtime, riesgo de cuelgue I2C | alto |
 
 Los pasos 1 y 2 se pueden hacer sin tocar el protocolo serie. El paso 3 es el
-que obliga a las modificaciones de la seccion 8.3.
+que obliga a las modificaciones de la seccion 10.3.
 
 ---
 
-## 10. Archivo de ejemplo
+## 12. Archivo de ejemplo
 
 `docs/config.example.json` es un archivo completo y valido cuyos valores son
 **identicos a los defaults compilados de hoy**. Cargarlo debe producir

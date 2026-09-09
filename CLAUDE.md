@@ -393,26 +393,46 @@ and `StateListener` (own app state, from `SystemData`).
 - `SdStorage` (`sdstorage.hpp`) is a generic SD-card file read/write module
   (agnostic of content, per its own contract) for the ESP32-2432S028 (CYD)
   board's onboard SD slot — shares the TFT's SPI bus (pins 12/13/14) with its
-  own CS on pin 5. Instantiated and `begin()`-called in `SoftEsp32.ino` but
-  **not** wired into `MySystem`/`Engine` — nothing persists to it yet, that's a
-  deliberate next step, not an oversight. What it will eventually read is
-  already specified: `docs/config-schema.md` is the agreed contract for
-  `/biosoft/config.json` (menus, task intervals, Detector sources + rules,
+  own CS on pin 5. `begin()` opens the SPI bus — the constructor only stores
+  pins, so this global's constructor touches no hardware.
+  **`readFile()` returns false when the content does not fit the buffer**, and
+  that is the whole point: it used to truncate silently and return true, which
+  for a config file is the worst possible failure. The JSON would parse-fail,
+  the loader would fall back to compiled defaults, and the log would say
+  "invalid JSON" while the actual cause was an undersized buffer — sending you
+  to inspect the file instead of the code.
+  Its contract is `docs/config-schema.md`: `/biosoft/config.json` (menus, task
+  intervals, control gains, coil channels, Detector sources + rules,
   current-sensor channels, telemetry), with `docs/config.example.json` holding
-  values identical to today's compiled defaults. Two rules from that contract
-  constrain the implementation: compiled defaults always survive (the file only
-  overrides keys it carries; a corrupt file is discarded whole, never applied
-  half-way), and the Mega's share is pushed **fragmented** — one frame per
-  logical unit, each under `MAX_JSON_SIZE`, sent from `onSerialConnected` — since
-  the full config does not fit in one 256-byte frame and widening that limit
-  would double buffers inside the Mega's 8 KB of RAM.
-- `buildDropdown()` (`screencontroller.hpp`) takes its option count as a
-  hardcoded literal per call site (`ConfigurationController::init()`), not
-  `sizeof(options)/sizeof(options[0])` — if an entry is added to or removed from
-  one of the `ConfigurationOptions::optionsXxx[]` arrays, the matching literal
-  has to be updated by hand or it reads past the array. Already bit once: the
-  CEM tolerance list went from `{1%, 5%, 10%}` to `{5%, 10%}` and the call site
-  briefly kept passing `3`. The critical/normal multiplier that derives CEM1's
+  values identical to today's compiled defaults. Two rules constrain every
+  consumer: compiled defaults always survive (the file only overrides keys it
+  carries; a corrupt file or an unsupported `schemaVersion` is discarded whole,
+  never applied half-way), and the Mega's share is pushed **fragmented** — one
+  frame per logical unit, each under `MAX_JSON_SIZE`, sent from
+  `onSerialConnected` — since the full config does not fit in one 256-byte frame
+  and widening that limit would double buffers inside the Mega's 8 KB of RAM.
+- `ConfigLoader` (`configloader.hpp`) reads that file at boot and applies it.
+  It runs in `setup()` **before** `MySystem` registers its tasks and before the
+  Configuración screen builds its dropdowns, because it overwrites what both of
+  them read. `load()` returning false is *not* an error to handle — it means the
+  compiled defaults stayed in place, which is a perfectly valid boot.
+  Its 8 KB read buffer is `static` on purpose: on the stack it would overflow
+  Arduino's `loopTask` (8192 bytes total).
+  **Scope today is phase 1 only** — `menus` and `intervals.esp32`. The `control`,
+  `coils`, `detector`, `currentSensors` and `telemetry` sections are specified in
+  the schema but not yet applied; the first three belong to the Mega and need the
+  serial config commands that do not exist yet.
+- `ConfigurationOptions` and `Intervals` (ESP32) are **no longer `constexpr`** —
+  they are fixed-size static buffers plus a real length counter (`countXxx`),
+  seeded with the compiled defaults and overwritten by `ConfigLoader`. Option
+  `label`s are owned `char` buffers rather than `const char*` because the JSON
+  strings die with the `JsonDocument` as soon as parsing ends.
+- `buildDropdown()` (`screencontroller.hpp`) now takes `ConfigurationOptions::countXxx`
+  instead of a hardcoded literal per call site. That literal had already bitten
+  once — the CEM tolerance list went from `{1%, 5%, 10%}` to `{5%, 10%}` and the
+  call site kept passing `3` — and with the lists now coming from the SD card,
+  where the length is only known at runtime, a literal could not work at all.
+  The critical/normal multiplier that derives CEM1's
   critical range from this tolerance lives in `mega2560/src/safetymargins.hpp`
   (`SafetyMargins::CemCriticalMultiplier`), not hardcoded inline in `engine.hpp`
   anymore, but it's still firmware-fixed, not sent from the ESP32.

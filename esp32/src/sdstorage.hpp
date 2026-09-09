@@ -28,9 +28,16 @@ class SdStorage {
     bool exists(const char* path) const;
     bool remove(const char* path);
 
-    // Devuelve false si el archivo no existe o no entra en el buffer
-    // (maxLength incluye el terminador nulo). outLength, si no es nullptr,
-    // recibe la cantidad de bytes leidos (sin contar el terminador).
+    // Devuelve false si el archivo no existe, si el buffer es invalido, o
+    // si el contenido NO ENTRA COMPLETO en el buffer (maxLength incluye el
+    // terminador nulo). outLength, si no es nullptr, recibe la cantidad de
+    // bytes leidos (sin contar el terminador).
+    //
+    // Que un archivo truncado devuelva false es deliberado: quien lee un
+    // archivo de configuracion no tiene forma de distinguir "JSON invalido"
+    // de "JSON cortado por buffer chico" si esto devolviera true, y el
+    // sintoma -- arrancar con los defaults -- seria el mismo. Ver
+    // docs/config-schema.md.
     bool readFile(const char* path, char* outBuffer, size_t maxLength, size_t* outLength = nullptr) const;
 
     // Sobreescribe el archivo si ya existe (lo crea si no).
@@ -41,16 +48,23 @@ class SdStorage {
 
   private:
     uint8_t _csPin;
+    uint8_t _sckPin;
+    uint8_t _misoPin;
+    uint8_t _mosiPin;
     SPIClass _spi;
     bool _ready;
 };
 
+// El constructor solo guarda los pines: este objeto se declara global en el
+// .ino y su constructor corre antes que setup(), asi que no toca hardware.
+// El bus SPI se abre en begin(), mismo criterio que PwmDriver y
+// CoilExcitation en el Mega.
 inline SdStorage::SdStorage(uint8_t csPin, uint8_t sckPin, uint8_t misoPin, uint8_t mosiPin)
-  : _csPin(csPin), _spi(HSPI), _ready(false) {
-  _spi.begin(sckPin, misoPin, mosiPin, csPin);
+  : _csPin(csPin), _sckPin(sckPin), _misoPin(misoPin), _mosiPin(mosiPin), _spi(HSPI), _ready(false) {
 }
 
 inline bool SdStorage::begin() {
+  _spi.begin(_sckPin, _misoPin, _mosiPin, _csPin);
   _ready = SD.begin(_csPin, _spi);
   if (!_ready) {
     DEBUG_PRINTLN(DEBUG_SDSTORAGE, F("[SD] ERROR: no se pudo inicializar la tarjeta SD"));
@@ -79,8 +93,23 @@ inline bool SdStorage::readFile(const char* path, char* outBuffer, size_t maxLen
   if (!file) return false;
 
   size_t available = file.size();
-  size_t toRead = (available < maxLength - 1) ? available : (maxLength - 1);
-  size_t bytesRead = file.read(reinterpret_cast<uint8_t*>(outBuffer), toRead);
+
+  // El contenido tiene que entrar entero, con lugar para el terminador. Si
+  // no entra se corta acá, en vez de devolver un buffer truncado que el
+  // llamador tomaria por bueno.
+  if (available > maxLength - 1) {
+    file.close();
+    DEBUG_PRINT(DEBUG_SDSTORAGE, F("[SD] ERROR: "));
+    DEBUG_PRINT(DEBUG_SDSTORAGE, path);
+    DEBUG_PRINT(DEBUG_SDSTORAGE, F(" no entra en el buffer ("));
+    DEBUG_PRINT(DEBUG_SDSTORAGE, available);
+    DEBUG_PRINT(DEBUG_SDSTORAGE, F(" bytes, buffer de "));
+    DEBUG_PRINT(DEBUG_SDSTORAGE, maxLength);
+    DEBUG_PRINTLN(DEBUG_SDSTORAGE, F(")"));
+    return false;
+  }
+
+  size_t bytesRead = file.read(reinterpret_cast<uint8_t*>(outBuffer), available);
   outBuffer[bytesRead] = '\0';
   file.close();
 
