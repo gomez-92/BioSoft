@@ -13,6 +13,7 @@
 #include "currentmanager.hpp"
 #include "coilexcitation.hpp"
 #include "pwmdriver.hpp"
+#include "coilchannel.hpp"
 #include "fieldcontroller.hpp"
 #include "mainpowerswitch.hpp"
 #include "detector.hpp"
@@ -46,7 +47,7 @@ class Engine :
     ThermometerManager& _thermometerManager;
     CurrentSensorsManager& _currentSensorsManager;
     CoilExcitation& _coilExcitation;
-    PwmDriver& _pwmDriver;
+    CoilChannels& _coilChannels;
     FieldController& _fieldController;
     MainPowerSwitch& _mainPowerSwitch;
     Detector& _detector;
@@ -67,7 +68,7 @@ class Engine :
     // reflashear en el laboratorio. Ver _applyTestMode().
     IMagnetometer& _simMagnetometer;
     IMagnetometer& _realMagnetometer;
-    // true si el lazo FieldController->PwmDriver debe correr en este run
+    // true si el lazo FieldController->CoilChannels debe correr en este run
     // (testMode 2,3,5,6). Con testMode 1/4 ("solo sensado") se mantiene en
     // false y onMagnetometerSample()/_start() no tocan el PWM. Quitar junto
     // con testMode una vez terminado el bring-up (en ese punto el lazo
@@ -90,7 +91,7 @@ class Engine :
       ThermometerManager& thermometerManager,
       CurrentSensorsManager& currentSensorsManager, 
       CoilExcitation& coilExcitation,
-      PwmDriver& pwmDriver,
+      CoilChannels& coilChannels,
       FieldController& fieldController,
       MainPowerSwitch& mainPowerSwitch,
       Detector& detector,
@@ -150,7 +151,7 @@ inline Engine::Engine(
   ThermometerManager& thermometerManager,
   CurrentSensorsManager& currentSensorsManager, 
   CoilExcitation& coilExcitation,
-  PwmDriver& pwmDriver,
+  CoilChannels& coilChannels,
   FieldController& fieldController,
   MainPowerSwitch& mainPowerSwitch,
   Detector& detector,
@@ -164,7 +165,7 @@ inline Engine::Engine(
   _thermometerManager(thermometerManager),
   _currentSensorsManager(currentSensorsManager),
   _coilExcitation(coilExcitation),
-  _pwmDriver(pwmDriver),
+  _coilChannels(coilChannels),
   _fieldController(fieldController),
   _mainPowerSwitch(mainPowerSwitch),
   _detector(detector),
@@ -190,7 +191,7 @@ inline Engine::Engine(
 inline void Engine::begin() {
 
   _mainPowerSwitch.begin();
-  _pwmDriver.disable();
+  _coilChannels.beginAll();
   _fieldController.reset();
   _timer.begin();
   _serial.begin();
@@ -216,8 +217,8 @@ inline void Engine::_start() {
   // false) el PWM se deja apagado -- ver _applyTestMode().
   if (_controlLoopEnabled) {
     _fieldController.setSetpoint(target.cemTarget);
-    _pwmDriver.write(_fieldController.getOutput());
-    _pwmDriver.enable();
+    _coilChannels.writeAll(_fieldController.getOutput());
+    _coilChannels.enableAll();
   }
   _mainPowerSwitch.enable();
   _engineState.setState(State::Running);
@@ -226,7 +227,7 @@ inline void Engine::_start() {
 inline void Engine::_stop() {
   _mainPowerSwitch.disable();
   _coilExcitation.stop();
-  _pwmDriver.disable();
+  _coilChannels.disableAll();
   _fieldController.reset();
   _engineState.setState(State::Finished);
 }
@@ -234,7 +235,7 @@ inline void Engine::_stop() {
 inline void Engine::_reset() {
   _mainPowerSwitch.disable();
   _coilExcitation.stop();
-  _pwmDriver.disable();
+  _coilChannels.disableAll();
   _fieldController.reset();
   _detector.reset();
   _engineState.setState(State::Ready);
@@ -865,7 +866,7 @@ inline void Engine::onMagnetometerSample(IMagnetometer* magnetometer) {
   if (_controlLoopEnabled) {
     _fieldController.update(magnetometer->getMagneticField());
     float duty = _fieldController.getOutput();
-    _pwmDriver.write(duty);
+    _coilChannels.writeAll(duty);
 
     DEBUG_PRINT(DEBUG_ENGINE, F("[TESTMODE][PWM] "));
     DEBUG_PRINT(DEBUG_ENGINE, magnetometer->getName());

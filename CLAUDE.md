@@ -95,7 +95,7 @@ callbacks. Consumers implement `CommandListener` and call `sendCommand(...)` /
 `Engine` (`mega2560/src/engine.hpp`) is the central orchestrator, composed via
 constructor-injected references to all managers/drivers (`Timer`, `SerialLink`,
 `MagnetometerManager`, `ThermometerManager`, `CurrentSensorsManager`,
-`CoilExcitation`, `PwmDriver`, `FieldController`, `MainPowerSwitch`, `Detector`).
+`CoilExcitation`, `CoilChannels`, `FieldController`, `MainPowerSwitch`, `Detector`).
 It implements multiple listener interfaces (`EngineStateListener`,
 `RuntimeStateListener`, `TimerListener`, `CommandListener`, sensor sample
 listeners, `DetectorListener`) and reacts to events rather than polling — sensor
@@ -155,9 +155,30 @@ Key collaborators:
   design had two AD9833s to orchestrate; the name outlived that design and was
   actively misleading, so it went. The same reasoning retired `RelayManager`,
   now `MainPowerSwitch` (see below).
+- `CoilChannel` / `CoilChannels` (`coilchannel.hpp`) — one channel per coil,
+  owning the two signals that are 1:1 with a coil: its intensity PWM and its
+  enable line. The enable is a bare `pinMode`+`digitalWrite` with **no
+  blanking** — the other end is a digital input to a solid-state stage, not a
+  mechanical contact, so reusing `Relay` would only add latency for a
+  protection that doesn't apply here.
+  **The loop stays single.** With one magnetometer there is no per-coil
+  feedback, so "individual intensity" is one `FieldController` producing a
+  *common* duty that each channel scales by its own calibration factor
+  (`duty_channel = duty_common × factor`). `Engine` calls `writeAll(duty)` once;
+  the per-coil differences live in the factors, measured on the bench (see
+  `docs/protocolo-calibracion-intensidad.md`). A factor of `1.0` — the default —
+  means **not yet measured**, not "measured and found equal".
+  When a factor pushes duty past 1.0 the channel clamps *and logs it*: that coil
+  is not reaching the setpoint and will run weaker than the others, which
+  nothing else would reveal. During calibration that log line is the symptom
+  you're looking for.
+  `CoilChannels` **is** a legitimate container of N, unlike the `RelayManager`
+  that became `MainPowerSwitch`: there N was fixed at 1 by design, here there
+  are 4 real coils and every experiment-level operation is collective (enable
+  all, cut all, hand out the common duty). Same shape as `MagnetometerManager`.
 - `MainPowerSwitch` (`mainpowerswitch.hpp`) — the general cutoff for the whole
   power stage (the remote 3-pin GND/VDD/enable connector), distinct from the
-  per-coil enable that will live in `CoilChannel`. It wraps **one** `Relay`;
+  per-coil enable in `CoilChannel`. It wraps **one** `Relay`;
   `Engine` calls `enable()`/`disable()` and no longer reasons about open and
   closed contacts, which are a property of the relay and not of the experiment.
   It replaced `RelayManager` (an `addRelay`/`beginAll`/`openAll` container for up

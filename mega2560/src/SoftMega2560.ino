@@ -15,6 +15,7 @@
 #include "intervals.hpp"
 #include "fieldcontroller.hpp"
 #include "pwmdriver.hpp"
+#include "coilchannel.hpp"
 #include "signalgenerator.hpp"
 #include "coilexcitation.hpp"
 #include "detector.hpp"
@@ -100,10 +101,22 @@ int freeMemory() {
 #define RELE1_PIN 3
 #define EMERGENCY_BUTTON_PIN 4
 #define TEMP1_ADDRESS { 0x28, 0x3F, 0xE5, 0x57, 0x04, 0xE1, 0x3D, 0xED }
-#define PWM_PIN 44  // Pin con timer de hardware real (Timer5/OC5C). A0 no tiene
-                     // timer asociado en el Mega2560: analogWrite() ahi cae a un
-                     // digitalWrite binario, no genera PWM real. Requiere mover
-                     // el cable de A0 a pin 44 en la placa fisica.
+// Un canal PWM por bobina. 44/45/46 son Timer5 y 6 es Timer4: los dos timers
+// se configuran a la misma frecuencia, asi que el reparto entre ellos es
+// transparente. Timer3 (2,3,5) no esta disponible -- OneWire, rele y SPI CS --
+// y Timer0/Timer2 los excluye PwmDriver a proposito (ver pwmdriver.hpp).
+#define COIL1_PWM_PIN 44
+#define COIL2_PWM_PIN 45
+#define COIL3_PWM_PIN 46
+#define COIL4_PWM_PIN 6   // Timer4; confirmar contra el ruteo real de la placa
+
+// Habilitacion individual por bobina: pines digitales sin timer, para no
+// gastar los que sirven para PWM.
+#define COIL1_ENABLE_PIN 23
+#define COIL2_ENABLE_PIN 24
+#define COIL3_ENABLE_PIN 25
+#define COIL4_ENABLE_PIN 26
+
 #define SPI_CS_PIN 5
 #define FIELD_MODE_PIN 22  // Selector del mux de fase (campo X / campo nulo).
                            // Pin sin timer a proposito: es una senal digital
@@ -145,7 +158,20 @@ CoilExcitation coilExcitation(signalGenerator, FIELD_MODE_PIN, HIGH);
 // alta alcanzable sin cambiar el modo del timer, y deja margen holgado para
 // que la etapa de potencia filtre el PWM a un nivel DC sin que el rizado se
 // mezcle con la senoidal de trabajo (10-50 Hz).
-PwmDriver pwmDriver(PWM_PIN, 3906);
+PwmDriver pwmCoil1(COIL1_PWM_PIN, 3906);
+PwmDriver pwmCoil2(COIL2_PWM_PIN, 3906);
+PwmDriver pwmCoil3(COIL3_PWM_PIN, 3906);
+PwmDriver pwmCoil4(COIL4_PWM_PIN, 3906);
+
+// Los factores de calibracion arrancan en 1.0 (sin corregir) y se cargan
+// recien cuando se ejecute la calibracion en banco -- ver
+// docs/protocolo-calibracion-intensidad.md y la tarjeta 8b. Un 1.0 no
+// significa "calibrado y sin desvio": significa "todavia sin medir".
+CoilChannel coil1(pwmCoil1, COIL1_ENABLE_PIN, "BOB1");
+CoilChannel coil2(pwmCoil2, COIL2_ENABLE_PIN, "BOB2");
+CoilChannel coil3(pwmCoil3, COIL3_ENABLE_PIN, "BOB3");
+CoilChannel coil4(pwmCoil4, COIL4_ENABLE_PIN, "BOB4");
+CoilChannels coilChannels;
 // Parametros del regulador de intensidad. Este es el UNICO lugar donde se
 // fijan: cuando la configuracion por SD este implementada (ver
 // docs/config-schema.md), es aca donde el archivo los va a pisar.
@@ -181,7 +207,7 @@ Engine engine(
   thermometermanager,
   currentsensormanager,
   coilExcitation,
-  pwmDriver,
+  coilChannels,
   fieldController,
   mainPowerSwitch,
   detector,
@@ -263,6 +289,15 @@ void setup() {
     sensor1Config
   );
   currentsensormanager.addCurrentSensor(currentSensor1);
+
+  /* ===== canales de bobina =====*/
+  // begin() de cada canal lo hace Engine::begin() via beginAll(), igual que
+  // con CoilExcitation y MainPowerSwitch.
+  coilChannels.clearChannels();
+  coilChannels.addChannel(&coil1);
+  coilChannels.addChannel(&coil2);
+  coilChannels.addChannel(&coil3);
+  coilChannels.addChannel(&coil4);
 
   /* ===== interruptor general =====*/
   // No se llama begin() acá: lo hace Engine::begin(), igual que con
