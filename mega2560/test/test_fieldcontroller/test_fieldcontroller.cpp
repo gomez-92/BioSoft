@@ -203,6 +203,42 @@ void test_get_output_matches_last_update_return_value(void) {
     TEST_ASSERT_EQUAL_FLOAT(out, controller.getOutput());
 }
 
+// =====================================================================
+// makeFieldControllerConfig -- derivacion de sampleTime
+//
+// sampleTime tiene que coincidir con la cadencia real de update() o el
+// termino integral queda escalado mal. Antes era un literal (0.2s) contra
+// un intervalo real de 500ms, y nada delataba la diferencia porque las dos
+// constantes vivian en archivos distintos. Estos tests fijan la derivacion.
+// =====================================================================
+
+void test_makeConfig_derives_sample_time_from_interval(void) {
+    // El caso real del Mega: Intervals::MeasureMagneticField = 500ms.
+    FieldController::Config config = makeFieldControllerConfig(500);
+
+    TEST_ASSERT_EQUAL_FLOAT(0.5f, config.sampleTime);
+}
+
+void test_makeConfig_tracks_a_different_interval(void) {
+    // Si se cambia la cadencia de medicion, el regulador la sigue solo --
+    // que es el punto de derivarlo en vez de escribirlo a mano.
+    TEST_ASSERT_EQUAL_FLOAT(0.2f, makeFieldControllerConfig(200).sampleTime);
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, makeFieldControllerConfig(1000).sampleTime);
+    TEST_ASSERT_EQUAL_FLOAT(0.05f, makeFieldControllerConfig(50).sampleTime);
+}
+
+// Solo sampleTime es derivado: los parametros de calibracion se fijan en el
+// .ino (y, cuando exista, desde la configuracion en SD), no acá.
+void test_makeConfig_leaves_tuning_parameters_at_defaults(void) {
+    FieldController::Config defaults;
+    FieldController::Config config = makeFieldControllerConfig(500);
+
+    TEST_ASSERT_EQUAL_FLOAT(defaults.kp, config.kp);
+    TEST_ASSERT_EQUAL_FLOAT(defaults.maxStep, config.maxStep);
+    TEST_ASSERT_EQUAL_FLOAT(defaults.deadBand, config.deadBand);
+    TEST_ASSERT_EQUAL_FLOAT(defaults.integralGain, config.integralGain);
+}
+
 int main(int argc, char** argv) {
     UNITY_BEGIN();
 
@@ -221,6 +257,10 @@ int main(int argc, char** argv) {
     RUN_TEST(test_reset_restores_initial_state);
 
     RUN_TEST(test_get_output_matches_last_update_return_value);
+
+    RUN_TEST(test_makeConfig_derives_sample_time_from_interval);
+    RUN_TEST(test_makeConfig_tracks_a_different_interval);
+    RUN_TEST(test_makeConfig_leaves_tuning_parameters_at_defaults);
 
     return UNITY_END();
 }

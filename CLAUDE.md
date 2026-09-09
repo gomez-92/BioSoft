@@ -119,6 +119,18 @@ Key collaborators:
   is exactly one magnetometer — by design, not by omission — per-coil intensity
   can never be four independent loops; it is one loop plus a per-coil scaling
   factor measured once at calibration.
+  Build its `Config` with **`makeFieldControllerConfig(intervalMs)`**, never by
+  filling `sampleTime` by hand: that field must match the real cadence of
+  `update()` calls or the integral term is scaled wrong, and it used to be a
+  literal `0.2f` against a real 500 ms interval — silently off by more than
+  half, because the two constants lived in different files and neither
+  referenced the other. The `.ino` now derives it from
+  `Intervals::MeasureMagneticField`, so changing the measurement cadence retunes
+  the controller on its own. The `0.2f` default survives only for `Config`s
+  built standalone in tests. The tuning parameters (`kp`, `maxStep`, `deadBand`)
+  are deliberately *not* derived — they are set in `SoftMega2560.ino`, which is
+  the single place the SD config will override once it exists, and they are
+  still uncalibrated header defaults rather than measured values.
 - `CoilExcitation` (`coilexcitation.hpp`) — the only place that
   decides *what signal the coils get*. `Engine` no longer touches
   `SignalGenerator` directly: `_start()`/`_stop()` go through

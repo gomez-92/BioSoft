@@ -46,10 +46,14 @@ class FieldController {
         float maxStep = 0.05f;      // clamp del paso proporcional por llamada a update()
         // Tiempo (segundos) que update() ASUME que paso desde la llamada
         // anterior -- no se mide con millis(), es un valor fijo usado para
-        // escalar el termino integral. Debe coincidir con la cadencia real
-        // de llamadas a update() (Intervals::MeasureMagneticField en el
-        // Mega, hoy 500ms) para que integralGain tenga el efecto esperado;
-        // el default de 0.2s (200ms) no coincide con eso.
+        // escalar el termino integral. Tiene que coincidir con la cadencia
+        // real de llamadas a update() o integralGain no tiene el efecto
+        // esperado.
+        //
+        // NO fijarlo a mano: usar makeFieldControllerConfig(), que lo deriva
+        // del intervalo de medicion. Este default de 0.2s existe solo para
+        // que un Config construido suelto (tests) tenga algo razonable; en
+        // el firmware real lo pisa la derivacion.
         float sampleTime = 0.2f;
         float deadBand = 0.01f;        // |error| por debajo de esto: no se toca el output
         float driftThreshold = 0.02f;  // variacion (max-min) en driftWindow que dispara la integral lenta
@@ -77,6 +81,26 @@ class FieldController {
     float windowVariation() const;
     float clamp(float value, float minimum, float maximum) const;
 };
+
+// Construye un Config con sampleTime derivado de la cadencia REAL con que se
+// va a llamar a update() -- en el Mega, Intervals::MeasureMagneticField.
+//
+// Existe para que ese valor tenga una sola fuente de verdad. Antes el
+// sampleTime era un literal (0.2s) que no coincidia con el intervalo real
+// (500ms): el termino integral corria escalado a menos de la mitad de lo
+// configurado, y nada lo delataba porque las dos constantes vivian en
+// archivos distintos y ninguna referenciaba a la otra. Derivandolo, cambiar
+// la cadencia de medicion ajusta el regulador solo.
+//
+// Los parametros de calibracion (kp, maxStep, deadBand) NO se tocan acá: se
+// fijan en el .ino, que es el punto donde los va a pisar la configuracion de
+// la SD cuando exista. Ver docs/protocolo-calibracion-intensidad.md para
+// como se obtienen -- kp en particular se calcula como alfa/K, no se mide.
+inline FieldController::Config makeFieldControllerConfig(unsigned long sampleIntervalMs) {
+  FieldController::Config config;
+  config.sampleTime = static_cast<float>(sampleIntervalMs) / 1000.0f;
+  return config;
+}
 
 inline FieldController::FieldController(const Config& config) : _config(config) {
     reset();

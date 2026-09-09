@@ -12,6 +12,7 @@
 #include "currentmanager.hpp"
 #include "currentsensorsct013.hpp"
 #include "mainpowerswitch.hpp"
+#include "intervals.hpp"
 #include "fieldcontroller.hpp"
 #include "pwmdriver.hpp"
 #include "signalgenerator.hpp"
@@ -145,7 +146,25 @@ CoilExcitation coilExcitation(signalGenerator, FIELD_MODE_PIN, HIGH);
 // que la etapa de potencia filtre el PWM a un nivel DC sin que el rizado se
 // mezcle con la senoidal de trabajo (10-50 Hz).
 PwmDriver pwmDriver(PWM_PIN, 3906);
-FieldController::Config config;
+// Parametros del regulador de intensidad. Este es el UNICO lugar donde se
+// fijan: cuando la configuracion por SD este implementada (ver
+// docs/config-schema.md), es aca donde el archivo los va a pisar.
+//
+// kp, maxStep y deadBand son valores de CALIBRACION y hoy no estan calibrados
+// contra bobinas reales -- son los defaults del header, no numeros medidos.
+// El procedimiento para obtenerlos esta en
+// docs/protocolo-calibracion-intensidad.md. Dos cosas de ahi que conviene
+// tener a mano antes de tocarlos:
+//
+//   - kp NO se lee del duty de equilibrio: en equilibrio el error es cero y
+//     kp no interviene. Se calcula como alfa/K, donde K es la ganancia de
+//     planta (mT por unidad de duty) medida en lazo abierto, con alfa entre
+//     0.1 y 0.3. kp*error es un paso de duty, asi que kp esta en duty/mT.
+//   - maxStep tiene que ser MAYOR que el paso tipico kp*error en operacion,
+//     o el clamp actua siempre y el control vuelve a ser de paso fijo.
+//
+// sampleTime no se fija a mano: sale derivado del intervalo real de medicion.
+FieldController::Config config = makeFieldControllerConfig(Intervals::MeasureMagneticField);
 FieldController fieldController(config);
 // Interruptor general de la etapa de potencia. El Relay se declara acá y no
 // dentro de MainPowerSwitch para que el pin y el tipo de activacion queden
