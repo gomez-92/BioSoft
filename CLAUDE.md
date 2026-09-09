@@ -491,8 +491,9 @@ and `StateListener` (own app state, from `SystemData`).
   values that aren't its own) for `MySystem` to read when building the
   `config_*` frames (see below). Range checks for those sections deliberately
   live on the Mega, which is the authority over its own Detector and coils;
-  the ESP32 only type-checks. `currentSensors` and `telemetry` are still
-  unimplemented. Note `detector.sources[].range.mode` is parsed but *not*
+  the ESP32 only type-checks. `telemetry` is applied locally like phase 1 (see
+  the `Topics` bullet below); only `currentSensors` is still unimplemented.
+  Note `detector.sources[].range.mode` is parsed but *not*
   forwarded: which source derives its ranges from the target and which takes
   them verbatim is fixed by design on the Mega (CEM1 derived, TEMP1 not), so
   only `criticalMultiplier` travels.
@@ -519,6 +520,23 @@ and `StateListener` (own app state, from `SystemData`).
   `stop` the ESP32 can wait up to ~5s for the confirming `"ready"` before the
   Busy screen's own 6s timeout (`BusyController::update()`,
   `screencontroller.hpp`) fires first.
+- `Topics` (`topics.hpp`) is no longer constants: the MQTT topic and the six
+  telemetry field names/enables are mutable globals seeded with the compiled
+  defaults and overwritten by `ConfigLoader` from the SD `telemetry` section —
+  same "applied locally" pattern as `menus`/`intervals.esp32`, nothing here
+  travels to the Mega. The field *set* is closed (six values the firmware knows
+  how to produce); what's configurable is which of them publish, under what key
+  name, at what cadence, and to which topic. **Those default names are the
+  contract with the Datacake Decoder** — renaming one without updating the
+  Decoder makes that value silently stop arriving.
+  `_publishMeasures()`/`_publishStatus()` now funnel through
+  `_publishTelemetry()`, which skips the batch when no field is enabled and,
+  more importantly, **refuses to publish a payload that doesn't fit the 128-byte
+  buffer** instead of letting `serializeJson` truncate it silently (the same
+  ignored-return-value trap as `SerialLink::_sendFrame`, and now reachable
+  because field names come from a file). A truncated JSON is unparseable to the
+  Decoder anyway, so publishing it would trade one missing field for a whole
+  lost batch, without a log line to explain it.
 - `MySystem::_sendMegaConfig()` (called from `onSerialConnected()`, so it
   fires on every connect *and* reconnect) generalizes that same ack/retry
   pattern to an arbitrary set of frames instead of one fixed command: up to

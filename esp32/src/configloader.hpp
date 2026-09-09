@@ -4,6 +4,7 @@
 #include "sdstorage.hpp"
 #include "configurationoptions.hpp"
 #include "intervals.hpp"
+#include "topics.hpp"
 #include "debugconfig.hpp"
 
 // Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
@@ -456,6 +457,55 @@ namespace ConfigLoader {
       DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F(" fuentes leidas, se reenvian al conectar"));
     }
 
+    // Un campo ausente conserva su default compilado (nombre Y enabled): es
+    // el mismo criterio del resto del esquema, y acá importa especialmente
+    // porque el nombre es la clave que espera el Decoder de Datacake.
+    inline void applyTelemetryField(JsonObjectConst fields, const char* key, Topics::TelemetryField& target) {
+      JsonObjectConst field = fields[key];
+      if (field.isNull()) return;
+
+      if (field["enabled"].is<bool>()) {
+        target.enabled = field["enabled"].as<bool>();
+      }
+      if (field["name"].is<const char*>()) {
+        strncpy(target.name, field["name"].as<const char*>(), Topics::MaxFieldNameLength - 1);
+        target.name[Topics::MaxFieldNameLength - 1] = '\0';
+      }
+    }
+
+    // A diferencia de control/coils/detector, esta seccion es del ESP32 y se
+    // aplica acá mismo: no viaja al Mega.
+    inline void loadTelemetry(JsonObjectConst telemetry) {
+      if (telemetry.isNull()) {
+        DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] sin seccion 'telemetry': se conservan los defaults"));
+        return;
+      }
+
+      if (telemetry["topic"].is<const char*>()) {
+        strncpy(Topics::Telemetry, telemetry["topic"].as<const char*>(), Topics::MaxTopicLength - 1);
+        Topics::Telemetry[Topics::MaxTopicLength - 1] = '\0';
+      }
+
+      JsonObjectConst intervals = telemetry["intervals"];
+      if (!intervals.isNull()) {
+        applyInterval(intervals["measures"], Intervals::PublishMeasures, "telemetry.measures");
+        applyInterval(intervals["status"], Intervals::PublishStatus, "telemetry.status");
+      }
+
+      JsonObjectConst fields = telemetry["fields"];
+      if (!fields.isNull()) {
+        applyTelemetryField(fields, "magneticField", Topics::MagneticField);
+        applyTelemetryField(fields, "temperature", Topics::Temperature);
+        applyTelemetryField(fields, "current", Topics::Current);
+        applyTelemetryField(fields, "health", Topics::Health);
+        applyTelemetryField(fields, "progress", Topics::Progress);
+        applyTelemetryField(fields, "elapsedTime", Topics::ElapsedTime);
+      }
+
+      DEBUG_PRINT(DEBUG_CONFIGLOADER, F("[CONFIG] telemetria aplicada, topic="));
+      DEBUG_PRINTLN(DEBUG_CONFIGLOADER, Topics::Telemetry);
+    }
+
     // Rango 0.1-5.0 de calibrationFactor NO se valida acá -- lo hace
     // CoilChannel::setCalibrationFactor() del lado Mega, que es quien tiene
     // la autoridad sobre sus propios canales. Acá solo se extrae lo que el
@@ -562,6 +612,7 @@ namespace ConfigLoader {
     loadControl(doc["control"]);
     loadCoils(doc["coils"]);
     loadDetectorSources(doc["detector"]);
+    loadTelemetry(doc["telemetry"]);
 
     DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] configuracion aplicada"));
     DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] ----------------------------------------"));

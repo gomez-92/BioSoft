@@ -87,6 +87,7 @@ class MySystem :
     const ConfigLoader::RuleConfig* _findRuleConfig(const ConfigLoader::SourceConfigEntry& source, const char* ruleName);
 
     bool _publish(const char* topic, const char* payload);
+    void _publishTelemetry(JsonDocument& doc);
     void _publishMeasures();
     void _publishStatus();
 
@@ -568,31 +569,55 @@ inline bool MySystem::_publish(const char* topic, const char* payload) {
   return _brokerManager.publish(topic, payload);
 }
 
-// Nombres de campo (CEM1/TEMP1/BOB1/ESTADO/PROGRESS/ELAPSED_TIME) elegidos
-// para calzar con el Decoder ya configurado del lado de Datacake -- no
-// cambiar sin actualizar tambien ese Decoder. BOB1 es el nombre historico
-// del Decoder para la bobina; se reusa para la corriente medida
-// (measureCurrent, sensor SCT013) en vez de agregar un campo nuevo.
+// Los nombres de campo y el topic salen de Topics (topics.hpp), que trae los
+// defaults compilados (CEM1/TEMP1/BOB1/ESTADO/PROGRESS/ELAPSED_TIME) y los
+// pisa la seccion `telemetry` del archivo de la SD. Esos defaults son los que
+// espera el Decoder ya configurado del lado de Datacake: renombrar uno obliga
+// a actualizar tambien ese Decoder, o el valor deja de llegar sin error
+// visible. BOB1 es el nombre historico del Decoder para la bobina; se reusa
+// para la corriente medida (measureCurrent, sensor SCT013) en vez de agregar
+// un campo nuevo.
 inline void MySystem::_publishMeasures() {
   JsonDocument doc;
-  doc["CEM1"] = _data.measures.measureMagneticField;
-  doc["TEMP1"] = _data.measures.measureTemperature;
-  doc["BOB1"] = _data.measures.measureCurrent;
+  if (Topics::MagneticField.enabled) doc[Topics::MagneticField.name] = _data.measures.measureMagneticField;
+  if (Topics::Temperature.enabled)   doc[Topics::Temperature.name]   = _data.measures.measureTemperature;
+  if (Topics::Current.enabled)       doc[Topics::Current.name]       = _data.measures.measureCurrent;
+
+  _publishTelemetry(doc);
+}
+
+// Serializa y publica, salvo que no haya nada que mandar o que el payload no
+// entre en el buffer.
+//
+// El chequeo de truncado NO es defensivo de mas: serializeJson recorta en
+// silencio si no entra y devuelve lo que escribio, y hasta ahora ese retorno
+// se ignoraba. Con los nombres de campo configurables desde la SD, un par de
+// nombres largos alcanzan para pasarse de 128 y publicar un JSON cortado, que
+// el Decoder de Datacake no puede parsear: se perderia la tanda entera sin un
+// solo error visible. Preferimos no publicar y dejarlo dicho en el log.
+inline void MySystem::_publishTelemetry(JsonDocument& doc) {
+  if (doc.size() == 0) return;
 
   char payload[128];
-  serializeJson(doc, payload, sizeof(payload));
+  size_t length = serializeJson(doc, payload, sizeof(payload));
+
+  if (length >= sizeof(payload) - 1) {
+    DEBUG_PRINT(DEBUG_MYSYSTEM, F("[TELEMETRIA] payload no entra en "));
+    DEBUG_PRINT(DEBUG_MYSYSTEM, (int)sizeof(payload));
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, F(" bytes -- no se publica (acortar los nombres de campo)"));
+    return;
+  }
+
   _publish(Topics::Telemetry, payload);
 }
 
 inline void MySystem::_publishStatus() {
   JsonDocument doc;
-  doc["ESTADO"] = _data.progress.health;
-  doc["PROGRESS"] = (int)_data.progressPercent();
-  doc["ELAPSED_TIME"] = _data.elapsedTime();
+  if (Topics::Health.enabled)      doc[Topics::Health.name]      = _data.progress.health;
+  if (Topics::Progress.enabled)    doc[Topics::Progress.name]    = (int)_data.progressPercent();
+  if (Topics::ElapsedTime.enabled) doc[Topics::ElapsedTime.name] = _data.elapsedTime();
 
-  char payload[128];
-  serializeJson(doc, payload, sizeof(payload));
-  _publish(Topics::Telemetry, payload);
+  _publishTelemetry(doc);
 }
 
 

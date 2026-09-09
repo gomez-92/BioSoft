@@ -467,10 +467,18 @@ publican, con que nombre de clave salen y a que cadencia.
 > nombre historico del Decoder para la bobina, reusado para la corriente
 > medida.
 
-Topes: `topic` maximo 63 caracteres, cada `name` maximo 15. El payload
-serializado sigue entrando en el buffer de 128 bytes de `_publishMeasures()`;
-nombres mas largos que los actuales acercan ese limite y el firmware trunca
-antes de publicar.
+Topes: `topic` maximo 63 caracteres, cada `name` maximo 15. Lo que exceda se
+trunca al copiarse.
+
+El payload serializado tiene que entrar en el buffer de 128 bytes de
+`MySystem::_publishTelemetry()`. Con los nombres default entra holgado, pero
+un par de nombres largos alcanzan para pasarse. Si eso pasa **la tanda no se
+publica** y queda registrado en el log: `serializeJson` recorta en silencio, y
+un JSON cortado no lo puede parsear el Decoder de Datacake, asi que publicarlo
+solo cambiaria un dato faltante por una tanda entera perdida sin aviso.
+
+Un campo con `enabled: false` no ocupa lugar en el payload. Si los 3 campos de
+una tanda quedan deshabilitados, esa tanda no se publica (no se manda `{}`).
 
 ---
 
@@ -579,7 +587,7 @@ De menor a mayor riesgo. Cada paso deja el sistema funcionando.
 | 2 | `intervals` | `constexpr` a variables runtime, ambas placas | bajo, mecanico | **hecho** |
 | 3 | `control` + `coils` | parametros del regulador y factores por canal | medio: toca el lazo | **hecho** |
 | 4 | `detector.sources` | validacion en el Mega + retiro de `testMode` | medio: toca seguridad | **hecho** |
-| 5 | `telemetry` | solo ESP32; coordinar con el Decoder de Datacake | medio: dependencia externa | pendiente |
+| 5 | `telemetry` | solo ESP32; coordinar con el Decoder de Datacake | medio: dependencia externa | **hecho** |
 | 6 | `currentSensors` | compilacion a runtime, riesgo de cuelgue I2C | alto | pendiente |
 
 Los pasos 1 y 2 se pudieron hacer sin tocar el protocolo serie. El paso 3 fue
