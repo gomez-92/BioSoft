@@ -10,7 +10,9 @@
 #include "seriallink.hpp"
 #include "magnetometermanager.hpp"
 #include "thermometermanager.hpp"
+#include <Wire.h>
 #include "currentmanager.hpp"
+#include "currentsensorsct013.hpp"
 #include "coilexcitation.hpp"
 #include "pwmdriver.hpp"
 #include "coilchannel.hpp"
@@ -91,6 +93,21 @@ class Engine :
     static constexpr uint8_t SourceCount = 2;
     SourceSettings _sourceSettings[SourceCount];
 
+    // Plantillas de los sensores de corriente. Los objetos viven en el .ino
+    // (estaticos, uno por entrada fisica posible) y llegan por referencia;
+    // acá solo se guarda si estan habilitados y con que parametros, para
+    // aplicarlos al arrancar. Se matchean con lo que trae el archivo por
+    // (address, channel), que es la identidad fisica de la entrada: un
+    // objeto estatico esta ligado de por vida a su ADS.
+    struct CurrentSensorSettings {
+      CurrentSensorSct013* sensor;
+      uint8_t address;
+      bool enabled;
+      CurrentSensorConfig config;
+    };
+    static constexpr uint8_t CurrentSensorCount = 4;
+    CurrentSensorSettings _currentSensorSettings[CurrentSensorCount];
+
     unsigned long _temperatureSampleSendInterval = 3000;
     unsigned long _currentSampleSendInterval = 3000;
     unsigned long _magnetometerSampleSendInterval = 3000;
@@ -119,6 +136,15 @@ class Engine :
     void begin();
     void update();
 
+    // Registra un slot de sensor de corriente. Los objetos son estaticos y
+    // viven en el .ino (uno por entrada fisica posible, ligado de por vida a
+    // su ADS); acá solo se guarda la referencia para poder habilitarlos y
+    // parametrizarlos desde el archivo de la SD. Se llama en setup().
+    bool registerCurrentSensor(CurrentSensorSct013* sensor, uint8_t address, uint8_t channel);
+    // Default compilado de un slot, para el `.ino`: que canales estan
+    // habilitados si no hay tarjeta SD o si el archivo no trae la seccion.
+    bool enableCurrentSensor(uint8_t address, uint8_t channel, bool enabled);
+
   private:
     void _start();
     void _stop();
@@ -129,6 +155,11 @@ class Engine :
     // el comentario de su implementacion.
     void _applySourceSettings();
     Engine::SourceSettings* _findSourceSettings(const char* name);
+    // Registra los sensores de corriente habilitados, salteando los de un
+    // modulo que no conteste en el bus. Ver su implementacion.
+    void _applyCurrentSensorSettings();
+    Engine::CurrentSensorSettings* _findCurrentSensorSettings(uint8_t address, uint8_t channel);
+    static bool _i2cDeviceResponds(uint8_t address);
 
     void _sendState();
     //void _sendTargetData();
@@ -285,6 +316,69 @@ inline void Engine::_reset() {
 
 // Bring-up temporal INT-001: ver comentario de _controlLoopEnabled en la
 // declaracion de la clase y testmoderesolver.hpp para la tabla completa.
+inline bool Engine::registerCurrentSensor(CurrentSensorSct013* sensor, uint8_t address, uint8_t channel) {
+  if (sensor == nullptr) return false;
+
+  for (uint8_t i = 0; i < CurrentSensorCount; i++) {
+    if (_currentSensorSettings[i].sensor != nullptr) continue;
+
+    _currentSensorSettings[i].sensor = sensor;
+    _currentSensorSettings[i].address = address;
+    _currentSensorSettings[i].enabled = false;
+    // La plantilla arranca con lo que el .ino le puso al objeto: son los
+    // defaults compilados, y config_current solo pisa las claves que trae.
+    _currentSensorSettings[i].config = sensor->getConfig();
+    _currentSensorSettings[i].config.address = address;
+    _currentSensorSettings[i].config.channel = channel;
+    return true;
+  }
+  return false;
+}
+
+inline bool Engine::enableCurrentSensor(uint8_t address, uint8_t channel, bool enabled) {
+  CurrentSensorSettings* settings = _findCurrentSensorSettings(address, channel);
+  if (settings == nullptr) return false;
+
+  settings->enabled = enabled;
+  return true;
+}
+
+inline Engine::CurrentSensorSettings* Engine::_findCurrentSensorSettings(uint8_t address, uint8_t channel) {
+  for (uint8_t i = 0; i < CurrentSensorCount; i++) {
+    CurrentSensorSettings& settings = _currentSensorSettings[i];
+    if (settings.sensor == nullptr) continue;
+    if (settings.address == address && settings.config.channel == channel) {
+      return &settings;
+    }
+  }
+  return nullptr;
+}
+
+// Registra en el manager los sensores habilitados. El probe del bus no esta
+// acá sino en CurrentSensorSct013::begin() (que addCurrentSensor() invoca):
+// asi la proteccion contra el cuelgue por I2C viaja con el driver y vale
+// tambien para cualquier otro registro, no solo para este camino.
+inline void Engine::_applyCurrentSensorSettings() {
+  _currentSensorsManager.clearCurrentSensors();
+
+  for (uint8_t i = 0; i < CurrentSensorCount; i++) {
+    CurrentSensorSettings& settings = _currentSensorSettings[i];
+    if (settings.sensor == nullptr) continue;
+
+    if (!settings.enabled) {
+      DEBUG_PRINT(DEBUG_ENGINE, F("[CURRENT] slot 0x"));
+      DEBUG_PRINT(DEBUG_ENGINE, settings.address, HEX);
+      DEBUG_PRINT(DEBUG_ENGINE, F("/"));
+      DEBUG_PRINT(DEBUG_ENGINE, settings.config.channel);
+      DEBUG_PRINTLN(DEBUG_ENGINE, F(": deshabilitado"));
+      continue;
+    }
+
+    settings.sensor->setConfig(settings.config);
+    _currentSensorsManager.addCurrentSensor(settings.sensor);
+  }
+}
+
 inline Engine::SourceSettings* Engine::_findSourceSettings(const char* name) {
   if (name == nullptr) return nullptr;
   for (uint8_t i = 0; i < SourceCount; i++) {
@@ -697,6 +791,7 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
     DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Aplicando configuracion de fuentes..."));
 
     _applySourceSettings();
+    _applyCurrentSensorSettings();
 
 
     // ========================================================
@@ -1091,6 +1186,71 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
     doc["command"] = Commands::ConfigRule;
     doc["source"] = settings->name;
     doc["rule"] = ruleName;
+
+    _serial.sendCommand(
+      Commands::Ack,
+      doc
+    );
+  }
+
+  // Un canal de corriente. Se matchea al slot por (address, channel) -- la
+  // identidad fisica de la entrada -- porque cada objeto estatico esta ligado
+  // de por vida a un ADS concreto y no puede cambiar de modulo. El `name` es
+  // solo la etiqueta con la que sale en current_data.
+  //
+  // Igual que detector.sources, no se aplica al recibirse: registrar o sacar
+  // sensores a mitad de experimento cambiaria lo que se esta midiendo en
+  // plena corrida.
+  else if (strcmp(command, Commands::ConfigCurrent) == 0) {
+
+    if (!params["address"].is<uint8_t>() || !params["channel"].is<uint8_t>()) {
+      DEBUG_PRINTLN(DEBUG_ENGINE, F("[CONFIG_CURRENT][ERROR] Falta 'address' o 'channel' -- sin ack"));
+      return;
+    }
+
+    uint8_t address = params["address"].as<uint8_t>();
+    uint8_t channel = params["channel"].as<uint8_t>();
+    CurrentSensorSettings* settings = _findCurrentSensorSettings(address, channel);
+
+    if (settings == nullptr) {
+      DEBUG_PRINT(DEBUG_ENGINE, F("[CONFIG_CURRENT] Sin slot para 0x"));
+      DEBUG_PRINT(DEBUG_ENGINE, address, HEX);
+      DEBUG_PRINT(DEBUG_ENGINE, F("/"));
+      DEBUG_PRINTLN(DEBUG_ENGINE, channel);
+    } else {
+      if (params["enabled"].is<bool>()) {
+        settings->enabled = params["enabled"].as<bool>();
+      }
+      if (params["name"].is<const char*>()) {
+        settings->config.name = params["name"].as<const char*>();
+      }
+      if (params["ratedCurrent"].is<float>()) {
+        settings->config.ratedCurrent = params["ratedCurrent"].as<float>();
+      }
+      if (params["ratedVoltage"].is<float>()) {
+        settings->config.ratedVoltage = params["ratedVoltage"].as<float>();
+      }
+      if (params["calibration"].is<float>()) {
+        settings->config.calibration = params["calibration"].as<float>();
+      }
+      if (params["sampleRate"].is<uint16_t>()) {
+        settings->config.sampleRate = params["sampleRate"].as<uint16_t>();
+      }
+      if (params["integrationTimeMs"].is<uint16_t>()) {
+        settings->config.integrationTimeMs = params["integrationTimeMs"].as<uint16_t>();
+      }
+
+      // setConfig() copia el nombre a un buffer propio del sensor: hay que
+      // llamarlo mientras `params` sigue vivo, porque config.name apunta
+      // adentro del JsonDocument del frame recibido.
+      settings->sensor->setConfig(settings->config);
+      settings->config.name = nullptr;
+    }
+
+    JsonDocument doc;
+    doc["command"] = Commands::ConfigCurrent;
+    doc["address"] = address;
+    doc["channel"] = channel;
 
     _serial.sendCommand(
       Commands::Ack,

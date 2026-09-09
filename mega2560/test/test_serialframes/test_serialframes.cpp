@@ -162,6 +162,25 @@ void test_config_rule_fits(void) {
     TEST_ASSERT_TRUE(survivesTransport(Commands::ConfigRule, doc));
 }
 
+// =====================================================================
+// config_current — el frame mas cargado del protocolo (9 claves)
+// =====================================================================
+
+void test_config_current_fits(void) {
+    JsonDocument doc;
+    doc["name"] = "123456789012345";   // tope del esquema: 15 caracteres
+    doc["enabled"] = true;
+    doc["address"] = 73;               // 0x49, el segundo modulo
+    doc["channel"] = 1;
+    doc["ratedCurrent"] = 20.123456f;
+    doc["ratedVoltage"] = 1.123456f;
+    doc["calibration"] = 0.775123f;
+    doc["sampleRate"] = 860;
+    doc["integrationTimeMs"] = 200;
+
+    TEST_ASSERT_TRUE(survivesTransport(Commands::ConfigCurrent, doc));
+}
+
 // Este es el test que justifica la fragmentacion: una fuente entera con la
 // forma del esquema (cabecera + las 3 reglas anidadas) NO entra en un frame.
 // docs/config-schema.md 10.1 asumia que si; por eso detector.sources viaja
@@ -190,6 +209,7 @@ void test_every_command_name_fits_in_the_command_field(void) {
     TEST_ASSERT_LESS_THAN(MAX_COMMAND_SIZE, strlen(Commands::ConfigCoil) + 1);
     TEST_ASSERT_LESS_THAN(MAX_COMMAND_SIZE, strlen(Commands::ConfigSource) + 1);
     TEST_ASSERT_LESS_THAN(MAX_COMMAND_SIZE, strlen(Commands::ConfigRule) + 1);
+    TEST_ASSERT_LESS_THAN(MAX_COMMAND_SIZE, strlen(Commands::ConfigCurrent) + 1);
 }
 
 int main(int argc, char** argv) {
@@ -200,6 +220,8 @@ int main(int argc, char** argv) {
 
     RUN_TEST(test_config_control_fits);
     RUN_TEST(test_config_coil_fits_with_max_length_name);
+
+    RUN_TEST(test_config_current_fits);
 
     RUN_TEST(test_config_source_header_fits);
     RUN_TEST(test_config_rule_fits);

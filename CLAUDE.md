@@ -306,18 +306,23 @@ Key collaborators:
 - **I2C hang hazard**: `ThermometerDS18B20::update()`
   (`dallasThermometer.requestTemperatures()`) always blocks ~750ms per call
   regardless of whether a sensor is on the bus, and
-  `CurrentSensorSct013::update()` (`Adafruit_ADS1115::readADC_Differential_*()`)
-  can **hang `loop()` indefinitely** waiting for an I2C ACK that never comes
-  when the ADS1115 isn't wired (floating/no-pull-up bus) — confirmed on-device:
-  the debug log cut off mid-tick right after `"Iniciando: MEASURE_CURRENT"`,
-  with `Tasks::Finish` silently never firing because the MCU was frozen well
-  before the configured duration elapsed. `ThermometerManager::updateAll()` /
-  `CurrentSensorsManager::updateAll()` are safe no-ops with zero sensors
-  registered (they only touch hardware per registered sensor), so for bring-up
-  without these chips wired, comment out `thermometermanager.addThermometer(...)`
-  and `currentsensormanager.addCurrentSensor(...)` in `SoftMega2560.ino` rather
-  than leaving them registered "because it's probably fine" — the current
-  sensor path in particular is not fine.
+  `Adafruit_ADS1115::readADC_Differential_*()` **hangs `loop()` indefinitely**
+  waiting for an I2C ACK that never comes when the ADS1115 isn't wired — it has
+  no timeout. Confirmed on-device: the debug log cut off mid-tick right after
+  `"Iniciando: MEASURE_CURRENT"`, with `Tasks::Finish` silently never firing
+  because the MCU was frozen well before the configured duration elapsed.
+  **The current-sensor half of this is now guarded.**
+  `CurrentSensorSct013::begin()` probes the module's address first — a bare
+  address transaction (`Wire.beginTransmission`/`endTransmission`), which
+  returns a clean error when nobody answers — and only then calls
+  `_ads.begin()`. If the chip isn't there the sensor stays disabled, says so in
+  the log, and `update()` returns before touching the bus. That is what makes
+  it safe to leave a channel on the second module (0x49) configured in the SD
+  file while that module doesn't physically exist yet.
+  The thermometer has no such guard, and `ThermometerManager::updateAll()` /
+  `CurrentSensorsManager::updateAll()` are still safe no-ops with zero sensors
+  registered, so for bring-up without a DS18B20 wired it's still better to not
+  register it than to leave it registered "because it's probably fine".
 - `PWM_PIN` is `44` (Timer5/OC5C), not `A0` — `A0`..`A15` have no hardware timer
   on the Mega2560, so `analogWrite()` there silently degrades to a binary
   `digitalWrite`, not real PWM. `PwmDriver`'s `frequency` constructor param is
@@ -371,6 +376,22 @@ Key collaborators:
   skew between those two writes is 18° of error, so even a `DEBUG_PRINTLN`
   between them would matter. The analog inverter is exact by construction
   instead, which is the whole argument.
+- **An ADS1115 has only 2 differential pairs** (AIN0-AIN1, AIN2-AIN3), not 4
+  channels — `CurrentSensorSct013::readRaw()` reads differentially, and its
+  `default` branch returns 0, i.e. a sensor that reads 0 A forever while
+  looking healthy (`begin()` now rejects `channel > 1` outright). So the
+  cabinet's 4 current channels need **two modules**: 0x48 and 0x49. Both are
+  declared in `SoftMega2560.ino` along with 4 static `CurrentSensorSct013`
+  slots (2 per module), even though the second module doesn't exist yet —
+  adding it later is an SD-file edit, not a reflash. Each file entry is matched
+  to its slot by `(address, channel)`, never by name, because a static object
+  is bound to its ADS for life.
+  The slots are static and not `new` on purpose:
+  `CurrentSensorsManager::clearCurrentSensors()` doesn't delete, so
+  re-instantiating them on every `start` would leak steadily inside 8 KB.
+  Note `sampleRate` (and gain) are **per module, not per channel** — two
+  sensors on one ADS share those registers and the last one configured wins,
+  silently. Same shape of trap as PWM frequency being per timer, not per pin.
 - Current (`SCT013-1`) is measured and sent to the ESP32 but is not, and was
   never meant to be, a Detector source — by design the only sources are `TEMP1`
   and `CEM1`. `Engine::onCurrentSensorSample` still calls
@@ -492,7 +513,8 @@ and `StateListener` (own app state, from `SystemData`).
   `config_*` frames (see below). Range checks for those sections deliberately
   live on the Mega, which is the authority over its own Detector and coils;
   the ESP32 only type-checks. `telemetry` is applied locally like phase 1 (see
-  the `Topics` bullet below); only `currentSensors` is still unimplemented.
+  the `Topics` bullet below). **All six sections of the schema are now
+  implemented.**
   Note `detector.sources[].range.mode` is parsed but *not*
   forwarded: which source derives its ranges from the target and which takes
   them verbatim is fixed by design on the Mega (CEM1 derived, TEMP1 not), so
@@ -540,13 +562,14 @@ and `StateListener` (own app state, from `SystemData`).
 - `MySystem::_sendMegaConfig()` (called from `onSerialConnected()`, so it
   fires on every connect *and* reconnect) generalizes that same ack/retry
   pattern to an arbitrary set of frames instead of one fixed command: up to
-  14 (1 `config_intervals` + 1 `config_control` + 4 `config_coil` + 2
-  `config_source` + 6 `config_rule`), each tracked as an entry in
+  18 (1 `config_intervals` + 1 `config_control` + 4 `config_coil` + 2
+  `config_source` + 6 `config_rule` + 4 `config_current`), each tracked as an entry in
   `_pendingConfig[]`, with a single `Tasks::ReSendConfig` task (not one per
   frame) sending whatever is still active until `Commands::Ack` clears it.
   Entries are matched by `command` plus a `key` that disambiguates several
-  pendings of the same command (coil name, source name, or
-  `"<source>/<rule>"`); `config_intervals`/`config_control` have no key since
+  pendings of the same command (coil name, source name, `"<source>/<rule>"`,
+  or `"<address>/<channel>"` for a current channel);
+  `config_intervals`/`config_control` have no key since
   only one of each can be in flight. Once every entry is inactive,
   `_cancelPendingConfig()` removes the task itself.
   Note `_sendMegaConfig()` does **not** blast all 14 out at once: the

@@ -139,8 +139,31 @@ MagnetometerManager magnetometermanager;
 MagnetometerVoltageSim magnetometerSim("CEM1", A0);
 MagnetometerMlx90393 magnetometerReal("CEM1");
 ThermometerManager thermometermanager;
+// DOS modulos ADS1115: cada uno tiene solo 2 pares diferenciales (AIN0-AIN1
+// y AIN2-AIN3) y el SCT013 se lee en diferencial, asi que los 4 canales del
+// gabinete necesitan dos chips. 0x48 es ADDR a GND (el default) y 0x49 es
+// ADDR a VDD.
+//
+// El segundo se declara aunque todavia no exista fisicamente: no se le habla
+// hasta que conteste en el bus (ver CurrentSensorSct013::begin()), y tenerlo
+// declarado hace que agregarlo en el futuro sea editar el archivo de la SD
+// en vez de reflashear.
+#define ADS1_ADDRESS 0x48
+#define ADS2_ADDRESS 0x49
 Adafruit_ADS1115 ads1;
+Adafruit_ADS1115 ads2;
 CurrentSensorsManager currentsensormanager;
+
+// Un objeto por entrada fisica posible, estaticos igual que los CoilChannel.
+// Cada uno queda ligado de por vida a su modulo; el archivo de la SD decide
+// cuales se habilitan y con que parametros (Engine los reconfigura via
+// setConfig()). Estaticos y no `new` a proposito:
+// CurrentSensorsManager::clearCurrentSensors() no libera, asi que
+// reinstanciarlos en cada start seria una fuga lenta en 8 KB de RAM.
+CurrentSensorSct013 currentSensor1(ads1, { ADS1_ADDRESS, 0, 5.0f, 1.0f, 0.775f, 860, 200, "SCT013-1" });
+CurrentSensorSct013 currentSensor2(ads1, { ADS1_ADDRESS, 1, 5.0f, 1.0f, 0.775f, 860, 200, "SCT013-2" });
+CurrentSensorSct013 currentSensor3(ads2, { ADS2_ADDRESS, 0, 5.0f, 1.0f, 0.775f, 860, 200, "SCT013-3" });
+CurrentSensorSct013 currentSensor4(ads2, { ADS2_ADDRESS, 1, 5.0f, 1.0f, 0.775f, 860, 200, "SCT013-4" });
 
 /*===== outputs =====*/
 SignalGenerator signalGenerator(spi, SPI_CS_PIN);
@@ -269,38 +292,21 @@ void setup() {
   thermometermanager.addThermometer(thermometer1);
 
   /* ===== current sensors =====*/
-  ads1.begin();
-  /*
-  if (!ads1.begin()) {
-    DEBUG_PRINTLN(DEBUG_MAIN, "ERROR: ADS1115 no encontrado");
-    while (true) {
-      delay(1000);
-    }
-  }
-  */
-
-  ads1.setGain(GAIN_TWO);
-  ads1.setDataRate(RATE_ADS1115_860SPS);
-
+  // No se llama begin() a los ADS acá: lo hace CurrentSensorSct013::begin()
+  // cuando Engine registra el sensor, y recien despues de confirmar que el
+  // modulo contesta en el bus. Un chip ausente no puede colgar el arranque
+  // (antes habia un `while(true)` comentado que hacia justo eso) ni el
+  // loop() (readADC_Differential espera un ACK que no llega, sin timeout).
   currentsensormanager.clearCurrentSensors();
-  // Re-habilitado (2026-08-30): ADS1115 cableado y confirmado con ACK en
-  // 0x48 (scan de diagnostico, ya retirado). Antes de esto,
-  // CurrentSensorSct013::update() colgaba loop() indefinidamente con el chip
-  // desconectado -- ver CLAUDE.md.
-  CurrentSensorConfig sensor1Config = {
-    .channel = 0,              // AIN0-AIN1
-    .ratedCurrent = 5.0f,
-    .ratedVoltage = 1.0f,
-    .calibration = 0.775f,
-    .sampleRate = 860,
-    .integrationTimeMs = 200,
-    .name = "SCT013-1"
-  };
-  CurrentSensorSct013* currentSensor1 = new CurrentSensorSct013(
-    ads1,
-    sensor1Config
-  );
-  currentsensormanager.addCurrentSensor(currentSensor1);
+  // Los 4 slots se le presentan a Engine; cuales terminan registrados en el
+  // manager lo decide la seccion currentSensors del archivo de la SD, y se
+  // aplica en cada start. Sin tarjeta queda el default compilado: solo
+  // SCT013-1, que es el unico canal cableado hoy.
+  engine.registerCurrentSensor(&currentSensor1, ADS1_ADDRESS, 0);
+  engine.registerCurrentSensor(&currentSensor2, ADS1_ADDRESS, 1);
+  engine.registerCurrentSensor(&currentSensor3, ADS2_ADDRESS, 0);
+  engine.registerCurrentSensor(&currentSensor4, ADS2_ADDRESS, 1);
+  engine.enableCurrentSensor(ADS1_ADDRESS, 0, true);
 
   /* ===== canales de bobina =====*/
   // begin() de cada canal lo hace Engine::begin() via beginAll(), igual que

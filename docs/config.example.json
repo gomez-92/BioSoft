@@ -201,7 +201,41 @@
     {
       "name": "SCT013-1",
       "enabled": true,
+      "address": 72,
       "channel": 0,
+      "ratedCurrent": 5.0,
+      "ratedVoltage": 1.0,
+      "calibration": 0.775,
+      "sampleRate": 860,
+      "integrationTimeMs": 200
+    },
+    {
+      "name": "SCT013-2",
+      "enabled": false,
+      "address": 72,
+      "channel": 1,
+      "ratedCurrent": 5.0,
+      "ratedVoltage": 1.0,
+      "calibration": 0.775,
+      "sampleRate": 860,
+      "integrationTimeMs": 200
+    },
+    {
+      "name": "SCT013-3",
+      "enabled": false,
+      "address": 73,
+      "channel": 0,
+      "ratedCurrent": 5.0,
+      "ratedVoltage": 1.0,
+      "calibration": 0.775,
+      "sampleRate": 860,
+      "integrationTimeMs": 200
+    },
+    {
+      "name": "SCT013-4",
+      "enabled": false,
+      "address": 73,
+      "channel": 1,
       "ratedCurrent": 5.0,
       "ratedVoltage": 1.0,
       "calibration": 0.775,

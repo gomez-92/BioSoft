@@ -382,20 +382,33 @@ no recompilando.
 
 ## 8. Seccion `currentSensors` — canales de corriente
 
-El gabinete admite **4 canales**; hoy se instancia 1 solo, con pines y
-calibracion fijados en `SoftMega2560.ino`. `CurrentSensorsManager` ya soporta
-hasta 10 (`MAX_CURRENT_SENSORS`).
+El gabinete admite **4 canales**, repartidos en **dos modulos ADS1115**.
 
-**Maximo 4 entradas.** Es la seccion de mayor esfuerzo de las cinco: obliga a
-pasar de instanciacion en compilacion a instanciacion en runtime, con el mismo
-patron `clear/add` que ya usa `_applySourceSettings()` para el magnetometro. Por eso
-va **ultima** en el orden de implementacion.
+### Por que dos modulos
+
+Un ADS1115 tiene 4 entradas simples pero solo **2 pares diferenciales**
+(AIN0-AIN1 y AIN2-AIN3), y el SCT013 se lee en modo diferencial. Con 4
+canales hacen falta dos chips, en direcciones distintas: **0x48** (ADDR a GND)
+y **0x49** (ADDR a VDD).
+
+Por eso cada entrada se identifica por el par **(`address`, `channel`)**, que
+es su identidad fisica. El firmware declara los 4 slots (2 por modulo) con un
+objeto estatico cada uno, ligado de por vida a su ADS; el archivo decide
+cuales se habilitan y con que parametros. **El segundo modulo esta declarado
+aunque hoy no exista fisicamente**: agregarlo mas adelante es editar este
+archivo, no reflashear.
+
+> Una version anterior de este documento decia `channel: 0 a 3`. Era
+> incorrecto: un canal 2 o 3 caia en el `default` de
+> `CurrentSensorSct013::readRaw()`, que devuelve 0 — un sensor que mide 0 A
+> para siempre y parece funcionar. Hoy se rechaza en `begin()`.
 
 ```json
 "currentSensors": [
   {
     "name": "SCT013-1",
     "enabled": true,
+    "address": 72,
     "channel": 0,
     "ratedCurrent": 5.0,
     "ratedVoltage": 1.0,
@@ -408,21 +421,43 @@ va **ultima** en el orden de implementacion.
 
 | Clave | Tipo | Notas |
 |---|---|---|
+| `address` | int | **Obligatoria.** 72 (0x48) o 73 (0x49) |
+| `channel` | int | **Obligatoria.** 0 (AIN0-AIN1) o 1 (AIN2-AIN3). No hay 2 ni 3 |
 | `name` | string | Maximo 15 caracteres. Es el identificador que viaja en `current_data` |
-| `enabled` | bool | Con `false` el canal no se instancia |
-| `channel` | int | 0 a 3. Entrada diferencial del ADS1115 |
+| `enabled` | bool | Con `false` el canal no se registra: no se mide ni se publica |
 | `ratedCurrent` | float | A |
 | `ratedVoltage` | float | V |
 | `calibration` | float | factor del transformador |
-| `sampleRate` | int | SPS del ADS1115 |
+| `sampleRate` | int | SPS del ADS1115 — ver la advertencia de abajo |
 | `integrationTimeMs` | int | ventana de integracion RMS |
 
-**Advertencia de hardware.** `CurrentSensorSct013::update()` puede colgar
-`loop()` de forma indefinida esperando un ACK de I2C que no llega si el
-ADS1115 no esta cableado. Habilitar un canal por configuracion tiene el mismo
-riesgo que hoy tiene descomentar la linea a mano: `enabled: true` sin el chip
-presente congela el MCU. La configuracion no agrega proteccion contra eso, y
-el default seguro es `false` para todo canal no verificado.
+`address` y `channel` son las unicas obligatorias: sin ellas no se sabe a que
+entrada fisica corresponde la configuracion, y no hay default razonable que
+inventar. Una entrada sin ellas se descarta.
+
+**`sampleRate` es por MODULO, no por canal.** El data rate (y la ganancia,
+que ni siquiera se expone acá) son registros del ADS1115, compartidos por sus
+dos canales: si los dos sensores de un mismo modulo piden valores distintos,
+gana el ultimo que se configura, en silencio. Mismo tipo de trampa que la
+frecuencia del PWM, que es por timer y no por pin.
+
+### Proteccion contra el cuelgue por I2C
+
+`readADC_Differential_*()` espera un ACK que nunca llega si el ADS1115 no
+esta, y **no tiene timeout**: cuelga `loop()` indefinidamente (confirmado en
+banco). Con la configuracion viniendo de un archivo, eso pasa de ser un riesgo
+que se evitaba no descomentando una linea a algo que cualquiera puede
+provocar.
+
+Por eso `CurrentSensorSct013::begin()` **prueba la direccion antes de
+hablarle**: una transaccion de direccion sola
+(`Wire.beginTransmission`/`endTransmission`) devuelve error limpio si nadie
+contesta. Si el modulo no esta, el sensor queda deshabilitado, se registra en
+el log y **el sistema sigue corriendo**; `update()` tampoco toca el bus
+mientras eso no se haya confirmado.
+
+Consecuencia practica: se puede dejar el 0x49 configurado sin tenerlo montado.
+Aun asi, el default seguro para un canal no verificado sigue siendo `false`.
 
 Los sensores de corriente **no son fuentes del Detector** y no lo seran: se
 miden y se envian a la pantalla, nada mas. Las unicas fuentes son `CEM1` y
@@ -520,7 +555,7 @@ trajo. Por eso la configuracion se envia **fragmentada** y
 | 3..6 | `config_coil` | un canal de `coils` cada uno (nombre, enabled, factor) |
 | 7..8 | `config_source` | la CABECERA de una fuente (nombre, enabled, sensor, bufferSize, criticalMultiplier) |
 | 9..14 | `config_rule` | una regla de una fuente (`source`, `rule`, threshold, cooldown, maxEvents) |
-| — | `config_current` | un canal de `currentSensors` cada uno (sin implementar) |
+| 15..18 | `config_current` | un canal de `currentSensors` cada uno, identificado por (`address`, `channel`) |
 
 Una fuente entera en un solo frame ronda los 290 caracteres con el envelope
 y **no entra**: de ahi la division cabecera + 3 reglas. Hay un test que lo
@@ -588,7 +623,7 @@ De menor a mayor riesgo. Cada paso deja el sistema funcionando.
 | 3 | `control` + `coils` | parametros del regulador y factores por canal | medio: toca el lazo | **hecho** |
 | 4 | `detector.sources` | validacion en el Mega + retiro de `testMode` | medio: toca seguridad | **hecho** |
 | 5 | `telemetry` | solo ESP32; coordinar con el Decoder de Datacake | medio: dependencia externa | **hecho** |
-| 6 | `currentSensors` | compilacion a runtime, riesgo de cuelgue I2C | alto | pendiente |
+| 6 | `currentSensors` | 2 modulos ADS1115, probe de I2C antes de registrar | alto | **hecho** |
 
 Los pasos 1 y 2 se pudieron hacer sin tocar el protocolo serie. El paso 3 fue
 el que obligo a las modificaciones de la seccion 10.3.

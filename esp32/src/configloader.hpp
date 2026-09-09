@@ -27,12 +27,12 @@ constexpr bool DEBUG_CONFIGLOADER = true;
 // nadie eligio ni audito.
 //
 // ALCANCE ACTUAL: `menus` e `intervals.esp32` se aplican localmente (fase 1).
-// `intervals.mega`, `control`, `coils` y `detector.sources` se parsean y
-// quedan guardados acá, pero esta clase NO los aplica -- son del Mega, y
-// viajan por el protocolo serie fragmentado que dispara
-// MySystem::onSerialConnected() (ver mysystem.hpp::_sendMegaConfig() y
-// docs/config-schema.md seccion 10). `currentSensors` y `telemetry` siguen
-// sin implementar.
+// `intervals.mega`, `control`, `coils`, `detector.sources` y
+// `currentSensors` se parsean y quedan guardados acá, pero esta clase NO los
+// aplica -- son del Mega, y viajan por el protocolo serie fragmentado que
+// dispara MySystem::onSerialConnected() (ver mysystem.hpp::_sendMegaConfig()
+// y docs/config-schema.md seccion 10). `telemetry` si se aplica acá, como
+// las dos secciones de la fase 1.
 namespace ConfigLoader {
 
   constexpr const char* ConfigPath = "/biosoft/config.json";
@@ -74,6 +74,27 @@ namespace ConfigLoader {
 
   constexpr uint8_t MaxDetectorSources = 2;   // CEM1 y TEMP1, fijas por diseño
   constexpr uint8_t MaxSensorNameLength = 16;
+  constexpr uint8_t MaxCurrentSensors = 4;    // 2 pares diferenciales x 2 modulos ADS1115
+
+  // El (address, channel) identifica la entrada fisica y es lo que el Mega
+  // usa para matchear cada entrada con su slot; el resto son parametros.
+  struct CurrentSensorConfigEntry {
+    char name[ConfigurationOptions::MaxLabelLength] = "";
+    uint8_t address = 0;
+    uint8_t channel = 0;
+    bool hasEnabled = false;
+    bool enabled = false;
+    bool hasRatedCurrent = false;
+    float ratedCurrent = 0.0f;
+    bool hasRatedVoltage = false;
+    float ratedVoltage = 0.0f;
+    bool hasCalibration = false;
+    float calibration = 0.0f;
+    bool hasSampleRate = false;
+    uint16_t sampleRate = 0;
+    bool hasIntegrationTime = false;
+    uint16_t integrationTimeMs = 0;
+  };
 
   struct RuleConfig {
     bool has = false;
@@ -127,6 +148,8 @@ namespace ConfigLoader {
   inline uint8_t _coilConfigCount = 0;
   inline SourceConfigEntry _sourceConfigs[MaxDetectorSources];
   inline uint8_t _sourceConfigCount = 0;
+  inline CurrentSensorConfigEntry _currentSensorConfigs[MaxCurrentSensors];
+  inline uint8_t _currentSensorConfigCount = 0;
 
   // MySystem los lee para armar los frames config_intervals/config_control/
   // config_coil al reconectar (ver mysystem.hpp::_sendMegaConfig()).
@@ -136,6 +159,8 @@ namespace ConfigLoader {
   inline uint8_t coilConfigCount() { return _coilConfigCount; }
   inline const SourceConfigEntry* sourceConfigs() { return _sourceConfigs; }
   inline uint8_t sourceConfigCount() { return _sourceConfigCount; }
+  inline const CurrentSensorConfigEntry* currentSensorConfigs() { return _currentSensorConfigs; }
+  inline uint8_t currentSensorConfigCount() { return _currentSensorConfigCount; }
 
   namespace {
 
@@ -457,6 +482,67 @@ namespace ConfigLoader {
       DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F(" fuentes leidas, se reenvian al conectar"));
     }
 
+    // `address` y `channel` son obligatorios: son la identidad fisica de la
+    // entrada y sin ellos el Mega no sabe a que slot corresponde la entrada
+    // (no hay default razonable que inventar acá). El resto son opcionales,
+    // como en el resto del esquema.
+    inline void loadCurrentSensors(JsonArrayConst sensors) {
+      _currentSensorConfigCount = 0;
+      if (sensors.isNull()) {
+        DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] sin seccion 'currentSensors': el Mega arranca con sus defaults"));
+        return;
+      }
+
+      for (JsonObjectConst sensor : sensors) {
+        if (_currentSensorConfigCount >= MaxCurrentSensors) {
+          DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] 'currentSensors' excede el tope de 4: se ignora el resto"));
+          break;
+        }
+
+        if (!sensor["address"].is<uint8_t>() || !sensor["channel"].is<uint8_t>()) {
+          DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] canal de corriente sin 'address'/'channel': se ignora"));
+          continue;
+        }
+
+        CurrentSensorConfigEntry& entry = _currentSensorConfigs[_currentSensorConfigCount];
+        entry = CurrentSensorConfigEntry();
+        entry.address = sensor["address"].as<uint8_t>();
+        entry.channel = sensor["channel"].as<uint8_t>();
+        copyLabel(entry.name, sensor["name"] | "");
+
+        if (sensor["enabled"].is<bool>()) {
+          entry.hasEnabled = true;
+          entry.enabled = sensor["enabled"].as<bool>();
+        }
+        if (sensor["ratedCurrent"].is<float>()) {
+          entry.hasRatedCurrent = true;
+          entry.ratedCurrent = sensor["ratedCurrent"].as<float>();
+        }
+        if (sensor["ratedVoltage"].is<float>()) {
+          entry.hasRatedVoltage = true;
+          entry.ratedVoltage = sensor["ratedVoltage"].as<float>();
+        }
+        if (sensor["calibration"].is<float>()) {
+          entry.hasCalibration = true;
+          entry.calibration = sensor["calibration"].as<float>();
+        }
+        if (sensor["sampleRate"].is<uint16_t>()) {
+          entry.hasSampleRate = true;
+          entry.sampleRate = sensor["sampleRate"].as<uint16_t>();
+        }
+        if (sensor["integrationTimeMs"].is<uint16_t>()) {
+          entry.hasIntegrationTime = true;
+          entry.integrationTimeMs = sensor["integrationTimeMs"].as<uint16_t>();
+        }
+
+        _currentSensorConfigCount++;
+      }
+
+      DEBUG_PRINT(DEBUG_CONFIGLOADER, F("[CONFIG] 'currentSensors': "));
+      DEBUG_PRINT(DEBUG_CONFIGLOADER, _currentSensorConfigCount);
+      DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F(" canales leidos, se reenvian al conectar"));
+    }
+
     // Un campo ausente conserva su default compilado (nombre Y enabled): es
     // el mismo criterio del resto del esquema, y acá importa especialmente
     // porque el nombre es la clave que espera el Decoder de Datacake.
@@ -612,6 +698,7 @@ namespace ConfigLoader {
     loadControl(doc["control"]);
     loadCoils(doc["coils"]);
     loadDetectorSources(doc["detector"]);
+    loadCurrentSensors(doc["currentSensors"]);
     loadTelemetry(doc["telemetry"]);
 
     DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] configuracion aplicada"));

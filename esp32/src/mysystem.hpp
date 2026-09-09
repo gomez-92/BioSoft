@@ -47,9 +47,11 @@ class MySystem :
     // Frames de configuracion en vuelo, mandados desde onSerialConnected()
     // y reenviados por Tasks::ReSendConfig hasta que cada uno tenga su ack
     // (docs/config-schema.md seccion 10). Tope: 1 (intervals) + 1 (control)
-    // + 4 (coils) + 2 (sources) + 6 (3 reglas x 2 fuentes) = 14.
+    // + 4 (coils) + 2 (sources) + 6 (3 reglas x 2 fuentes) + 4 (canales de
+    // corriente) = 18.
     static constexpr uint8_t MaxPendingConfigFrames =
-      2 + ConfigLoader::MaxCoils + ConfigLoader::MaxDetectorSources * 4;
+      2 + ConfigLoader::MaxCoils + ConfigLoader::MaxDetectorSources * 4
+      + ConfigLoader::MaxCurrentSensors;
     struct PendingConfigFrame {
       bool active = false;
       const char* command = nullptr;
@@ -84,6 +86,7 @@ class MySystem :
     void _buildConfigCoilDoc(JsonDocument& doc, const ConfigLoader::CoilConfig& coil);
     void _buildConfigSourceDoc(JsonDocument& doc, const ConfigLoader::SourceConfigEntry& source);
     void _buildConfigRuleDoc(JsonDocument& doc, const char* sourceName, const char* ruleName, const ConfigLoader::RuleConfig& rule);
+    void _buildConfigCurrentDoc(JsonDocument& doc, const ConfigLoader::CurrentSensorConfigEntry& sensor);
     const ConfigLoader::RuleConfig* _findRuleConfig(const ConfigLoader::SourceConfigEntry& source, const char* ruleName);
 
     bool _publish(const char* topic, const char* payload);
@@ -405,6 +408,20 @@ inline void MySystem::_buildConfigRuleDoc(JsonDocument& doc, const char* sourceN
   doc["maxEvents"] = rule.maxEvents;
 }
 
+// address y channel van siempre: son la identidad del slot del otro lado, no
+// un parametro configurable. El resto solo si el archivo lo trajo.
+inline void MySystem::_buildConfigCurrentDoc(JsonDocument& doc, const ConfigLoader::CurrentSensorConfigEntry& sensor) {
+  doc["address"] = sensor.address;
+  doc["channel"] = sensor.channel;
+  if (sensor.name[0] != '\0') doc["name"] = sensor.name;
+  if (sensor.hasEnabled) doc["enabled"] = sensor.enabled;
+  if (sensor.hasRatedCurrent) doc["ratedCurrent"] = sensor.ratedCurrent;
+  if (sensor.hasRatedVoltage) doc["ratedVoltage"] = sensor.ratedVoltage;
+  if (sensor.hasCalibration) doc["calibration"] = sensor.calibration;
+  if (sensor.hasSampleRate) doc["sampleRate"] = sensor.sampleRate;
+  if (sensor.hasIntegrationTime) doc["integrationTimeMs"] = sensor.integrationTimeMs;
+}
+
 inline const ConfigLoader::RuleConfig* MySystem::_findRuleConfig(const ConfigLoader::SourceConfigEntry& source, const char* ruleName) {
   if (strcmp(ruleName, "critical") == 0) return &source.critical;
   if (strcmp(ruleName, "streak") == 0) return &source.streak;
@@ -473,6 +490,16 @@ inline void MySystem::_sendMegaConfig() {
     }
   }
 
+  // La clave de un canal de corriente es "<address>/<channel>": el Mega
+  // matchea por esas dos, no por nombre, y las devuelve en el ack.
+  uint8_t currentCount = ConfigLoader::currentSensorConfigCount();
+  const ConfigLoader::CurrentSensorConfigEntry* currents = ConfigLoader::currentSensorConfigs();
+  for (uint8_t i = 0; i < currentCount; i++) {
+    char key[ConfigurationOptions::MaxLabelLength];
+    snprintf(key, sizeof(key), "%u/%u", currents[i].address, currents[i].channel);
+    _registerPendingConfig(Commands::ConfigCurrent, key);
+  }
+
   _timer.addTask(Tasks::ReSendConfig, Intervals::ReSendConfig);
   _resendPendingConfig();
 }
@@ -531,6 +558,20 @@ inline void MySystem::_resendPendingConfig() {
       const ConfigLoader::RuleConfig* rule = _findRuleConfig(*source, separator + 1);
       if (rule == nullptr) continue;
       _buildConfigRuleDoc(doc, source->name, separator + 1, *rule);
+    }
+    else if (strcmp(command, Commands::ConfigCurrent) == 0) {
+      // key es "<address>/<channel>"
+      uint8_t currentCount = ConfigLoader::currentSensorConfigCount();
+      const ConfigLoader::CurrentSensorConfigEntry* currents = ConfigLoader::currentSensorConfigs();
+      const ConfigLoader::CurrentSensorConfigEntry* sensor = nullptr;
+
+      for (uint8_t c = 0; c < currentCount; c++) {
+        char candidate[ConfigurationOptions::MaxLabelLength];
+        snprintf(candidate, sizeof(candidate), "%u/%u", currents[c].address, currents[c].channel);
+        if (strcmp(candidate, key) == 0) sensor = &currents[c];
+      }
+      if (sensor == nullptr) continue;
+      _buildConfigCurrentDoc(doc, *sensor);
     }
     else {
       continue;
@@ -723,6 +764,12 @@ inline void MySystem::onCommand(const char* command, JsonVariantConst params) {
       }
       else if(strcmp(ack, Commands::ConfigCoil) == 0 || strcmp(ack, Commands::ConfigSource) == 0) {
         _cancelPendingConfig(ack, params["name"] | "");
+      }
+      else if(strcmp(ack, Commands::ConfigCurrent) == 0) {
+        char key[ConfigurationOptions::MaxLabelLength];
+        snprintf(key, sizeof(key), "%u/%u",
+                 params["address"] | 0, params["channel"] | 0);
+        _cancelPendingConfig(ack, key);
       }
       else if(strcmp(ack, Commands::ConfigRule) == 0) {
         // El Mega devuelve fuente y regla por separado; acá se rearma la
