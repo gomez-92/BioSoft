@@ -26,11 +26,12 @@ constexpr bool DEBUG_CONFIGLOADER = true;
 // nadie eligio ni audito.
 //
 // ALCANCE ACTUAL: `menus` e `intervals.esp32` se aplican localmente (fase 1).
-// `intervals.mega`, `control` y `coils` se parsean y quedan guardados acá,
-// pero esta clase NO los aplica -- son del Mega, y viajan por el protocolo
-// serie fragmentado que dispara MySystem::onSerialConnected() (ver
-// mysystem.hpp::_sendMegaConfig() y docs/config-schema.md seccion 10).
-// `detector`, `currentSensors` y `telemetry` siguen sin implementar.
+// `intervals.mega`, `control`, `coils` y `detector.sources` se parsean y
+// quedan guardados acá, pero esta clase NO los aplica -- son del Mega, y
+// viajan por el protocolo serie fragmentado que dispara
+// MySystem::onSerialConnected() (ver mysystem.hpp::_sendMegaConfig() y
+// docs/config-schema.md seccion 10). `currentSensors` y `telemetry` siguen
+// sin implementar.
 namespace ConfigLoader {
 
   constexpr const char* ConfigPath = "/biosoft/config.json";
@@ -65,6 +66,38 @@ namespace ConfigLoader {
     float maxStep = 0.0f;
     bool hasDeadBand = false;
     float deadBand = 0.0f;
+    // false = el lazo mide pero no actua sobre el PWM ("solo sensado").
+    bool hasEnabled = false;
+    bool enabled = true;
+  };
+
+  constexpr uint8_t MaxDetectorSources = 2;   // CEM1 y TEMP1, fijas por diseño
+  constexpr uint8_t MaxSensorNameLength = 16;
+
+  struct RuleConfig {
+    bool has = false;
+    uint16_t threshold = 0;
+    uint16_t cooldown = 0;
+    uint16_t maxEvents = 0;
+  };
+
+  // Los rangos normal/critico NO estan acá: no salen del archivo sino de lo
+  // que elige el operador en la pantalla, y viajan en el comando start.
+  // El archivo solo configura el entorno de la fuente (ver seccion 1.2 del
+  // esquema).
+  struct SourceConfigEntry {
+    char name[ConfigurationOptions::MaxLabelLength] = "";
+    bool hasEnabled = false;
+    bool enabled = true;
+    bool hasSensor = false;
+    char sensor[MaxSensorNameLength] = "";
+    bool hasBufferSize = false;
+    unsigned long bufferSize = 0;
+    bool hasCriticalMultiplier = false;
+    float criticalMultiplier = 0.0f;
+    RuleConfig critical;
+    RuleConfig streak;
+    RuleConfig frequency;
   };
 
   struct CoilConfig {
@@ -91,6 +124,8 @@ namespace ConfigLoader {
   inline ControlConfig _controlConfig;
   inline CoilConfig _coilConfigs[MaxCoils];
   inline uint8_t _coilConfigCount = 0;
+  inline SourceConfigEntry _sourceConfigs[MaxDetectorSources];
+  inline uint8_t _sourceConfigCount = 0;
 
   // MySystem los lee para armar los frames config_intervals/config_control/
   // config_coil al reconectar (ver mysystem.hpp::_sendMegaConfig()).
@@ -98,6 +133,8 @@ namespace ConfigLoader {
   inline const ControlConfig& controlConfig() { return _controlConfig; }
   inline const CoilConfig* coilConfigs() { return _coilConfigs; }
   inline uint8_t coilConfigCount() { return _coilConfigCount; }
+  inline const SourceConfigEntry* sourceConfigs() { return _sourceConfigs; }
+  inline uint8_t sourceConfigCount() { return _sourceConfigCount; }
 
   namespace {
 
@@ -325,8 +362,98 @@ namespace ConfigLoader {
         _controlConfig.hasDeadBand = true;
         _controlConfig.deadBand = control["deadBand"].as<float>();
       }
+      if (control["enabled"].is<bool>()) {
+        _controlConfig.hasEnabled = true;
+        _controlConfig.enabled = control["enabled"].as<bool>();
+      }
 
       DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] seccion 'control' leida, se reenvia al conectar"));
+    }
+
+    inline void loadRule(JsonObjectConst rules, const char* name, RuleConfig& target) {
+      JsonObjectConst rule = rules[name];
+      if (rule.isNull()) return;
+
+      // Las tres claves van juntas o no va ninguna: el Mega valida y
+      // descarta la regla ENTERA si algo cae fuera de rango, asi que
+      // mandar media regla solo puede terminar en un rechazo silencioso.
+      if (!rule["threshold"].is<uint16_t>()) return;
+      if (!rule["cooldown"].is<uint16_t>()) return;
+      if (!rule["maxEvents"].is<uint16_t>()) return;
+
+      target.has = true;
+      target.threshold = rule["threshold"].as<uint16_t>();
+      target.cooldown = rule["cooldown"].as<uint16_t>();
+      target.maxEvents = rule["maxEvents"].as<uint16_t>();
+    }
+
+    // Los rangos de validacion (bufferSize 8-32, threshold 1-bufferSize,
+    // etc.) NO se chequean acá: los aplica el Mega, que es quien manda
+    // sobre su propio Detector. Acá solo se extrae lo que el JSON trae con
+    // el tipo correcto.
+    inline void loadDetectorSources(JsonObjectConst detector) {
+      _sourceConfigCount = 0;
+      if (detector.isNull()) {
+        DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] sin seccion 'detector': el Mega arranca con sus defaults"));
+        return;
+      }
+
+      JsonArrayConst sources = detector["sources"];
+      if (sources.isNull()) return;
+
+      for (JsonObjectConst source : sources) {
+        if (_sourceConfigCount >= MaxDetectorSources) {
+          DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] 'detector.sources' excede el tope de 2: se ignora el resto"));
+          break;
+        }
+
+        const char* name = source["name"] | "";
+        if (name[0] == '\0') {
+          DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] fuente sin 'name': se ignora"));
+          continue;
+        }
+
+        SourceConfigEntry& entry = _sourceConfigs[_sourceConfigCount];
+        entry = SourceConfigEntry();
+        copyLabel(entry.name, name);
+
+        if (source["enabled"].is<bool>()) {
+          entry.hasEnabled = true;
+          entry.enabled = source["enabled"].as<bool>();
+        }
+        if (source["sensor"].is<const char*>()) {
+          entry.hasSensor = true;
+          strncpy(entry.sensor, source["sensor"].as<const char*>(), MaxSensorNameLength - 1);
+          entry.sensor[MaxSensorNameLength - 1] = '\0';
+        }
+        if (source["bufferSize"].is<unsigned long>()) {
+          entry.hasBufferSize = true;
+          entry.bufferSize = source["bufferSize"].as<unsigned long>();
+        }
+
+        // `range.mode` no se reenvia: que fuente deriva sus rangos del
+        // target y cual los toma tal cual del operador es fijo por diseño
+        // en el Mega (CEM1 derivada, TEMP1 no). Del bloque solo viaja el
+        // multiplicador.
+        JsonObjectConst range = source["range"];
+        if (!range.isNull() && range["criticalMultiplier"].is<float>()) {
+          entry.hasCriticalMultiplier = true;
+          entry.criticalMultiplier = range["criticalMultiplier"].as<float>();
+        }
+
+        JsonObjectConst rules = source["rules"];
+        if (!rules.isNull()) {
+          loadRule(rules, "critical", entry.critical);
+          loadRule(rules, "streak", entry.streak);
+          loadRule(rules, "frequency", entry.frequency);
+        }
+
+        _sourceConfigCount++;
+      }
+
+      DEBUG_PRINT(DEBUG_CONFIGLOADER, F("[CONFIG] 'detector.sources': "));
+      DEBUG_PRINT(DEBUG_CONFIGLOADER, _sourceConfigCount);
+      DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F(" fuentes leidas, se reenvian al conectar"));
     }
 
     // Rango 0.1-5.0 de calibrationFactor NO se valida acá -- lo hace
@@ -434,6 +561,7 @@ namespace ConfigLoader {
     loadMegaIntervals(doc["intervals"]);
     loadControl(doc["control"]);
     loadCoils(doc["coils"]);
+    loadDetectorSources(doc["detector"]);
 
     DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] configuracion aplicada"));
     DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] ----------------------------------------"));

@@ -44,19 +44,22 @@ class MySystem :
     DisplayDriver& _display;
     ScreenManager& _screenManager;
 
-    // Frames config_intervals/config_control/config_coil en vuelo, mandados
-    // desde onSerialConnected() y reenviados por Tasks::ReSendConfig hasta
-    // que cada uno tenga su ack (docs/config-schema.md seccion 10). Tope:
-    // 1 (intervals) + 1 (control) + MaxCoils (coils).
-    static constexpr uint8_t MaxPendingConfigFrames = 2 + ConfigLoader::MaxCoils;
+    // Frames de configuracion en vuelo, mandados desde onSerialConnected()
+    // y reenviados por Tasks::ReSendConfig hasta que cada uno tenga su ack
+    // (docs/config-schema.md seccion 10). Tope: 1 (intervals) + 1 (control)
+    // + 4 (coils) + 2 (sources) + 6 (3 reglas x 2 fuentes) = 14.
+    static constexpr uint8_t MaxPendingConfigFrames =
+      2 + ConfigLoader::MaxCoils + ConfigLoader::MaxDetectorSources * 4;
     struct PendingConfigFrame {
       bool active = false;
       const char* command = nullptr;
-      // Solo usado cuando command == Commands::ConfigCoil: config_intervals/
-      // config_control tienen un unico pendiente a la vez y el nombre del
-      // comando alcanza para identificarlo, pero puede haber hasta 4
-      // config_coil en vuelo simultaneamente.
-      char coilName[ConfigurationOptions::MaxLabelLength] = "";
+      // Desambigua entre varios pendientes del MISMO comando:
+      // config_intervals/config_control tienen uno solo cada uno y no la
+      // usan, pero puede haber 4 config_coil, 2 config_source y 6
+      // config_rule en vuelo a la vez. Para config_coil es el nombre de la
+      // bobina; para config_source, el de la fuente; para config_rule,
+      // "<fuente>/<regla>". El Mega devuelve las piezas en el ack.
+      char key[ConfigurationOptions::MaxLabelLength * 2] = "";
     };
     PendingConfigFrame _pendingConfig[MaxPendingConfigFrames];
 
@@ -73,10 +76,15 @@ class MySystem :
 
     void _sendMegaConfig();
     void _resendPendingConfig();
-    void _cancelPendingConfig(const char* command, const char* coilName);
+    void _cancelPendingConfig(const char* command, const char* key);
+    void _registerPendingConfig(const char* command, const char* key);
+    bool _sendConfigFrame(const char* command, JsonDocument& doc, const char* key);
     void _buildConfigIntervalsDoc(JsonDocument& doc);
     void _buildConfigControlDoc(JsonDocument& doc);
     void _buildConfigCoilDoc(JsonDocument& doc, const ConfigLoader::CoilConfig& coil);
+    void _buildConfigSourceDoc(JsonDocument& doc, const ConfigLoader::SourceConfigEntry& source);
+    void _buildConfigRuleDoc(JsonDocument& doc, const char* sourceName, const char* ruleName, const ConfigLoader::RuleConfig& rule);
+    const ConfigLoader::RuleConfig* _findRuleConfig(const ConfigLoader::SourceConfigEntry& source, const char* ruleName);
 
     bool _publish(const char* topic, const char* payload);
     void _publishMeasures();
@@ -314,27 +322,6 @@ inline void MySystem::_sendStart() {
 
 
     // ========================================================
-    // TEST MODE (bring-up temporal INT-001, ver tarjeta Trello "Prueba de
-    // integracion -- Control de intensidad CEM" -- quitar este bloque una
-    // vez terminadas las 6 pruebas de laboratorio)
-    // ========================================================
-
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, "[START] Obteniendo testMode...");
-
-    auto testMode = ConfigurationOptions::optionsTestMode[
-        _data.configuration.testModeOption
-    ].value;
-
-    DEBUG_PRINT(DEBUG_MYSYSTEM, "[START] testModeOption = ");
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, _data.configuration.testModeOption);
-
-    DEBUG_PRINT(DEBUG_MYSYSTEM, "[START] testMode = ");
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, testMode);
-
-    doc["testMode"] = testMode;
-
-
-    // ========================================================
     // JSON FINAL
     // ========================================================
 
@@ -398,92 +385,171 @@ inline void MySystem::_buildConfigCoilDoc(JsonDocument& doc, const ConfigLoader:
   if (coil.hasCalibrationFactor) doc["calibrationFactor"] = coil.calibrationFactor;
 }
 
-// Dispara al conectar/reconectar (onSerialConnected) -- manda 1 frame
-// config_intervals, 1 config_control y hasta 4 config_coil (uno por canal
-// leido de la SD), y arranca Tasks::ReSendConfig para reintentar los que no
-// tengan ack. Claves ausentes en ConfigLoader (has=false) simplemente no se
+// Solo la cabecera de la fuente: las 3 reglas van en frames config_rule
+// aparte porque una fuente entera NO entra en un frame (ver
+// test_serialframes en el Mega, que fija ese limite).
+inline void MySystem::_buildConfigSourceDoc(JsonDocument& doc, const ConfigLoader::SourceConfigEntry& source) {
+  doc["name"] = source.name;
+  if (source.hasEnabled) doc["enabled"] = source.enabled;
+  if (source.hasSensor) doc["sensor"] = source.sensor;
+  if (source.hasBufferSize) doc["bufferSize"] = source.bufferSize;
+  if (source.hasCriticalMultiplier) doc["criticalMultiplier"] = source.criticalMultiplier;
+}
+
+inline void MySystem::_buildConfigRuleDoc(JsonDocument& doc, const char* sourceName, const char* ruleName, const ConfigLoader::RuleConfig& rule) {
+  doc["source"] = sourceName;
+  doc["rule"] = ruleName;
+  doc["threshold"] = rule.threshold;
+  doc["cooldown"] = rule.cooldown;
+  doc["maxEvents"] = rule.maxEvents;
+}
+
+inline const ConfigLoader::RuleConfig* MySystem::_findRuleConfig(const ConfigLoader::SourceConfigEntry& source, const char* ruleName) {
+  if (strcmp(ruleName, "critical") == 0) return &source.critical;
+  if (strcmp(ruleName, "streak") == 0) return &source.streak;
+  if (strcmp(ruleName, "frequency") == 0) return &source.frequency;
+  return nullptr;
+}
+
+inline void MySystem::_registerPendingConfig(const char* command, const char* key) {
+  for (uint8_t i = 0; i < MaxPendingConfigFrames; i++) {
+    if (_pendingConfig[i].active) continue;
+    _pendingConfig[i].active = true;
+    _pendingConfig[i].command = command;
+    snprintf(_pendingConfig[i].key, sizeof(_pendingConfig[i].key), "%s", key == nullptr ? "" : key);
+    return;
+  }
+}
+
+// Encola un frame respetando la cola del SerialLink: sendCommand() devuelve
+// false cuando esta llena (9 mensajes utiles, drena uno cada 50ms) y hasta
+// ahora ese false se ignoraba. Con 14 frames de configuracion eso ya no es
+// teorico: los que no entran se dejan pendientes y salen en el siguiente
+// tick de Tasks::ReSendConfig, que es exactamente para lo que existe.
+inline bool MySystem::_sendConfigFrame(const char* command, JsonDocument& doc, const char* key) {
+  if (!_serial.sendCommand(command, doc)) {
+    DEBUG_PRINT(DEBUG_MYSYSTEM, F("[CONFIG] cola llena, queda pendiente: "));
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, command);
+    return false;
+  }
+  return true;
+}
+
+// Dispara al conectar/reconectar (onSerialConnected): registra los hasta 14
+// frames de configuracion del Mega como pendientes, manda los que entren en
+// la cola, y arranca Tasks::ReSendConfig para el resto y para los que no
+// reciban ack. Claves ausentes en ConfigLoader (has=false) simplemente no se
 // incluyen en el frame -- el Mega se queda con su propio default.
 inline void MySystem::_sendMegaConfig() {
   for (uint8_t i = 0; i < MaxPendingConfigFrames; i++) {
     _pendingConfig[i] = PendingConfigFrame();
   }
 
-  uint8_t slot = 0;
-
-  JsonDocument intervalsDoc;
-  _buildConfigIntervalsDoc(intervalsDoc);
-  _serial.sendCommand(Commands::ConfigIntervals, intervalsDoc);
-  _pendingConfig[slot].active = true;
-  _pendingConfig[slot].command = Commands::ConfigIntervals;
-  slot++;
-
-  JsonDocument controlDoc;
-  _buildConfigControlDoc(controlDoc);
-  _serial.sendCommand(Commands::ConfigControl, controlDoc);
-  _pendingConfig[slot].active = true;
-  _pendingConfig[slot].command = Commands::ConfigControl;
-  slot++;
+  _registerPendingConfig(Commands::ConfigIntervals, nullptr);
+  _registerPendingConfig(Commands::ConfigControl, nullptr);
 
   uint8_t coilCount = ConfigLoader::coilConfigCount();
   const ConfigLoader::CoilConfig* coils = ConfigLoader::coilConfigs();
-  for (uint8_t i = 0; i < coilCount && slot < MaxPendingConfigFrames; i++) {
-    JsonDocument coilDoc;
-    _buildConfigCoilDoc(coilDoc, coils[i]);
-    _serial.sendCommand(Commands::ConfigCoil, coilDoc);
-    _pendingConfig[slot].active = true;
-    _pendingConfig[slot].command = Commands::ConfigCoil;
-    snprintf(_pendingConfig[slot].coilName, sizeof(_pendingConfig[slot].coilName), "%s", coils[i].name);
-    slot++;
+  for (uint8_t i = 0; i < coilCount; i++) {
+    _registerPendingConfig(Commands::ConfigCoil, coils[i].name);
+  }
+
+  static const char* const ruleNames[] = { "critical", "streak", "frequency" };
+  uint8_t sourceCount = ConfigLoader::sourceConfigCount();
+  const ConfigLoader::SourceConfigEntry* sources = ConfigLoader::sourceConfigs();
+  for (uint8_t i = 0; i < sourceCount; i++) {
+    _registerPendingConfig(Commands::ConfigSource, sources[i].name);
+
+    for (uint8_t r = 0; r < 3; r++) {
+      const ConfigLoader::RuleConfig* rule = _findRuleConfig(sources[i], ruleNames[r]);
+      // Una regla que el archivo no trajo no se manda: el Mega se queda con
+      // su default compilado, que es el contrato de la seccion 1.1.
+      if (rule == nullptr || !rule->has) continue;
+
+      char key[ConfigurationOptions::MaxLabelLength * 2];
+      snprintf(key, sizeof(key), "%s/%s", sources[i].name, ruleNames[r]);
+      _registerPendingConfig(Commands::ConfigRule, key);
+    }
   }
 
   _timer.addTask(Tasks::ReSendConfig, Intervals::ReSendConfig);
+  _resendPendingConfig();
 }
 
-// Reenvia cada frame que sigue activo, reconstruyendolo desde ConfigLoader
-// (no cachea el JSON armado). Un config_coil se reenvia buscando de nuevo su
-// entrada por nombre -- si esa bobina ya no esta en ConfigLoader (no deberia
-// pasar, la config no cambia en runtime) simplemente no se reenvia ese slot.
+// Manda cada frame que sigue activo, reconstruyendolo desde ConfigLoader (no
+// cachea el JSON armado). Corta apenas la cola del SerialLink se llena: lo
+// que quede sale en el proximo tick. Un pendiente cuya fuente/bobina ya no
+// este en ConfigLoader (no deberia pasar, la config no cambia en runtime)
+// simplemente no se manda.
 inline void MySystem::_resendPendingConfig() {
+  uint8_t coilCount = ConfigLoader::coilConfigCount();
+  const ConfigLoader::CoilConfig* coils = ConfigLoader::coilConfigs();
+  uint8_t sourceCount = ConfigLoader::sourceConfigCount();
+  const ConfigLoader::SourceConfigEntry* sources = ConfigLoader::sourceConfigs();
+
   for (uint8_t i = 0; i < MaxPendingConfigFrames; i++) {
     if (!_pendingConfig[i].active) continue;
 
-    if (strcmp(_pendingConfig[i].command, Commands::ConfigIntervals) == 0) {
-      JsonDocument doc;
+    const char* command = _pendingConfig[i].command;
+    const char* key = _pendingConfig[i].key;
+    JsonDocument doc;
+
+    if (strcmp(command, Commands::ConfigIntervals) == 0) {
       _buildConfigIntervalsDoc(doc);
-      _serial.sendCommand(Commands::ConfigIntervals, doc);
     }
-    else if (strcmp(_pendingConfig[i].command, Commands::ConfigControl) == 0) {
-      JsonDocument doc;
+    else if (strcmp(command, Commands::ConfigControl) == 0) {
       _buildConfigControlDoc(doc);
-      _serial.sendCommand(Commands::ConfigControl, doc);
     }
-    else if (strcmp(_pendingConfig[i].command, Commands::ConfigCoil) == 0) {
-      uint8_t coilCount = ConfigLoader::coilConfigCount();
-      const ConfigLoader::CoilConfig* coils = ConfigLoader::coilConfigs();
+    else if (strcmp(command, Commands::ConfigCoil) == 0) {
+      const ConfigLoader::CoilConfig* coil = nullptr;
       for (uint8_t c = 0; c < coilCount; c++) {
-        if (strcmp(coils[c].name, _pendingConfig[i].coilName) != 0) continue;
-        JsonDocument doc;
-        _buildConfigCoilDoc(doc, coils[c]);
-        _serial.sendCommand(Commands::ConfigCoil, doc);
-        break;
+        if (strcmp(coils[c].name, key) == 0) coil = &coils[c];
       }
+      if (coil == nullptr) continue;
+      _buildConfigCoilDoc(doc, *coil);
     }
+    else if (strcmp(command, Commands::ConfigSource) == 0) {
+      const ConfigLoader::SourceConfigEntry* source = nullptr;
+      for (uint8_t s = 0; s < sourceCount; s++) {
+        if (strcmp(sources[s].name, key) == 0) source = &sources[s];
+      }
+      if (source == nullptr) continue;
+      _buildConfigSourceDoc(doc, *source);
+    }
+    else if (strcmp(command, Commands::ConfigRule) == 0) {
+      // key es "<fuente>/<regla>"
+      const char* separator = strchr(key, '/');
+      if (separator == nullptr) continue;
+
+      const ConfigLoader::SourceConfigEntry* source = nullptr;
+      for (uint8_t s = 0; s < sourceCount; s++) {
+        if (strncmp(sources[s].name, key, separator - key) == 0) source = &sources[s];
+      }
+      if (source == nullptr) continue;
+
+      const ConfigLoader::RuleConfig* rule = _findRuleConfig(*source, separator + 1);
+      if (rule == nullptr) continue;
+      _buildConfigRuleDoc(doc, source->name, separator + 1, *rule);
+    }
+    else {
+      continue;
+    }
+
+    if (!_sendConfigFrame(command, doc, key)) return;
   }
 }
 
-// Marca inactivo el pendiente que matchea `command` (y ademas `coilName`
-// cuando command es config_coil, unico caso con mas de un pendiente en
-// vuelo del mismo comando). Remueve Tasks::ReSendConfig apenas no queda
-// ninguno activo.
-inline void MySystem::_cancelPendingConfig(const char* command, const char* coilName) {
+// Marca inactivo el pendiente que matchea comando + clave. Remueve
+// Tasks::ReSendConfig apenas no queda ninguno activo.
+inline void MySystem::_cancelPendingConfig(const char* command, const char* key) {
   bool anyActive = false;
 
   for (uint8_t i = 0; i < MaxPendingConfigFrames; i++) {
     if (!_pendingConfig[i].active) continue;
 
     bool matches = _pendingConfig[i].command != nullptr && strcmp(_pendingConfig[i].command, command) == 0;
-    if (matches && strcmp(command, Commands::ConfigCoil) == 0) {
-      matches = coilName != nullptr && strcmp(_pendingConfig[i].coilName, coilName) == 0;
+    if (matches && key != nullptr) {
+      matches = strcmp(_pendingConfig[i].key, key) == 0;
     }
 
     if (matches) {
@@ -630,9 +696,16 @@ inline void MySystem::onCommand(const char* command, JsonVariantConst params) {
       else if(strcmp(ack, Commands::ConfigIntervals) == 0 || strcmp(ack, Commands::ConfigControl) == 0) {
         _cancelPendingConfig(ack, nullptr);
       }
-      else if(strcmp(ack, Commands::ConfigCoil) == 0) {
-        const char* coilName = params["name"] | "";
-        _cancelPendingConfig(ack, coilName);
+      else if(strcmp(ack, Commands::ConfigCoil) == 0 || strcmp(ack, Commands::ConfigSource) == 0) {
+        _cancelPendingConfig(ack, params["name"] | "");
+      }
+      else if(strcmp(ack, Commands::ConfigRule) == 0) {
+        // El Mega devuelve fuente y regla por separado; acá se rearma la
+        // misma clave "<fuente>/<regla>" con la que se registro el pendiente.
+        char key[ConfigurationOptions::MaxLabelLength * 2];
+        snprintf(key, sizeof(key), "%s/%s",
+                 params["source"] | "", params["rule"] | "");
+        _cancelPendingConfig(ack, key);
       }
     }
   }

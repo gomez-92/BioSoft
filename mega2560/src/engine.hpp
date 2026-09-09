@@ -20,7 +20,6 @@
 #include "emergencybutton.hpp"
 #include "safetymargins.hpp"
 #include "detectorconfigbuilder.hpp"
-#include "testmoderesolver.hpp"
 #include "debugconfig.hpp"
 
 // Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
@@ -61,19 +60,36 @@ class Engine :
     // Detector no vuelve a evaluar nada por el resto del experimento.
     bool _isSettlingTime;
 
-    // Bring-up temporal INT-001 (2026-08-31, ver tarjeta Trello "Prueba de
-    // integracion -- Control de intensidad CEM"): referencias a AMBOS
-    // magnetometros (sim y real) para poder elegir cual esta activo por
-    // software segun el parametro "testMode" del comando start, sin
-    // reflashear en el laboratorio. Ver _applyTestMode().
+    // Referencias a AMBOS magnetometros: cual alimenta a CEM1 lo elige la
+    // clave `sensor` de detector.sources (archivo de la SD), aplicada en
+    // _applySourceSettings(). Antes lo decidia el combo temporal de
+    // testMode, retirado al implementar esa seccion del esquema.
     IMagnetometer& _simMagnetometer;
     IMagnetometer& _realMagnetometer;
-    // true si el lazo FieldController->CoilChannels debe correr en este run
-    // (testMode 2,3,5,6). Con testMode 1/4 ("solo sensado") se mantiene en
-    // false y onMagnetometerSample()/_start() no tocan el PWM. Quitar junto
-    // con testMode una vez terminado el bring-up (en ese punto el lazo
-    // vuelve a correr siempre, como antes de esta rama).
-    bool _controlLoopEnabled = false;
+    // true si el lazo FieldController->CoilChannels debe actuar sobre el
+    // PWM. En false el sistema mide y reporta pero no excita las bobinas
+    // ("solo sensado", lo que antes eran los testMode 1/4). Lo pisa la
+    // clave `enabled` de la seccion `control` via config_control; el
+    // default compilado es true para que sin tarjeta SD el equipo corra un
+    // experimento completo, como antes del bring-up.
+    bool _controlLoopEnabled = true;
+
+    // Plantillas de configuracion del Detector, una por fuente. Traen el
+    // bufferSize y las 3 reglas: arrancan en los defaults compilados y las
+    // pisa el archivo de la SD (config_source/config_rule). Los RANGOS que
+    // tambien viven en SourceConfig no se usan acá -- los escribe cada
+    // start, a partir de lo que eligio el operador (ver el handler de
+    // Start), sobre una COPIA de la plantilla, para que las reglas
+    // configuradas sobrevivan de un experimento al siguiente.
+    struct SourceSettings {
+      const char* name;
+      bool enabled;
+      bool useRealSensor;        // solo CEM1
+      float criticalMultiplier;  // solo CEM1 (sus rangos son derivados)
+      SourceConfig config;
+    };
+    static constexpr uint8_t SourceCount = 2;
+    SourceSettings _sourceSettings[SourceCount];
 
     unsigned long _temperatureSampleSendInterval = 3000;
     unsigned long _currentSampleSendInterval = 3000;
@@ -108,7 +124,11 @@ class Engine :
     void _stop();
     void _reset();
     void _finish(const char* reason, const char* description);
-    void _applyTestMode(uint8_t testMode);
+    // Aplica al Detector/magnetometros lo que trajo detector.sources. Se
+    // llama al arrancar un experimento, NO al recibir la configuracion: ver
+    // el comentario de su implementacion.
+    void _applySourceSettings();
+    Engine::SourceSettings* _findSourceSettings(const char* name);
 
     void _sendState();
     //void _sendTargetData();
@@ -116,7 +136,6 @@ class Engine :
     void _sendResultData();
 
     //void _setTarget(JsonVariantConst params);
-    //void _configureSource(JsonVariantConst params);
     void _readRule(JsonVariantConst json, Rule& rule);
     void _sendConfirmSourceConfig(const char* sourceName);
 
@@ -182,6 +201,23 @@ inline Engine::Engine(
   _lastCurrentSampleSent(0),
   _lastMagnetometerSampleSent(0)
 {
+  // Defaults compilados de las dos fuentes (docs/config-schema.md seccion
+  // 12): TEMP1 vigilada, CEM1 no. CEM1 arranca deshabilitada porque su
+  // entrada analogica puede no estar cableada, y una A0 flotante dispara
+  // flags falsos apenas termina el settling time. El archivo de la SD la
+  // habilita cuando el hardware esta listo, sin recompilar.
+  _sourceSettings[0].name = "CEM1";
+  _sourceSettings[0].enabled = false;
+  _sourceSettings[0].useRealSensor = false;
+  _sourceSettings[0].criticalMultiplier = SafetyMargins::CemCriticalMultiplier;
+  _sourceSettings[0].config = DetectorConfigBuilder::defaultConfig();
+
+  _sourceSettings[1].name = "TEMP1";
+  _sourceSettings[1].enabled = true;
+  _sourceSettings[1].useRealSensor = false;
+  _sourceSettings[1].criticalMultiplier = SafetyMargins::CemCriticalMultiplier;
+  _sourceSettings[1].config = DetectorConfigBuilder::defaultConfig();
+
   _timer.setTimerListener(this);
   _serial.setListener(this);
   _magnetometerManager.setMagnetometerListener(this);
@@ -218,8 +254,8 @@ inline void Engine::_start() {
   TargetData target = _runtimeState.target();
   _coilExcitation.start(target.frequencyTarget);
   _fieldController.reset();
-  // Bring-up INT-001: con testMode "solo sensado" (_controlLoopEnabled ==
-  // false) el PWM se deja apagado -- ver _applyTestMode().
+  // Con el lazo deshabilitado (control.enabled == false, "solo sensado")
+  // el PWM se deja apagado -- ver _controlLoopEnabled.
   if (_controlLoopEnabled) {
     _fieldController.setSetpoint(target.cemTarget);
     _coilChannels.writeAll(_fieldController.getOutput());
@@ -249,25 +285,54 @@ inline void Engine::_reset() {
 
 // Bring-up temporal INT-001: ver comentario de _controlLoopEnabled en la
 // declaracion de la clase y testmoderesolver.hpp para la tabla completa.
-inline void Engine::_applyTestMode(uint8_t testMode) {
-  TestModeConfig cfg = resolveTestMode(testMode);
-  _controlLoopEnabled = cfg.controlLoopEnabled;
+inline Engine::SourceSettings* Engine::_findSourceSettings(const char* name) {
+  if (name == nullptr) return nullptr;
+  for (uint8_t i = 0; i < SourceCount; i++) {
+    if (strcmp(_sourceSettings[i].name, name) == 0) {
+      return &_sourceSettings[i];
+    }
+  }
+  return nullptr;
+}
 
+// Registra/desregistra cada fuente segun su `enabled` y elige que
+// magnetometro alimenta a CEM1 segun su `sensor`.
+//
+// Se llama al ARRANCAR un experimento, no al recibir config_source. Dos
+// motivos:
+//  1) removeSource()/addSource() destruyen y recrean el Source, que vuelve
+//     sin configurar (Source::addSample es un no-op mientras _configured es
+//     false). Aplicarlo al vuelo por una reconexion serie a mitad de
+//     experimento dejaria al Detector sin evaluar esa fuente por el resto
+//     de la corrida, en silencio y justo cuando mas importa.
+//  2) El orden importa: esto tiene que correr ANTES del configureSource()
+//     de mas abajo, o la config se aplica sobre una source que todavia no
+//     existe (o que esta funcion va a recrear vacia despues).
+inline void Engine::_applySourceSettings() {
   _magnetometerManager.clearMagnetometers();
-  _magnetometerManager.addMagnetometer(
-    cfg.useRealSensor ? &_realMagnetometer : &_simMagnetometer
-  );
 
-  _detector.removeSource("CEM1");
-  if (cfg.closedLoop) {
-    _detector.addSource("CEM1");
+  for (uint8_t i = 0; i < SourceCount; i++) {
+    SourceSettings& settings = _sourceSettings[i];
+
+    _detector.removeSource(settings.name);
+    if (settings.enabled) {
+      _detector.addSource(settings.name);
+    }
+
+    DEBUG_PRINT(DEBUG_ENGINE, F("[SOURCES] "));
+    DEBUG_PRINT(DEBUG_ENGINE, settings.name);
+    DEBUG_PRINTLN(DEBUG_ENGINE, settings.enabled ? F(": detector=on") : F(": detector=off"));
   }
 
-  DEBUG_PRINT(DEBUG_ENGINE, F("[TESTMODE] testMode="));
-  DEBUG_PRINT(DEBUG_ENGINE, testMode);
-  DEBUG_PRINT(DEBUG_ENGINE, cfg.useRealSensor ? F(" sensor=real") : F(" sensor=sim"));
-  DEBUG_PRINT(DEBUG_ENGINE, cfg.closedLoop ? F(" detector=on") : F(" detector=off"));
-  DEBUG_PRINTLN(DEBUG_ENGINE, cfg.controlLoopEnabled ? F(" control=on") : F(" control=off"));
+  SourceSettings* cem = _findSourceSettings("CEM1");
+  bool useRealSensor = (cem != nullptr) && cem->useRealSensor;
+  _magnetometerManager.addMagnetometer(
+    useRealSensor ? &_realMagnetometer : &_simMagnetometer
+  );
+
+  DEBUG_PRINT(DEBUG_ENGINE, F("[SOURCES] CEM1 sensor="));
+  DEBUG_PRINT(DEBUG_ENGINE, useRealSensor ? F("real") : F("sim"));
+  DEBUG_PRINTLN(DEBUG_ENGINE, _controlLoopEnabled ? F(" control=on") : F(" control=off"));
 }
 
 // Punto unico donde termina un experimento (tiempo cumplido, stop manual o
@@ -332,28 +397,6 @@ inline void Engine::_setTarget(JsonVariantConst params) {
   _runtimeState.setTarget(cem, frequency, duration);
 }
 */
-/*
-inline void Engine::_configureSource(JsonVariantConst params) {
-  const char* name = params["name"];
-  if (name == nullptr) return;
-  
-  SourceConfig config;
-  config.bufferSize = params["bufferSize"] | config.bufferSize;
-  config.normalMin   = params["normalMin"]   | config.normalMin;
-  config.normalMax   = params["normalMax"]   | config.normalMax;
-  config.criticalMin = params["criticalMin"] | config.criticalMin;
-  config.criticalMax = params["criticalMax"] | config.criticalMax;
-  
-  _readRule(params["critical"], config.critical);
-  _readRule(params["streak"], config.streak);
-  _readRule(params["frequency"], config.frequency);
-  
-  if(_detector.configureSource(name, config)) {
-    _sendConfirmSourceConfig(name);
-  }
-}
-*/
-
 inline void Engine::_applyIntervalParam(JsonVariantConst params, const char* key, unsigned long& target) {
   if (!params[key].is<unsigned long>()) return;
 
@@ -374,13 +417,16 @@ inline void Engine::_readRule(JsonVariantConst json, Rule& rule) {
   rule.threshold = json["threshold"] | rule.threshold;
 }
 
-// _readRule/_sendConfirmSourceConfig/_sendFlagsData (y su unico caller,
+// _sendConfirmSourceConfig/_sendFlagsData (y su unico caller,
 // Tasks::SendFlags en onTimer) forman un cluster INACTIVO: el dump
 // periodico completo de todas las sources fue reemplazado por el push
 // individual por evento via Detector::onFlag/flag_data (ver CLAUDE.md).
 // Los cuerpos comentados no son un olvido -- Tasks::SendFlags tampoco se
 // llega a agregar nunca en onStart() (esta comentado ahi tambien), asi que
 // todo el cluster esta deliberadamente apagado, no roto a medias.
+// _readRule() SI es codigo vivo desde que existe config_rule (lo usa ese
+// handler para parsear {threshold, cooldown, maxEvents}); ya no forma parte
+// de este cluster.
 inline void Engine::_sendConfirmSourceConfig(const char* sourceName) {
   /*
   JsonDocument doc;
@@ -542,9 +588,6 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
   else if (strcmp(command, Commands::SetTarget) == 0) {
     _setTarget(params);
   }
-  else if (strcmp(command, Commands::ConfigSource) == 0) {
-    _configureSource(params);
-  }
   */
 
   else if (strcmp(command, Commands::Start) == 0) {
@@ -642,35 +685,18 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
 
 
     // ========================================================
-    // TEST MODE (bring-up temporal INT-001, ver tarjeta Trello
-    // "Prueba de integracion -- Control de intensidad CEM" -- quitar este
-    // bloque y Engine::_applyTestMode() una vez terminadas las 6 pruebas
-    // de laboratorio)
+    // FUENTES DEL DETECTOR
     // ========================================================
 
-    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Validando parametro 'testMode'..."));
+    // Aplicado ACA, antes de los configureSource() de mas abajo:
+    // _applySourceSettings() registra/desregistra cada fuente segun lo que
+    // trajo el archivo de la SD, y una source recien creada vuelve sin
+    // configurar. Si corriera despues, la config se perderia en silencio
+    // (Source::addSample() no hace nada si _configured es false, asi que el
+    // Detector nunca evaluaria esa fuente sin importar los rangos).
+    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Aplicando configuracion de fuentes..."));
 
-    if (!params["testMode"].is<int>()) {
-      DEBUG_PRINTLN(DEBUG_ENGINE, F("[START][ERROR] Parametro 'testMode' invalido o ausente"));
-      return;
-    }
-
-    uint8_t testMode = params["testMode"].as<int>();
-
-    DEBUG_PRINT(DEBUG_ENGINE, F("[START] testMode = "));
-    DEBUG_PRINTLN(DEBUG_ENGINE, testMode);
-
-    // Aplicado ACA, antes de configurar CEM1: _applyTestMode() decide si la
-    // source CEM1 existe en el Detector (removeSource + addSource
-    // condicional, ver su implementacion). Si se aplicara mas tarde (como
-    // antes, ver bug corregido 2026-09-01 mas abajo), configureSource("CEM1",
-    // ...) de mas abajo corre contra una source que todavia no existe (o que
-    // _applyTestMode va a recrear vacia despues), y la config se pierde en
-    // silencio -- Source::addSample() no hace nada si _configured es false,
-    // asi que el Detector nunca evalua CEM1 sin importar los rangos.
-    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Aplicando testMode..."));
-
-    _applyTestMode(testMode);
+    _applySourceSettings();
 
 
     // ========================================================
@@ -697,7 +723,14 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
 
     DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Calculando configuracion de CEM1..."));
 
-    SourceConfig configCem = DetectorConfigBuilder::buildCemConfig(cemTarget, cemTol);
+    // Copia de la plantilla (bufferSize + reglas, ya sea los defaults
+    // compilados o lo que pisó la SD) mas los rangos derivados de lo que
+    // eligio el operador. Se trabaja sobre una copia para que la plantilla
+    // siga intacta para el proximo experimento.
+    SourceSettings* cemSettings = _findSourceSettings("CEM1");
+    SourceConfig configCem = cemSettings->config;
+    DetectorConfigBuilder::applyCemRanges(
+      configCem, cemTarget, cemTol, cemSettings->criticalMultiplier);
 
     DEBUG_PRINT(DEBUG_ENGINE, F("[START] CEM criticalMin = "));
     DEBUG_PRINTLN(DEBUG_ENGINE, configCem.criticalMin, 4);
@@ -785,8 +818,9 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
 
     DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Calculando configuracion de TEMP1..."));
 
-    SourceConfig configTemp = DetectorConfigBuilder::buildTempConfig(
-      tempNormalMin, tempNormalMax, tempCriticalMin, tempCriticalMax);
+    SourceConfig configTemp = _findSourceSettings("TEMP1")->config;
+    DetectorConfigBuilder::applyTempRanges(
+      configTemp, tempNormalMin, tempNormalMax, tempCriticalMin, tempCriticalMax);
 
     DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Aplicando configuracion a TEMP1..."));
 
@@ -898,6 +932,13 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
     if (params["deadBand"].is<float>() && !_fieldController.setDeadBand(params["deadBand"].as<float>())) {
       DEBUG_PRINTLN(DEBUG_ENGINE, F("[CONFIG_CONTROL] deadBand invalido -- se ignora"));
     }
+    // En false el lazo mide pero no toca el PWM (lo que antes eran los
+    // testMode 1/4, "solo sensado").
+    if (params["enabled"].is<bool>()) {
+      _controlLoopEnabled = params["enabled"].as<bool>();
+      DEBUG_PRINT(DEBUG_ENGINE, F("[CONFIG_CONTROL] lazo de intensidad="));
+      DEBUG_PRINTLN(DEBUG_ENGINE, _controlLoopEnabled ? F("on") : F("off"));
+    }
 
     JsonDocument doc;
     doc["command"] = Commands::ConfigControl;
@@ -943,6 +984,119 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
       doc
     );
   }
+
+  // Cabecera de una fuente del Detector. Las 3 reglas NO vienen acá: no
+  // entran en un frame junto con esto (ver test_serialframes), viajan como
+  // config_rule por separado.
+  //
+  // Nada de esto se aplica al Detector en el momento: se guarda en la
+  // plantilla de la fuente y lo aplica el proximo start
+  // (_applySourceSettings), para no reconfigurar en caliente una fuente de
+  // un experimento en curso.
+  else if (strcmp(command, Commands::ConfigSource) == 0) {
+
+    const char* sourceName = params["name"];
+    SourceSettings* settings = _findSourceSettings(sourceName);
+    if (settings == nullptr) {
+      DEBUG_PRINT(DEBUG_ENGINE, F("[CONFIG_SOURCE][ERROR] Fuente desconocida o sin 'name': "));
+      DEBUG_PRINTLN(DEBUG_ENGINE, sourceName == nullptr ? "(ausente)" : sourceName);
+      return;
+    }
+
+    if (params["enabled"].is<bool>()) {
+      settings->enabled = params["enabled"].as<bool>();
+    }
+
+    // Solo CEM1 tiene dos drivers posibles; para TEMP1 la clave se ignora.
+    if (params["sensor"].is<const char*>()) {
+      settings->useRealSensor = (strcmp(params["sensor"].as<const char*>(), "mlx90393") == 0);
+    }
+
+    if (params["bufferSize"].is<size_t>()) {
+      size_t bufferSize = params["bufferSize"].as<size_t>();
+      if (DetectorConfigBuilder::isValidBufferSize(bufferSize)) {
+        settings->config.bufferSize = bufferSize;
+      } else {
+        DEBUG_PRINTLN(DEBUG_ENGINE, F("[CONFIG_SOURCE] bufferSize fuera de rango -- se ignora"));
+      }
+    }
+
+    if (params["criticalMultiplier"].is<float>()) {
+      float multiplier = params["criticalMultiplier"].as<float>();
+      if (DetectorConfigBuilder::isValidCriticalMultiplier(multiplier)) {
+        settings->criticalMultiplier = multiplier;
+      } else {
+        DEBUG_PRINTLN(DEBUG_ENGINE, F("[CONFIG_SOURCE] criticalMultiplier fuera de rango -- se ignora"));
+      }
+    }
+
+    JsonDocument doc;
+    doc["command"] = Commands::ConfigSource;
+    doc["name"] = settings->name;
+
+    _serial.sendCommand(
+      Commands::Ack,
+      doc
+    );
+  }
+
+  // Una regla de una fuente. Se valida ENTERA contra el bufferSize vigente
+  // de esa fuente y se descarta completa si algo cae fuera de rango
+  // (docs/config-schema.md seccion 7): media regla aplicada cortaria, o
+  // dejaria de cortar, un experimento con numeros que nadie eligio.
+  else if (strcmp(command, Commands::ConfigRule) == 0) {
+
+    const char* sourceName = params["source"];
+    const char* ruleName = params["rule"];
+    SourceSettings* settings = _findSourceSettings(sourceName);
+
+    if (settings == nullptr || ruleName == nullptr) {
+      DEBUG_PRINTLN(DEBUG_ENGINE, F("[CONFIG_RULE][ERROR] 'source' o 'rule' ausente o desconocido"));
+      return;
+    }
+
+    Rule* target = nullptr;
+    if (strcmp(ruleName, "critical") == 0)       target = &settings->config.critical;
+    else if (strcmp(ruleName, "streak") == 0)    target = &settings->config.streak;
+    else if (strcmp(ruleName, "frequency") == 0) target = &settings->config.frequency;
+
+    if (target == nullptr) {
+      DEBUG_PRINT(DEBUG_ENGINE, F("[CONFIG_RULE][ERROR] Regla desconocida: "));
+      DEBUG_PRINTLN(DEBUG_ENGINE, ruleName);
+      return;
+    }
+
+    Rule candidate = *target;
+    _readRule(params, candidate);
+
+    if (DetectorConfigBuilder::isValidRule(candidate, settings->config.bufferSize)) {
+      target->threshold = candidate.threshold;
+      target->cooldown = candidate.cooldown;
+      target->maxEvents = candidate.maxEvents;
+
+      DEBUG_PRINT(DEBUG_ENGINE, F("[CONFIG_RULE] "));
+      DEBUG_PRINT(DEBUG_ENGINE, settings->name);
+      DEBUG_PRINT(DEBUG_ENGINE, F("/"));
+      DEBUG_PRINT(DEBUG_ENGINE, ruleName);
+      DEBUG_PRINTLN(DEBUG_ENGINE, F(" aplicada"));
+    } else {
+      DEBUG_PRINT(DEBUG_ENGINE, F("[CONFIG_RULE] "));
+      DEBUG_PRINT(DEBUG_ENGINE, settings->name);
+      DEBUG_PRINT(DEBUG_ENGINE, F("/"));
+      DEBUG_PRINT(DEBUG_ENGINE, ruleName);
+      DEBUG_PRINTLN(DEBUG_ENGINE, F(" fuera de rango -- se descarta entera"));
+    }
+
+    JsonDocument doc;
+    doc["command"] = Commands::ConfigRule;
+    doc["source"] = settings->name;
+    doc["rule"] = ruleName;
+
+    _serial.sendCommand(
+      Commands::Ack,
+      doc
+    );
+  }
 }
 
 inline void Engine::onSerialConnected() {}
@@ -964,7 +1118,8 @@ inline void Engine::onEmergencyButtonPressed() {
 
 // Sample Sensor Callbacks
 inline void Engine::onMagnetometerSample(IMagnetometer* magnetometer) {
-  // Bring-up INT-001: ver _applyTestMode()/_controlLoopEnabled.
+  // Con "solo sensado" se mide y se reporta, pero no se toca el PWM: ver
+  // _controlLoopEnabled.
   if (_controlLoopEnabled) {
     _fieldController.update(magnetometer->getMagneticField());
     float duty = _fieldController.getOutput();

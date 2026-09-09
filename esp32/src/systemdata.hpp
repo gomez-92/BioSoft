@@ -23,10 +23,6 @@ struct ConfigurationData {
   uint8_t fieldIntensityToleranceOption = 0;
   uint8_t normalTemperatureRangeOption = 0;
   uint8_t criticalTemperatureRangeOption = 0;
-  // Bring-up temporal INT-001 (2026-08-31): indice en
-  // ConfigurationOptions::optionsTestMode, quitar junto con el resto del
-  // combo de testMode una vez terminadas las 6 pruebas de laboratorio.
-  uint8_t testModeOption = 0;
 };
 
 struct ProgressData {

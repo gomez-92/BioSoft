@@ -39,7 +39,6 @@ extern lv_obj_t * ui_RangoTempCritOpciones;
 // Bring-up temporal INT-001 (2026-08-31): agregado a mano, NO viene del
 // .sll de SquareLine Studio -- quitar (junto con la definicion en
 // ui_Configuracion.c) una vez terminadas las 6 pruebas de laboratorio.
-extern lv_obj_t * ui_TestModeOpciones;
 
 #ifdef __cplusplus
 } /*extern "C"*/

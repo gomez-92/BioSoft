@@ -49,9 +49,10 @@ inline uint8_t MagnetometerManager::addMagnetometer(IMagnetometer* magnetometer)
   if (_magnetometerCount >= MAX_MAGNETOMETERS || magnetometer == nullptr) return 0xFF;
 
   // Bring-up INT-001 (2026-09-01): solo llama begin() si el magnetometro
-  // TODAVIA no esta valido. Engine::_applyTestMode() hace clearMagnetometers()
-  // + addMagnetometer() en cada "start" (para poder alternar sim/real por
-  // testMode sin reflashear) -- con begin() incondicional, eso reinicializaba
+  // TODAVIA no esta valido. Engine::_applySourceSettings() hace
+  // clearMagnetometers() + addMagnetometer() en cada "start" (para poder
+  // alternar sim/real desde el archivo de la SD sin reflashear) -- con
+  // begin() incondicional, eso reinicializaba
   // MagnetometerMlx90393 (recrea el Adafruit_I2CDevice interno + reset
   // completo del chip via Adafruit_MLX90393::_init()) en cada experimento,
   // aunque ya hubiera arrancado bien en setup(). Esa reinicializacion en

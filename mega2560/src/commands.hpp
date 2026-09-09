@@ -16,4 +16,6 @@ namespace Commands {
   constexpr const char* ConfigIntervals       = "config_intervals";
   constexpr const char* ConfigControl         = "config_control";
   constexpr const char* ConfigCoil            = "config_coil";
+  constexpr const char* ConfigSource          = "config_source";
+  constexpr const char* ConfigRule            = "config_rule";
 };

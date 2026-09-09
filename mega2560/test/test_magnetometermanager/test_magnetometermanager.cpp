@@ -67,8 +67,9 @@ void test_addMagnetometer_assigns_sequential_ids_and_calls_begin(void) {
 }
 
 void test_addMagnetometer_skips_begin_when_already_valid(void) {
-    // Regresion bring-up INT-001 (2026-09-01): Engine::_applyTestMode() hace
-    // clearMagnetometers()+addMagnetometer() en cada "start". Con begin()
+    // Regresion bring-up INT-001 (2026-09-01):
+    // Engine::_applySourceSettings() hace clearMagnetometers() +
+    // addMagnetometer() en cada "start". Con begin()
     // incondicional, eso reinicializaba MagnetometerMlx90393 en caliente en
     // cada experimento y fallaba en banco aunque el sensor ya funcionara
     // desde el boot. addMagnetometer() ahora saltea begin() si el

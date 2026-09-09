@@ -132,12 +132,10 @@ SPIClass spi;
 
 /*===== inputs =====*/
 MagnetometerManager magnetometermanager;
-// Bring-up de pruebas INT-001 (2026-08-31): ambos magnetometros quedan
-// instanciados a la vez (sim + real) para poder alternar por software cual
-// esta activo via el parametro "testMode" del comando start, sin reflashear
-// en el laboratorio. Ninguno se registra en magnetometermanager en setup();
-// Engine::_applyTestMode() decide cual agregar en cada start. Ver tarjeta
-// Trello "Prueba de integracion -- Control de intensidad CEM (INT-001)".
+// Ambos magnetometros quedan instanciados a la vez (sim + real) para poder
+// alternar por software cual esta activo, sin reflashear en el laboratorio:
+// lo elige la clave `sensor` de detector.sources en el archivo de la SD, y
+// Engine::_applySourceSettings() aplica esa eleccion en cada start.
 MagnetometerVoltageSim magnetometerSim("CEM1", A0);
 MagnetometerMlx90393 magnetometerReal("CEM1");
 ThermometerManager thermometermanager;
@@ -242,15 +240,19 @@ void setup() {
 
   /* ===== magnetometers =====*/
   magnetometermanager.clearMagnetometers();
-  // Bring-up de pruebas INT-001 (2026-08-31): se inicializan los dos
-  // sensores (sim y real) pero ninguno se registra aca -- Engine decide
-  // cual activar en cada "start" segun el parametro "testMode" (1-6, ver
-  // Engine::_applyTestMode). MagnetometerMlx90393::begin() no cuelga el
-  // loop si el sensor no responde (begin_I2C devuelve false y update()
-  // queda en no-op), asi que es seguro llamarlo aunque el MLX90393 todavia
-  // no este cableado.
+  // Se inicializan los dos sensores (sim y real); cual queda activo lo
+  // decide la clave `sensor` de detector.sources en el archivo de la SD,
+  // que Engine aplica en cada "start" (_applySourceSettings).
+  // MagnetometerMlx90393::begin() no cuelga el loop si el sensor no
+  // responde (begin_I2C devuelve false y update() queda en no-op), asi que
+  // es seguro llamarlo aunque el MLX90393 todavia no este cableado.
   magnetometerSim.begin();
   magnetometerReal.begin();
+  // Default compilado: el sim, igual que docs/config.example.json. Hace
+  // falta registrarlo aca y no solo en el start para que haya lecturas de
+  // CEM1 en pantalla desde el arranque; Engine lo reemplaza por el real si
+  // el archivo lo pide.
+  magnetometermanager.addMagnetometer(&magnetometerSim);
 
   /* ===== thermometers =====*/
   thermometermanager.clearThermometers();
@@ -320,14 +322,14 @@ void setup() {
 
   /* ===== detector =====*/
   detector.clear();
-  // CEM1 deshabilitado temporalmente (2026-08-29): bring-up de enlace
-  // serie ESP32<->Mega y pantallas (duracion + boton Detener) con A0 sin
-  // cablear -- un pin flotante genera lecturas fuera de rango que disparan
-  // un falso flag "critical" y cortan el experimento antes de tiempo (ver
-  // MagnetometerVoltageSim::update(), magnetometervoltagesim.hpp). Volver a
-  // habilitar esta linea apenas A0 tenga el potenciometro/fuente real
-  // cableado (MOD-007 en Trello).
-  //detector.addSource("CEM1");
+  // Estado inicial de las fuentes, vigente hasta el primer "start": ahi
+  // Engine::_applySourceSettings() registra/desregistra segun lo que haya
+  // traido el archivo de la SD (detector.sources[].enabled), que es tambien
+  // el interruptor para volver a vigilar CEM1 sin recompilar.
+  //
+  // CEM1 arranca sin registrar porque A0 puede estar sin cablear: un pin
+  // flotante da lecturas fuera de rango que disparan un falso flag
+  // "critical" y cortan el experimento (ver MagnetometerVoltageSim::update()).
   detector.addSource("TEMP1");
 
   /* ===== engine =====*/

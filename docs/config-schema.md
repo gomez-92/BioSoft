@@ -50,11 +50,16 @@ La ESP32 convive con LVGL y el framebuffer del TFT: no se reserva memoria en
 funcion de lo que traiga el archivo. Cada coleccion del esquema tiene un
 maximo fijo; lo que exceda ese maximo se ignora y se registra en el log.
 
-### 1.4 Fuera de alcance
+### 1.4 Que reemplazo este esquema
 
-`ConfigurationOptions::optionsTestMode` (combo de bring-up de INT-001) **no se
-parametriza**: esta marcado para eliminarse junto con el resto del combo de
-`testMode` cuando terminen las 6 pruebas de laboratorio.
+El combo de bring-up `testMode` (1-6) **ya no existe**: se retiro al
+implementar la seccion 7. Sus tres ejes se repartieron asi:
+
+| Eje de `testMode` | Donde vive ahora |
+|---|---|
+| sensor sim / real | `detector.sources[CEM1].sensor` (seccion 7) |
+| CEM1 vigilada o no por el Detector | `detector.sources[CEM1].enabled` (seccion 7) |
+| lazo de intensidad activo o solo sensado | `control.enabled` (seccion 5) |
 
 ---
 
@@ -174,6 +179,7 @@ Hoy viven en `SoftMega2560.ino`, que es el punto donde este archivo los pisa.
 
 ```json
 "control": {
+  "enabled": true,
   "kp": 0.1,
   "maxStep": 0.05,
   "deadBand": 0.01
@@ -182,9 +188,15 @@ Hoy viven en `SoftMega2560.ino`, que es el punto donde este archivo los pisa.
 
 | Clave | Unidad | Que hace |
 |---|---|---|
+| `enabled` | bool | `false`: el lazo mide y reporta pero NO toca el PWM |
 | `kp` | duty/mT | ganancia proporcional: el paso de duty es `kp * error` |
 | `maxStep` | duty | clamp del paso por llamada a `update()` |
 | `deadBand` | mT | error por debajo del cual no se toca el output |
+
+`enabled: false` es el modo "solo sensado" que antes daban los `testMode`
+1 y 4: sirve para verificar el sensado y la telemetria sin excitar las
+bobinas. El default compilado es `true`, para que sin tarjeta SD el equipo
+pueda correr un experimento completo (seccion 1.1).
 
 **`kp` no es un numero que se elija a ojo.** Se calcula como `alfa / K`, donde
 `K` es la ganancia de planta (mT por unidad de duty) medida en lazo abierto y
@@ -310,8 +322,8 @@ cableado.
 
 ### `sensor`
 
-Que driver alimenta la fuente. Reemplaza el combo temporal de `testMode`
-(`testmoderesolver.hpp`) por una eleccion explicita en configuracion.
+Que driver alimenta la fuente. Reemplazo al combo temporal de `testMode`
+por una eleccion explicita en configuracion (ver seccion 1.4).
 
 | Fuente | Valores validos |
 |---|---|
@@ -361,7 +373,7 @@ fuera de rango, quedando esa regla en su default compilado:
 | `maxEvents` | 1 a 10 |
 
 Los valores de CEM1 del ejemplo son los **placeholder de prueba** que hoy
-estan en `DetectorConfigBuilder::buildCemConfig`: copiados de TEMP1, sin
+estan en `DetectorConfigBuilder::defaultConfig()`: copiados de TEMP1, sin
 calibrar contra campo real. Poder ajustarlos desde el archivo es justamente el
 motivo por el que esta seccion existe: la calibracion se hace en laboratorio,
 no recompilando.
@@ -376,7 +388,7 @@ hasta 10 (`MAX_CURRENT_SENSORS`).
 
 **Maximo 4 entradas.** Es la seccion de mayor esfuerzo de las cinco: obliga a
 pasar de instanciacion en compilacion a instanciacion en runtime, con el mismo
-patron `clear/add` que ya usa `_applyTestMode()` para el magnetometro. Por eso
+patron `clear/add` que ya usa `_applySourceSettings()` para el magnetometro. Por eso
 va **ultima** en el orden de implementacion.
 
 ```json
@@ -480,20 +492,31 @@ Mega no ve la tarjeta: recibe su porcion por el protocolo serie ya existente.
 
 ### 10.1 Fragmentacion
 
-El protocolo serie limita cada trama a `MAX_JSON_SIZE = 256` bytes, con un
-`StaticJsonDocument<256>` del lado de recepcion (`seriallink.hpp`, duplicado
-en ambas placas). La configuracion completa del Mega **no entra en una sola
-trama**, y ampliar ese limite duplicaria buffers dentro de los 8 KB de RAM del
-Mega. Por eso se envia **fragmentada, un frame por unidad logica**:
+El protocolo serie serializa cada trama a un `char[MAX_JSON_SIZE]` de 256
+bytes en `SerialLink::_sendFrame()`, contando el envelope
+`{"command":...,"params":{...}}`. **Ese es el unico tope real**: los tamaños
+`StaticJsonDocument<128>`/`<256>` que aparecen en `seriallink.hpp` no limitan
+nada, porque en ArduinoJson 7 esa clase es un `JsonDocument` elastico cuyo
+`capacity()` devuelve N sin aplicarlo.
+
+Pasarse de 256 **no da error**: `serializeJson` trunca, el CRC se calcula
+sobre el texto ya recortado, y el frame llega al otro lado con CRC valido y
+menos claves. El receptor no puede distinguirlo de un frame que nunca las
+trajo. Por eso la configuracion se envia **fragmentada** y
+`test_serialframes` (Mega, entorno native) fija el presupuesto de cada frame:
 
 | Frame | Comando | Contenido |
 |---|---|---|
 | 1 | `config_intervals` | las 9 claves de `intervals.mega` |
-| 2 | `config_source` | una fuente completa de `detector.sources` (rangos + 3 reglas) |
-| 3 | `config_source` | la otra fuente |
-| 4 | `config_control` | las 3 claves de `control` |
-| 5..8 | `config_coil` | un canal de `coils` cada uno (nombre, enabled, factor) |
-| 9..12 | `config_current` | un canal de `currentSensors` cada uno |
+| 2 | `config_control` | las 4 claves de `control` |
+| 3..6 | `config_coil` | un canal de `coils` cada uno (nombre, enabled, factor) |
+| 7..8 | `config_source` | la CABECERA de una fuente (nombre, enabled, sensor, bufferSize, criticalMultiplier) |
+| 9..14 | `config_rule` | una regla de una fuente (`source`, `rule`, threshold, cooldown, maxEvents) |
+| — | `config_current` | un canal de `currentSensors` cada uno (sin implementar) |
+
+Una fuente entera en un solo frame ronda los 290 caracteres con el envelope
+y **no entra**: de ahi la division cabecera + 3 reglas. Hay un test que lo
+fija, para que nadie los vuelva a juntar sin darse cuenta.
 
 Cada frame se confirma con un `ack` propio y se reenvia hasta recibirlo, con
 el mismo patron `Tasks::ReSendXxx` que ya usan `start`/`stop`/`reset`. Un
@@ -510,22 +533,39 @@ un reset del Mega lo reconfigura sola.
 La configuracion **no** viaja dentro del `start`: ese comando sigue llevando
 unicamente los parametros de la corrida.
 
-### 10.3 Comandos a declarar
+### 10.3 Comandos
 
-`Commands::ConfigSource` no existe: el handler `Engine::_configureSource()`
-esta comentado en `engine.hpp`, pero el nombre de comando nunca llego a
-declararse en `commands.hpp`. Hay que agregar a **ambas copias** de
-`commands.hpp` (ESP32 y Mega, que se mantienen identicas byte a byte):
+Declarados en **ambas copias** de `commands.hpp` (ESP32 y Mega, que se
+mantienen identicas byte a byte):
 
 ```cpp
 constexpr const char* ConfigIntervals = "config_intervals";
+constexpr const char* ConfigControl   = "config_control";
+constexpr const char* ConfigCoil      = "config_coil";
 constexpr const char* ConfigSource    = "config_source";
-constexpr const char* ConfigCurrent   = "config_current";
+constexpr const char* ConfigRule      = "config_rule";
+// Falta, junto con la seccion 8:
+// constexpr const char* ConfigCurrent = "config_current";
 ```
 
-`_configureSource()` se descomenta y se completa con los clamps de la seccion
-7. Su `_sendConfirmSourceConfig()` se reemplaza por el `ack` estandar, para no
-tener dos mecanismos de confirmacion distintos conviviendo.
+El `Engine::_configureSource()` que estaba comentado en `engine.hpp` **no se
+revivio**: asumia una fuente entera por frame, que no entra (seccion 10.1).
+Lo reemplazan los handlers de `ConfigSource` y `ConfigRule`, que guardan lo
+recibido en una plantilla por fuente y lo aplican recien al arrancar el
+experimento (ver 10.4).
+
+### 10.4 Cuando se aplica cada seccion
+
+`intervals.mega`, `control` y `coils` se aplican **al recibirse**: pisan un
+valor y listo.
+
+`detector.sources` NO: se guarda en una plantilla por fuente y se aplica al
+arrancar el experimento. `enabled` implica registrar o desregistrar la fuente
+en el Detector, y eso destruye y recrea el `Source`, que vuelve sin
+configurar (`Source::addSample()` es un no-op mientras `_configured` sea
+false). Aplicarlo al vuelo por una reconexion serie a mitad de experimento
+dejaria al Detector sin vigilar esa fuente por el resto de la corrida, en
+silencio y justo cuando mas importa.
 
 ---
 
@@ -533,17 +573,17 @@ tener dos mecanismos de confirmacion distintos conviviendo.
 
 De menor a mayor riesgo. Cada paso deja el sistema funcionando.
 
-| # | Seccion | Alcance | Riesgo |
-|---|---|---|---|
-| 1 | `menus` | solo ESP32, sustitucion de arrays | bajo |
-| 2 | `intervals` | `constexpr` a variables runtime, ambas placas | bajo, mecanico |
-| 3 | `control` + `coils` | parametros del regulador y factores por canal | medio: toca el lazo |
-| 4 | `detector.sources` | revive `ConfigSource` + clamps en el Mega | medio: toca seguridad |
-| 5 | `telemetry` | solo ESP32; coordinar con el Decoder de Datacake | medio: dependencia externa |
-| 6 | `currentSensors` | compilacion a runtime, riesgo de cuelgue I2C | alto |
+| # | Seccion | Alcance | Riesgo | Estado |
+|---|---|---|---|---|
+| 1 | `menus` | solo ESP32, sustitucion de arrays | bajo | **hecho** |
+| 2 | `intervals` | `constexpr` a variables runtime, ambas placas | bajo, mecanico | **hecho** |
+| 3 | `control` + `coils` | parametros del regulador y factores por canal | medio: toca el lazo | **hecho** |
+| 4 | `detector.sources` | validacion en el Mega + retiro de `testMode` | medio: toca seguridad | **hecho** |
+| 5 | `telemetry` | solo ESP32; coordinar con el Decoder de Datacake | medio: dependencia externa | pendiente |
+| 6 | `currentSensors` | compilacion a runtime, riesgo de cuelgue I2C | alto | pendiente |
 
-Los pasos 1 y 2 se pueden hacer sin tocar el protocolo serie. El paso 3 es el
-que obliga a las modificaciones de la seccion 10.3.
+Los pasos 1 y 2 se pudieron hacer sin tocar el protocolo serie. El paso 3 fue
+el que obligo a las modificaciones de la seccion 10.3.
 
 ---
 

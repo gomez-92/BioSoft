@@ -233,29 +233,44 @@ Key collaborators:
   `Engine::onCommand`/`Start` (which used to build it inline across ~70 lines).
   Engine still validates the incoming JSON params itself; only the "turn
   validated values into detector rules" part moved out. CEM1's
-  critical/streak/frequency thresholds here are **test placeholders** (same
-  numbers as TEMP1's), not calibrated against real field.
+  critical/streak/frequency thresholds are **test placeholders** (same numbers
+  as TEMP1's), not calibrated against real field.
+  It is deliberately split in two halves, because a `SourceConfig` is now
+  assembled from two different sources: `defaultConfig()` gives the compiled
+  `bufferSize` + 3 rules (which the SD config overwrites and Engine keeps as a
+  per-source *template* across runs), and `applyCemRanges()`/`applyTempRanges()`
+  write the ranges from the operator's `start` params onto a **copy** of that
+  template. Merging them back into one `build...()` would make every `start`
+  overwrite the SD-configured rules with the compiled placeholders — silently.
+  `test_detectorconfigbuilder` pins that, plus the section-7 validation
+  (`isValidBufferSize`/`isValidRule`/`isValidCriticalMultiplier`). The contract
+  is **reject whole, don't clamp**: a rule with any out-of-range field is
+  discarded entirely and keeps its compiled default, since half a rule cuts (or
+  fails to cut) an experiment on numbers nobody chose.
 - `EmergencyButton` (`emergencybutton.hpp`) is the physical e-stop: edge-detected
   (not level), software-debounced, wired to pin 4. `Engine::onEmergencyButtonPressed()`
   only calls `_finish()` while `State::Running` — pressing it while idle is a
   no-op, so it doesn't push a bogus `result_data` (and bounce the ESP32 to
   Resultado) for an experiment that never ran.
-- CEM1 (magnetic field) can now be fed by either `MagnetometerVoltageSim` or the
-  real `MagnetometerMlx90393` driver, selected at `start` time via a testMode
-  1-6 param (`testmoderesolver.hpp`, `Engine::_applyTestMode()`) instead of a
-  hardcoded `.ino` instantiation — added for INT-001 bring-up so sim/real (and
-  CEM1 on/off) can be toggled from the ESP32's Configuración screen without
-  reflashing. `_applyTestMode()` must run *before* the CEM1 source is
-  configured in `onCommand`'s `Start` handler — it does
-  `clearMagnetometers()`/`addMagnetometer()` (and analogous for the CEM
-  source), so calling it after `configureSource("CEM1", ...)` silently drops
-  that config (`Source::addSample()` is a no-op while `_configured` is false).
-  The sim reads a plain analog voltage on `A0` and maps it linearly to mT; it
-  does **not** validate `FieldController` against anything physically
-  meaningful.
+- **`testMode` is gone** (was a 1-6 bring-up combo: `testmoderesolver.hpp`,
+  `Engine::_applyTestMode()`, a dropdown on the Configuración screen, a `start`
+  param). Its three axes moved into the SD config: sim-vs-real sensor and
+  CEM1-watched-or-not are `detector.sources[CEM1].sensor`/`.enabled`, and
+  "measure but don't drive the coils" is `control.enabled` (which is what
+  `Engine::_controlLoopEnabled` now reads, defaulting to `true` so a board with
+  no SD card still runs a full experiment). `Engine::_applySourceSettings()`
+  replaced `_applyTestMode()` and keeps its ordering constraint: it must run
+  *before* the `configureSource(...)` calls in `onCommand`'s `Start` handler,
+  because `removeSource`/`addSource` recreate the `Source` unconfigured and
+  `Source::addSample()` is a no-op while `_configured` is false — configure
+  first and the config is silently dropped.
+  CEM1 can still be fed by either `MagnetometerVoltageSim` or the real
+  `MagnetometerMlx90393`; the sim reads a plain analog voltage on `A0` and maps
+  it linearly to mT, and does **not** validate `FieldController` against
+  anything physically meaningful.
 - `MagnetometerManager::addMagnetometer()` only calls `magnetometer->begin()`
   if the magnetometer is not already `isValid()`. Needed because
-  `_applyTestMode()` re-runs `clearMagnetometers()`/`addMagnetometer()` on every
+  `_applySourceSettings()` re-runs `clearMagnetometers()`/`addMagnetometer()` on every
   `start`, and unconditionally calling `begin()` on `MagnetometerMlx90393`
   re-inits the Adafruit driver (full chip reset) on an already-working sensor
   seconds after its initial `begin()` in `setup()` — reproducible on bench as
@@ -270,13 +285,17 @@ Key collaborators:
   can round to 0.0000 near ambient field, and the raw µT figure is what
   distinguishes "sensor isn't reading" from "ambient field really is that
   small."
-- `detector.addSource("CEM1")` is commented out in `SoftMega2560.ino`
-  (2026-08-29, bring-up sin A0 cableado): with `A0` floating, the sim's noisy
-  reading falls outside `DetectorConfigBuilder::buildCemConfig`'s critical band
-  and hits the 3-consecutive-reading streak within ~1.5s of the settling
-  window ending, firing a false `"critical"` flag and cutting the experiment
-  early. `TEMP1` stays registered. Re-enable the `addSource("CEM1")` line once
-  `A0` has a real potentiometer/voltage source wired.
+- CEM1 is **not registered** as a Detector source by default, `TEMP1` is —
+  that pair is the compiled default, set in `SoftMega2560.ino`'s `setup()` and
+  in `Engine`'s constructor, and matches `docs/config.example.json`. The reason
+  is `A0`: floating, the sim's noisy reading falls outside the critical band
+  and hits the 3-consecutive-reading streak within ~1.5s of the settling window
+  ending, firing a false `"critical"` flag that cuts the experiment early.
+  Turning CEM1 back on no longer means editing the `.ino` — it's
+  `detector.sources[CEM1].enabled` in the SD config, applied at the next
+  `start`. (Before this, that decision briefly lived in `testMode`, which made
+  the `//detector.addSource("CEM1")` line in the `.ino` dead code; both are
+  gone now.)
 - `FieldController`'s proportional term (`fieldcontroller.hpp`) is now a real
   continuous P step — `kp * error` clamped to `maxStep` — replacing the old
   coarse/fine two-speed jump (audited as MOD-011 in Trello). The old version
@@ -395,6 +414,27 @@ wording, just with the same practical effect (no PWM, no field).
 `mega2560/src/intervals.hpp` is `inline`/mutable now too (was `constexpr`),
 mirroring the ESP32 side, so `config_intervals` has something to write into.
 
+`config_source`/`config_rule` carry `detector.sources`, and they are split
+that way — one header frame plus one frame per rule — because **a whole source
+does not fit in a frame**. Beware the numbers in `seriallink.hpp`: the
+`StaticJsonDocument<128>` in `TxMessage` and the `<256>` envelope constrain
+nothing, since ArduinoJson 7 makes that class an elastic `JsonDocument` whose
+`capacity()` just returns N (see the library's `compatibility.hpp`). The one
+real limit is the `char json[MAX_JSON_SIZE]` (256) that `_sendFrame()`
+serializes into, and **overflow is silent**: `serializeJson` truncates, the
+CRC is computed over the already-truncated text, so the frame arrives with a
+valid CRC and fewer keys, indistinguishable from one that never carried them.
+`test_serialframes` (native) pins the budget of every `config_*` payload,
+including a test asserting that a whole source in one frame does *not* fit, so
+nobody merges them back. `config_rule`'s ack echoes `source` + `rule`, which
+the ESP32 rejoins as `"<source>/<rule>"` to match its pending entry.
+Unlike the other three, `config_source`/`config_rule` are **not applied on
+receipt**: Engine stores them in a per-source template and applies them at the
+next `start` (`_applySourceSettings()`), because `enabled` implies
+`removeSource`/`addSource`, and doing that mid-experiment on a serial
+reconnect would leave the Detector silently not watching that source for the
+rest of the run.
+
 ### esp32 — HMI, connectivity, and screen state machine
 
 `MySystem` (`esp32/src/mysystem.hpp`) is the equivalent orchestrator on this side,
@@ -443,14 +483,19 @@ and `StateListener` (own app state, from `SystemData`).
   Its 8 KB read buffer is `static` on purpose: on the stack it would overflow
   Arduino's `loopTask` (8192 bytes total).
   **Phase 1** (`menus`, `intervals.esp32`) is applied locally, by `ConfigLoader`
-  itself. **Phase 2** (`intervals.mega`, `control`, `coils`) is now parsed and
-  held here too, but `ConfigLoader` never applies it — those three sections
-  belong to the Mega, so `ConfigLoader` only stores them (each value tagged
-  with its own `has` flag, since a missing/invalid key must forward nothing
-  and let the Mega keep its own compiled default — there's no ESP32-side
-  default to fall back to for values that aren't its own) for `MySystem` to
-  read when building the `config_*` frames (see below). `detector`,
-  `currentSensors` and `telemetry` are still fully unimplemented.
+  itself. Everything Mega-bound (`intervals.mega`, `control`, `coils`,
+  `detector.sources`) is parsed and held here too, but `ConfigLoader` never
+  applies it — it only stores it (each value tagged with its own `has` flag,
+  since a missing/invalid key must forward nothing and let the Mega keep its
+  own compiled default — there's no ESP32-side default to fall back to for
+  values that aren't its own) for `MySystem` to read when building the
+  `config_*` frames (see below). Range checks for those sections deliberately
+  live on the Mega, which is the authority over its own Detector and coils;
+  the ESP32 only type-checks. `currentSensors` and `telemetry` are still
+  unimplemented. Note `detector.sources[].range.mode` is parsed but *not*
+  forwarded: which source derives its ranges from the target and which takes
+  them verbatim is fixed by design on the Mega (CEM1 derived, TEMP1 not), so
+  only `criticalMultiplier` travels.
 - `ConfigurationOptions` and `Intervals` (ESP32) are **no longer `constexpr`** —
   they are fixed-size static buffers plus a real length counter (`countXxx`),
   seeded with the compiled defaults and overwritten by `ConfigLoader`. Option
@@ -476,16 +521,22 @@ and `StateListener` (own app state, from `SystemData`).
   `screencontroller.hpp`) fires first.
 - `MySystem::_sendMegaConfig()` (called from `onSerialConnected()`, so it
   fires on every connect *and* reconnect) generalizes that same ack/retry
-  pattern to an arbitrary set of frames instead of one fixed command: it
-  sends 1 `config_intervals` + 1 `config_control` + up to 4 `config_coil`
-  frames (one per SD-configured coil), tracks each as an entry in
-  `_pendingConfig[]`, and a single `Tasks::ReSendConfig` task (not one task
-  per frame) resends whatever is still active until `Commands::Ack` clears
-  it. Matching an ack to its `_pendingConfig` entry is by `command` string
-  alone for `config_intervals`/`config_control` (only one of each can be in
-  flight), but needs `command` **and** the coil `name` the ack echoes back
-  for `config_coil`, since several can be pending at once. Once every entry
-  is inactive, `_cancelPendingConfig()` removes `Tasks::ReSendConfig` itself.
+  pattern to an arbitrary set of frames instead of one fixed command: up to
+  14 (1 `config_intervals` + 1 `config_control` + 4 `config_coil` + 2
+  `config_source` + 6 `config_rule`), each tracked as an entry in
+  `_pendingConfig[]`, with a single `Tasks::ReSendConfig` task (not one per
+  frame) sending whatever is still active until `Commands::Ack` clears it.
+  Entries are matched by `command` plus a `key` that disambiguates several
+  pendings of the same command (coil name, source name, or
+  `"<source>/<rule>"`); `config_intervals`/`config_control` have no key since
+  only one of each can be in flight. Once every entry is inactive,
+  `_cancelPendingConfig()` removes the task itself.
+  Note `_sendMegaConfig()` does **not** blast all 14 out at once: the
+  SerialLink TX queue holds 9 usable messages and drains one per 50 ms, so
+  `_sendConfigFrame()` stops as soon as `sendCommand()` returns false and the
+  rest go out on the following `ReSendConfig` ticks. That `false` used to be
+  ignored, which was harmless at 6 frames and would have silently dropped
+  frames at 14.
 - That Busy-timeout race has a fallback in `MySystem::onScreenEvent()`
   (`ScreenType::BUSY` + `EventName::Timeout`): for `StateData::Starting` it
   calls `_processState(StateData::Ready)` (back to Principal); for

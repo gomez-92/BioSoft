@@ -61,8 +61,9 @@ Antes de empezar a medir:
    repetir la calibración, esto es lo primero que hay que reproducir.
 4. **Etapa de potencia completa y alimentada**, con la senoidal ya
    acondicionada (ver `docs/coil-excitation.md`).
-5. **Un modo de fijar el duty a mano**, sin lazo — hoy el `testMode` de bring-up
-   permite correr sin lazo cerrado (`controlLoopEnabled == false`).
+5. **Un modo de fijar el duty a mano**, sin lazo — hoy se consigue con
+   `control.enabled: false` en el archivo de la SD, que deja el sistema
+   midiendo sin actuar sobre el PWM (ver `docs/config-schema.md`, seccion 5).
 
 ## 4. Paso 1 — Ganancia de planta `K` (lazo abierto)
 

@@ -30,11 +30,6 @@ namespace ConfigurationOptions {
   struct OptionDuration { char label[MaxLabelLength]; unsigned long duration; };
   struct OptionTolFieldIntensity { char label[MaxLabelLength]; int tol; };
   struct OptionRangeTemperature { char label[MaxLabelLength]; float tmin; float tmax; };
-  // Bring-up temporal INT-001 (2026-08-31, ver tarjeta Trello "Prueba de
-  // integracion -- Control de intensidad CEM"): quitar junto con el resto
-  // del combo de testMode una vez terminadas las 6 pruebas de laboratorio.
-  // NO se parametriza desde la SD a proposito: es temporal.
-  struct OptionTestMode { char label[MaxLabelLength]; uint8_t value; };
 
   /* ============================================================
    *  OPCIONES (DEFAULTS COMPILADOS)
@@ -81,16 +76,5 @@ namespace ConfigurationOptions {
     {"20~50 C", 20, 50}
   };
   inline uint8_t countRangeCriticalTemperature = 3;
-
-  // Sigue siendo fijo: es de bring-up y se elimina, no se configura.
-  inline OptionTestMode optionsTestMode[MaxOptions] = {
-    {"Test 1", 1},
-    {"Test 2", 2},
-    {"Test 3", 3},
-    {"Test 4", 4},
-    {"Test 5", 5},
-    {"Test 6", 6}
-  };
-  inline uint8_t countTestMode = 6;
 
 };
