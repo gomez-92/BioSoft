@@ -197,7 +197,7 @@ justifica ahí), pero ya no participa del control de intensidad.
 - Corte general: un relé.
 
 **Falta (tarjetas propias, no este documento):**
-- `CoilExcitationManager` — el generador y el selector de modo de experimento
+- `CoilExcitation` — el generador y el selector de modo de experimento
   (campo X / campo nulo), que es un unico GPIO hacia el multiplexor.
 - `CoilChannel` — PWM individual + enable por bobina, ×4.
 - Colapsar `RelayManager` a un interruptor general único.

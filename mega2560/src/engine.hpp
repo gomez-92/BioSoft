@@ -11,7 +11,7 @@
 #include "magnetometermanager.hpp"
 #include "thermometermanager.hpp"
 #include "currentmanager.hpp"
-#include "coilexcitationmanager.hpp"
+#include "coilexcitation.hpp"
 #include "pwmdriver.hpp"
 #include "fieldcontroller.hpp"
 #include "relaymanager.hpp"
@@ -45,7 +45,7 @@ class Engine :
     MagnetometerManager& _magnetometerManager;
     ThermometerManager& _thermometerManager;
     CurrentSensorsManager& _currentSensorsManager;
-    CoilExcitationManager& _coilExcitation;
+    CoilExcitation& _coilExcitation;
     PwmDriver& _pwmDriver;
     FieldController& _fieldController;
     RelayManager& _relayManager;
@@ -89,7 +89,7 @@ class Engine :
       MagnetometerManager& magnetometerManager, 
       ThermometerManager& thermometerManager,
       CurrentSensorsManager& currentSensorsManager, 
-      CoilExcitationManager& coilExcitation,
+      CoilExcitation& coilExcitation,
       PwmDriver& pwmDriver,
       FieldController& fieldController,
       RelayManager& relayManager,
@@ -149,7 +149,7 @@ inline Engine::Engine(
   MagnetometerManager& magnetometerManager, 
   ThermometerManager& thermometerManager,
   CurrentSensorsManager& currentSensorsManager, 
-  CoilExcitationManager& coilExcitation,
+  CoilExcitation& coilExcitation,
   PwmDriver& pwmDriver,
   FieldController& fieldController,
   RelayManager& relayManager,

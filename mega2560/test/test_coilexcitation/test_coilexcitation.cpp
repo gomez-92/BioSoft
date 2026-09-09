@@ -2,12 +2,12 @@
 #include <unity.h>
 
 #include "../support/arduino_fakes.hpp"
-#include "../../src/coilexcitationmanager.hpp"
+#include "../../src/coilexcitation.hpp"
 
 using namespace fakeit;
 
 // =====================================================================
-// CoilExcitationManager habla con dos cosas: un generador de senal (via
+// CoilExcitation habla con dos cosas: un generador de senal (via
 // ISignalGenerator, por eso se puede doblar acá) y un unico pin digital
 // que selecciona el modo de experimento. Los tests verifican ambas: que
 // el generador reciba las ordenes correctas, y que el pin quede en el
@@ -15,7 +15,7 @@ using namespace fakeit;
 //
 // El modo NO invierte fase por software -- eso es analogico (op-amp
 // inversor + mux, ver docs/adr/001-inversion-de-fase.md). Acá solo se
-// verifica que el manager mueva el selector.
+// verifica que CoilExcitation mueva el selector.
 // =====================================================================
 
 namespace {
@@ -51,9 +51,9 @@ void tearDown(void) {}
 
 void test_begin_configures_mode_pin_and_starts_generator(void) {
     FakeSignalGenerator generator;
-    CoilExcitationManager manager(generator, ModePin, HIGH);
+    CoilExcitation excitation(generator, ModePin, HIGH);
 
-    manager.begin();
+    excitation.begin();
 
     Verify(Method(ArduinoFake(), pinMode).Using(ModePin, OUTPUT)).Once();
     TEST_ASSERT_EQUAL_UINT8(1, generator.beginCalls);
@@ -63,18 +63,18 @@ void test_begin_configures_mode_pin_and_starts_generator(void) {
 // el nivel del modo por defecto.
 void test_begin_leaves_mode_pin_in_a_known_state(void) {
     FakeSignalGenerator generator;
-    CoilExcitationManager manager(generator, ModePin, HIGH);
+    CoilExcitation excitation(generator, ModePin, HIGH);
 
-    manager.begin();
+    excitation.begin();
 
     Verify(Method(ArduinoFake(), digitalWrite).Using(ModePin, LOW)).AtLeast(1);
 }
 
 void test_default_mode_is_field_x(void) {
     FakeSignalGenerator generator;
-    CoilExcitationManager manager(generator, ModePin, HIGH);
+    CoilExcitation excitation(generator, ModePin, HIGH);
 
-    TEST_ASSERT_TRUE(FieldMode::X == manager.mode());
+    TEST_ASSERT_TRUE(FieldMode::X == excitation.mode());
 }
 
 // =====================================================================
@@ -83,12 +83,12 @@ void test_default_mode_is_field_x(void) {
 
 void test_setMode_null_drives_pin_to_configured_null_level(void) {
     FakeSignalGenerator generator;
-    CoilExcitationManager manager(generator, ModePin, HIGH);
-    manager.begin();
+    CoilExcitation excitation(generator, ModePin, HIGH);
+    excitation.begin();
 
-    TEST_ASSERT_TRUE(manager.setMode(FieldMode::Null));
+    TEST_ASSERT_TRUE(excitation.setMode(FieldMode::Null));
 
-    TEST_ASSERT_TRUE(FieldMode::Null == manager.mode());
+    TEST_ASSERT_TRUE(FieldMode::Null == excitation.mode());
     Verify(Method(ArduinoFake(), digitalWrite).Using(ModePin, HIGH)).AtLeast(1);
 }
 
@@ -96,13 +96,13 @@ void test_setMode_null_drives_pin_to_configured_null_level(void) {
 // con LOW, los niveles se invierten respecto del test anterior.
 void test_setMode_respects_inverted_null_level(void) {
     FakeSignalGenerator generator;
-    CoilExcitationManager manager(generator, ModePin, LOW);
-    manager.begin();
+    CoilExcitation excitation(generator, ModePin, LOW);
+    excitation.begin();
 
-    manager.setMode(FieldMode::Null);
+    excitation.setMode(FieldMode::Null);
     Verify(Method(ArduinoFake(), digitalWrite).Using(ModePin, LOW)).AtLeast(1);
 
-    manager.setMode(FieldMode::X);
+    excitation.setMode(FieldMode::X);
     Verify(Method(ArduinoFake(), digitalWrite).Using(ModePin, HIGH)).AtLeast(1);
 }
 
@@ -111,28 +111,28 @@ void test_setMode_respects_inverted_null_level(void) {
 //
 // Cambiar de campo X a nulo (o al reves) con el experimento en curso
 // cambia la condicion experimental de animales que ya estan expuestos.
-// El manager lo rechaza en vez de aplicarlo.
+// CoilExcitation lo rechaza en vez de aplicarlo.
 // =====================================================================
 
 void test_setMode_is_rejected_while_running(void) {
     FakeSignalGenerator generator;
-    CoilExcitationManager manager(generator, ModePin, HIGH);
-    manager.begin();
-    manager.start(50.0f);
+    CoilExcitation excitation(generator, ModePin, HIGH);
+    excitation.begin();
+    excitation.start(50.0f);
 
-    TEST_ASSERT_FALSE(manager.setMode(FieldMode::Null));
-    TEST_ASSERT_TRUE(FieldMode::X == manager.mode());
+    TEST_ASSERT_FALSE(excitation.setMode(FieldMode::Null));
+    TEST_ASSERT_TRUE(FieldMode::X == excitation.mode());
 }
 
 void test_setMode_works_again_after_stop(void) {
     FakeSignalGenerator generator;
-    CoilExcitationManager manager(generator, ModePin, HIGH);
-    manager.begin();
-    manager.start(50.0f);
-    manager.stop();
+    CoilExcitation excitation(generator, ModePin, HIGH);
+    excitation.begin();
+    excitation.start(50.0f);
+    excitation.stop();
 
-    TEST_ASSERT_TRUE(manager.setMode(FieldMode::Null));
-    TEST_ASSERT_TRUE(FieldMode::Null == manager.mode());
+    TEST_ASSERT_TRUE(excitation.setMode(FieldMode::Null));
+    TEST_ASSERT_TRUE(FieldMode::Null == excitation.mode());
 }
 
 // =====================================================================
@@ -141,47 +141,47 @@ void test_setMode_works_again_after_stop(void) {
 
 void test_start_sets_sine_wave_at_requested_frequency(void) {
     FakeSignalGenerator generator;
-    CoilExcitationManager manager(generator, ModePin, HIGH);
-    manager.begin();
+    CoilExcitation excitation(generator, ModePin, HIGH);
+    excitation.begin();
 
-    manager.start(10.0f);
+    excitation.start(10.0f);
 
     TEST_ASSERT_EQUAL_UINT8(1, generator.sineCalls);
     TEST_ASSERT_EQUAL_FLOAT(10.0f, generator.lastFrequency);
-    TEST_ASSERT_TRUE(manager.isRunning());
+    TEST_ASSERT_TRUE(excitation.isRunning());
 }
 
 void test_stop_turns_generator_off(void) {
     FakeSignalGenerator generator;
-    CoilExcitationManager manager(generator, ModePin, HIGH);
-    manager.begin();
-    manager.start(50.0f);
+    CoilExcitation excitation(generator, ModePin, HIGH);
+    excitation.begin();
+    excitation.start(50.0f);
 
-    manager.stop();
+    excitation.stop();
 
     TEST_ASSERT_EQUAL_UINT8(1, generator.offCalls);
-    TEST_ASSERT_FALSE(manager.isRunning());
+    TEST_ASSERT_FALSE(excitation.isRunning());
 }
 
 // El modo elegido antes de arrancar sigue vigente durante la corrida: no
 // se pisa ni se resetea al llamar start().
 void test_start_preserves_the_selected_mode(void) {
     FakeSignalGenerator generator;
-    CoilExcitationManager manager(generator, ModePin, HIGH);
-    manager.begin();
-    manager.setMode(FieldMode::Null);
+    CoilExcitation excitation(generator, ModePin, HIGH);
+    excitation.begin();
+    excitation.setMode(FieldMode::Null);
 
-    manager.start(50.0f);
+    excitation.start(50.0f);
 
-    TEST_ASSERT_TRUE(FieldMode::Null == manager.mode());
+    TEST_ASSERT_TRUE(FieldMode::Null == excitation.mode());
 }
 
 void test_isRunning_is_false_before_start(void) {
     FakeSignalGenerator generator;
-    CoilExcitationManager manager(generator, ModePin, HIGH);
-    manager.begin();
+    CoilExcitation excitation(generator, ModePin, HIGH);
+    excitation.begin();
 
-    TEST_ASSERT_FALSE(manager.isRunning());
+    TEST_ASSERT_FALSE(excitation.isRunning());
 }
 
 int main(int argc, char** argv) {

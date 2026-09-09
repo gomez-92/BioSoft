@@ -95,7 +95,7 @@ callbacks. Consumers implement `CommandListener` and call `sendCommand(...)` /
 `Engine` (`mega2560/src/engine.hpp`) is the central orchestrator, composed via
 constructor-injected references to all managers/drivers (`Timer`, `SerialLink`,
 `MagnetometerManager`, `ThermometerManager`, `CurrentSensorsManager`,
-`SignalGenerator`, `PwmDriver`, `FieldController`, `RelayManager`, `Detector`).
+`CoilExcitation`, `PwmDriver`, `FieldController`, `RelayManager`, `Detector`).
 It implements multiple listener interfaces (`EngineStateListener`,
 `RuntimeStateListener`, `TimerListener`, `CommandListener`, sensor sample
 listeners, `DetectorListener`) and reacts to events rather than polling — sensor
@@ -109,7 +109,7 @@ Key collaborators:
   `intervals.hpp`).
 - `FieldController` — closed-loop control (setpoint from `start` command) driving
   `PwmDriver` based on live magnetometer readings.
-- `CoilExcitationManager` (`coilexcitationmanager.hpp`) — the only place that
+- `CoilExcitation` (`coilexcitation.hpp`) — the only place that
   decides *what signal the coils get*. `Engine` no longer touches
   `SignalGenerator` directly: `_start()`/`_stop()` go through
   `start(freq)`/`stop()`, and the experiment mode (`FieldMode::X` / `Null`) is a
@@ -122,8 +122,17 @@ Key collaborators:
   since a silently-null experiment would look exactly like a normal one. The
   ESP32 does not send it yet — the Configuración selector is its own card.
   `ISignalGenerator` is declared here (same pattern as `IMagnetometer` living in
-  `magnetometermanager.hpp`) so the manager can be host-tested without pulling in
+  `magnetometermanager.hpp`) so it can be host-tested without pulling in
   `AD9833.h`/SPI; `SignalGenerator` implements it.
+  Deliberately **not** named `...Manager`: the `*Manager` classes here
+  (`MagnetometerManager`, `ThermometerManager`, `CurrentSensorsManager`) are all
+  containers of N homogeneous things with `addX`/`xAll` iteration, and this is
+  not one — it owns a single generator plus a pin, and earns its place by
+  exposing a domain concept (`FieldMode`) and guarding an invariant, not by
+  managing a collection. It briefly *was* `CoilExcitationManager`, back when the
+  design had two AD9833s to orchestrate; the name outlived that design and was
+  actively misleading, so it went. Same reasoning retires `RelayManager` (a
+  container of N for a fixed N=1) — see that card.
 - `Detector` — evaluates per-source (`CEM1`, `TEMP1`, ...) rules (critical
   threshold, streak, frequency) from sensor sample history and raises `onFlag`
   events. Overall health scoring used to live here (`Engine::_evaluateHealthData()`)

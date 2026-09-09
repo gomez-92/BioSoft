@@ -4,7 +4,7 @@
 - **Decide**: inversión analógica con op-amp + selector de modo por multiplexor
 - **Reemplaza**: la decisión del 2026-09-09 (dos AD9833 con fase por software)
 - **Tarjetas**: "Segundo generador senoidal + control de fase 180°"
-  (https://trello.com/c/FMGHpOph), "CoilExcitationManager"
+  (https://trello.com/c/FMGHpOph), "CoilExcitation"
   (https://trello.com/c/fS2rDihC)
 
 ## Contexto

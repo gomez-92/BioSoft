@@ -6,7 +6,7 @@
 // el interruptor maestro).
 constexpr bool DEBUG_COILEXCITATION = true;
 
-// Contrato minimo que CoilExcitationManager necesita de un generador de
+// Contrato minimo que CoilExcitation necesita de un generador de
 // senal. Existe por el mismo motivo que IMagnetometer en
 // magnetometermanager.hpp: permite testear el manager en host con un doble,
 // sin arrastrar AD9833.h/SPI. SignalGenerator la implementa.
@@ -44,13 +44,13 @@ enum class FieldMode : uint8_t { X, Null };
 // docs/adr/001-inversion-de-fase.md: dos generadores con osciladores
 // independientes derivan en fase y el campo nulo dejaria de serlo a los
 // pocos minutos, contaminando el grupo control sin que nada lo advierta.
-class CoilExcitationManager {
+class CoilExcitation {
   public:
     // nullLevel: nivel logico del pin selector que corresponde a campo
     // NULO, igual que el ActivationType de Relay. Depende de como quede
     // cableado el multiplexor, asi que se declara en el .ino y no se
     // asume acá.
-    CoilExcitationManager(ISignalGenerator& generator, uint8_t modePin, uint8_t nullLevel = HIGH);
+    CoilExcitation(ISignalGenerator& generator, uint8_t modePin, uint8_t nullLevel = HIGH);
 
     void begin();
 
@@ -79,11 +79,11 @@ class CoilExcitationManager {
 // El constructor no toca hardware a proposito (mismo criterio que
 // PwmDriver::applyFrequency): este objeto se declara global en el .ino y su
 // constructor corre antes del init() de Arduino. El pinMode va en begin().
-inline CoilExcitationManager::CoilExcitationManager(ISignalGenerator& generator, uint8_t modePin, uint8_t nullLevel)
+inline CoilExcitation::CoilExcitation(ISignalGenerator& generator, uint8_t modePin, uint8_t nullLevel)
   : _generator(generator), _modePin(modePin), _nullLevel(nullLevel), _mode(FieldMode::X), _running(false) {
 }
 
-inline void CoilExcitationManager::begin() {
+inline void CoilExcitation::begin() {
   pinMode(_modePin, OUTPUT);
   // Deja el selector en un estado conocido desde el arranque en vez de
   // depender de como quede el pin al resetear. Sin senal del generador el
@@ -92,7 +92,7 @@ inline void CoilExcitationManager::begin() {
   _generator.begin();
 }
 
-inline bool CoilExcitationManager::setMode(FieldMode mode) {
+inline bool CoilExcitation::setMode(FieldMode mode) {
   if (_running) {
     DEBUG_PRINTLN(DEBUG_COILEXCITATION, F("[COIL] RECHAZADO: no se cambia el modo con el experimento en curso"));
     return false;
@@ -103,11 +103,11 @@ inline bool CoilExcitationManager::setMode(FieldMode mode) {
   return true;
 }
 
-inline FieldMode CoilExcitationManager::mode() const {
+inline FieldMode CoilExcitation::mode() const {
   return _mode;
 }
 
-inline void CoilExcitationManager::start(float frequency) {
+inline void CoilExcitation::start(float frequency) {
   DEBUG_PRINT(DEBUG_COILEXCITATION, F("[COIL] Excitando bobinas en modo "));
   DEBUG_PRINT(DEBUG_COILEXCITATION, _mode == FieldMode::Null ? F("NULO (grupo control)") : F("X"));
   DEBUG_PRINT(DEBUG_COILEXCITATION, F(" a "));
@@ -118,17 +118,17 @@ inline void CoilExcitationManager::start(float frequency) {
   _running = true;
 }
 
-inline void CoilExcitationManager::stop() {
+inline void CoilExcitation::stop() {
   DEBUG_PRINTLN(DEBUG_COILEXCITATION, F("[COIL] Cortando excitacion de bobinas"));
   _generator.off();
   _running = false;
 }
 
-inline bool CoilExcitationManager::isRunning() const {
+inline bool CoilExcitation::isRunning() const {
   return _running;
 }
 
-inline void CoilExcitationManager::_applyMode() {
+inline void CoilExcitation::_applyMode() {
   uint8_t inactiveLevel = (_nullLevel == HIGH) ? LOW : HIGH;
   digitalWrite(_modePin, (_mode == FieldMode::Null) ? _nullLevel : inactiveLevel);
 }

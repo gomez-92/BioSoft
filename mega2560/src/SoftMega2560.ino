@@ -15,7 +15,7 @@
 #include "fieldcontroller.hpp"
 #include "pwmdriver.hpp"
 #include "signalgenerator.hpp"
-#include "coilexcitationmanager.hpp"
+#include "coilexcitation.hpp"
 #include "detector.hpp"
 #include "emergencybutton.hpp"
 #include "engine.hpp"
@@ -138,7 +138,7 @@ SignalGenerator signalGenerator(spi, SPI_CS_PIN);
 // inversion de 180 grados es analogica, no por software -- ver
 // docs/adr/001-inversion-de-fase.md. nullLevel queda en HIGH hasta que se
 // confirme como se cablea el mux en la placa.
-CoilExcitationManager coilExcitation(signalGenerator, FIELD_MODE_PIN, HIGH);
+CoilExcitation coilExcitation(signalGenerator, FIELD_MODE_PIN, HIGH);
 // 3906 Hz (prescaler 8) es la frecuencia acordada como contrato de salida
 // para la excitacion de bobinas -- ver docs/coil-excitation.md. Es la mas
 // alta alcanzable sin cambiar el modo del timer, y deja margen holgado para

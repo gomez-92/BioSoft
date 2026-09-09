@@ -1,10 +1,10 @@
 #pragma once
 #include <AD9833.h>
-#include "coilexcitationmanager.hpp"
+#include "coilexcitation.hpp"
 
-// Implementa ISignalGenerator (declarada en coilexcitationmanager.hpp, mismo
+// Implementa ISignalGenerator (declarada en coilexcitation.hpp, mismo
 // patron que IMagnetometer en magnetometermanager.hpp) para que
-// CoilExcitationManager pueda testearse en host con un doble.
+// CoilExcitation pueda testearse en host con un doble.
 class SignalGenerator : public ISignalGenerator {
   private:
     AD9833* _gen;
