@@ -226,7 +226,13 @@ Key collaborators:
 
 Several code paths (`SetTarget`, `ConfigSource`) are present but commented out —
 the protocol supports them but the ESP32 side does not yet drive them. Check
-before assuming a command name is unused. Per-flag telemetry (`flag_data`,
+before assuming a command name is unused. Note that `Commands::ConfigSource`
+does not actually exist: `Engine::_configureSource()` is commented out in
+`engine.hpp`, but the command name was never declared in either copy of
+`commands.hpp`, so reviving it means adding the constant to both, not just
+uncommenting the handler. `Engine::_readRule()` *is* live code (not commented
+out) and already parses the exact `{cooldown, maxEvents, threshold}` shape the
+SD config schema uses for the Detector's rules. Per-flag telemetry (`flag_data`,
 `Commands::OneFlagsData`) *is* wired end to end: the Mega's `Detector::onFlag`
 sends one `flag_data` per event, and the ESP32 renders the last 3 into the
 Running screen's Alertas tab (see below).
@@ -255,7 +261,17 @@ and `StateListener` (own app state, from `SystemData`).
   board's onboard SD slot — shares the TFT's SPI bus (pins 12/13/14) with its
   own CS on pin 5. Instantiated and `begin()`-called in `SoftEsp32.ino` but
   **not** wired into `MySystem`/`Engine` — nothing persists to it yet, that's a
-  deliberate next step, not an oversight.
+  deliberate next step, not an oversight. What it will eventually read is
+  already specified: `docs/config-schema.md` is the agreed contract for
+  `/biosoft/config.json` (menus, task intervals, Detector sources + rules,
+  current-sensor channels, telemetry), with `docs/config.example.json` holding
+  values identical to today's compiled defaults. Two rules from that contract
+  constrain the implementation: compiled defaults always survive (the file only
+  overrides keys it carries; a corrupt file is discarded whole, never applied
+  half-way), and the Mega's share is pushed **fragmented** — one frame per
+  logical unit, each under `MAX_JSON_SIZE`, sent from `onSerialConnected` — since
+  the full config does not fit in one 256-byte frame and widening that limit
+  would double buffers inside the Mega's 8 KB of RAM.
 - `buildDropdown()` (`screencontroller.hpp`) takes its option count as a
   hardcoded literal per call site (`ConfigurationController::init()`), not
   `sizeof(options)/sizeof(options[0])` — if an entry is added to or removed from
