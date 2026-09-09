@@ -167,10 +167,20 @@ PwmDriver pwmCoil4(COIL4_PWM_PIN, 3906);
 // recien cuando se ejecute la calibracion en banco -- ver
 // docs/protocolo-calibracion-intensidad.md y la tarjeta 8b. Un 1.0 no
 // significa "calibrado y sin desvio": significa "todavia sin medir".
-CoilChannel coil1(pwmCoil1, COIL1_ENABLE_PIN, "BOB1");
-CoilChannel coil2(pwmCoil2, COIL2_ENABLE_PIN, "BOB2");
-CoilChannel coil3(pwmCoil3, COIL3_ENABLE_PIN, "BOB3");
-CoilChannel coil4(pwmCoil4, COIL4_ENABLE_PIN, "BOB4");
+// AGRUPAMIENTO DE FASE (cableado, no software): las bobinas 1 y 3 reciben la
+// senoidal directa -- grupo FIJO. Las bobinas 2 y 4 reciben la rama que pasa
+// por el multiplexor: en fase con las otras (campo X) o invertida 180 grados
+// (campo nulo), segun el selector de CoilExcitation.
+//
+// El agrupamiento es alternado (1,3 vs 2,4) y no por pares contiguos (1,2 vs
+// 3,4) para que cualquier subconjunto de dos bobinas consecutivas tenga una
+// de cada grupo. Con 1 y 2 solas -- el default de abajo -- ya se pueden
+// ejercitar los dos modos; con 1 y 2 en el mismo grupo, el campo nulo no
+// seria probable hasta tener las 4 montadas.
+CoilChannel coil1(pwmCoil1, COIL1_ENABLE_PIN, "BOB1");  // grupo fijo
+CoilChannel coil2(pwmCoil2, COIL2_ENABLE_PIN, "BOB2");  // grupo invertible
+CoilChannel coil3(pwmCoil3, COIL3_ENABLE_PIN, "BOB3");  // grupo fijo
+CoilChannel coil4(pwmCoil4, COIL4_ENABLE_PIN, "BOB4");  // grupo invertible
 CoilChannels coilChannels;
 // Parametros del regulador de intensidad. Este es el UNICO lugar donde se
 // fijan: cuando la configuracion por SD este implementada (ver
@@ -294,10 +304,15 @@ void setup() {
   // begin() de cada canal lo hace Engine::begin() via beginAll(), igual que
   // con CoilExcitation y MainPowerSwitch.
   coilChannels.clearChannels();
+  // Por defecto solo BOB1 y BOB2: una de cada grupo de fase, que es el
+  // minimo con el que los dos modos de experimento tienen sentido. Las 4
+  // estan declaradas y listas -- descomentar a medida que se monten, o
+  // dejarlo librado al archivo de configuracion cuando exista (ver
+  // docs/config-schema.md).
   coilChannels.addChannel(&coil1);
   coilChannels.addChannel(&coil2);
-  coilChannels.addChannel(&coil3);
-  coilChannels.addChannel(&coil4);
+  //coilChannels.addChannel(&coil3);
+  //coilChannels.addChannel(&coil4);
 
   /* ===== interruptor general =====*/
   // No se llama begin() acá: lo hace Engine::begin(), igual que con

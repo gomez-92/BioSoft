@@ -172,6 +172,15 @@ Key collaborators:
   is not reaching the setpoint and will run weaker than the others, which
   nothing else would reveal. During calibration that log line is the symptom
   you're looking for.
+  **Phase groups are alternating, not contiguous pairs**: coils 1 and 3 take the
+  direct signal (fixed group), coils 2 and 4 take the mux output (invertible
+  group). That split is wiring, not software, but it is what makes the default
+  registration in `SoftMega2560.ino` — only BOB1 and BOB2 — useful: two
+  consecutive coils land in *different* groups, so both experiment modes can be
+  exercised with two coils mounted. Grouped as 1-2 / 3-4 instead, those same two
+  coils would share a group and the null field would not be verifiable until all
+  four were built. Coils 3 and 4 are declared and ready; their `addChannel` calls
+  are commented out, the same bring-up pattern used for the sensors.
   `CoilChannels` **is** a legitimate container of N, unlike the `RelayManager`
   that became `MainPowerSwitch`: there N was fixed at 1 by design, here there
   are 4 real coils and every experiment-level operation is collective (enable
@@ -327,7 +336,7 @@ Key collaborators:
   Intensity reaches the coil as the *amplitude* of a continuous sine (PWM → RC →
   DC level → gain), never by chopping the sine itself.
 - The 180° phase inversion for the null-field control group is **analog** — an
-  op-amp inverter plus a mux picking direct vs. inverted for coil pair 3-4, one
+  op-amp inverter plus a mux picking direct vs. inverted for coils 2 and 4, one
   GPIO — not a second AD9833 with a programmed phase. The reason is written up
   in `docs/adr/001-inversion-de-fase.md` and is worth knowing before anyone
   proposes the software route again: two AD9833 boards each carry their own

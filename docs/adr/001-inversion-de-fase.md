@@ -9,11 +9,12 @@
 
 ## Contexto
 
-El experimento necesita dos modos de trabajo sobre 4 bobinas, agrupadas de a
-pares (1-2 y 3-4):
+El experimento necesita dos modos de trabajo sobre 4 bobinas, repartidas en dos
+grupos **alternados**: las bobinas 1 y 3 forman el grupo fijo, las 2 y 4 el
+grupo invertible.
 
-- **Campo X**: los dos pares en fase — todas las bobinas aportan al mismo campo.
-- **Campo nulo**: el par 3-4 desfasado 180° respecto del par 1-2, de modo que
+- **Campo X**: los dos grupos en fase — todas las bobinas aportan al mismo campo.
+- **Campo nulo**: el grupo invertible desfasado 180° respecto del fijo, de modo que
   los campos se cancelen. Es la condición del **grupo control**: los animales
   están en el mismo aparato, con los mismos ruidos, vibraciones y temperatura,
   pero sin campo neto.
@@ -28,7 +29,7 @@ pierde sentido — sin que nada en el sistema lo advierta.
 ### A. Inversor analógico + 2 relés selectores (propuesta 2026-09-08)
 
 Un AD9833, un op-amp inversor, y dos relés electromecánicos: uno como on/off
-global antes de la bifurcación, otro como selector S+/S− en la rama 3-4.
+global antes de la bifurcación, otro como selector S+/S− en la rama invertible.
 
 Descartada el 2026-09-09 en favor de B. **El motivo del descarte no quedó
 registrado** — solo el hecho. Reconstruyéndolo: la molestia estaba en los dos
@@ -61,10 +62,10 @@ ser consecutivas: a 50 Hz, **1 ms de separación entre ellas son 18° de error**
 
 ### C. Inversor analógico + multiplexor de un pin (aceptada)
 
-Un AD9833. Su salida alimenta el par 1-2 directamente y, a través de un op-amp
-inversor, produce la señal opuesta. Un multiplexor analógico (74HC4053, ADG419
-o equivalente) elige, con **un solo GPIO**, si el par 3-4 recibe la señal
-directa (campo X) o la invertida (campo nulo).
+Un AD9833. Su salida alimenta las bobinas 1 y 3 directamente y, a través de un
+op-amp inversor, produce la señal opuesta. Un multiplexor analógico (74HC4053,
+ADG419 o equivalente) elige, con **un solo GPIO**, si las bobinas 2 y 4 reciben
+la señal directa (campo X) o la invertida (campo nulo).
 
 Es la opción A sin los dos relés: mismo principio analógico, conmutación de
 estado sólido y un único punto de control.

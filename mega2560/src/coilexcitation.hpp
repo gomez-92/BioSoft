@@ -22,10 +22,16 @@ class ISignalGenerator {
 // experimento: define si el segundo par de bobinas suma al campo o lo
 // cancela.
 //
-//   X    -- los dos pares en fase: campo electromagnetico presente.
-//   Null -- el par 3-4 recibe la senal invertida 180 grados, de modo que
-//           los campos se cancelan. Es la condicion del GRUPO CONTROL:
-//           mismo aparato, mismo ruido, misma vibracion, sin campo neto.
+//   X    -- los dos grupos en fase: campo electromagnetico presente.
+//   Null -- el grupo invertible recibe la senal desfasada 180 grados, de
+//           modo que los campos se cancelan. Es la condicion del GRUPO
+//           CONTROL: mismo aparato, mismo ruido, misma vibracion, sin campo
+//           neto.
+//
+// Los grupos son ALTERNADOS, no pares contiguos: bobinas 1 y 3 fijas, 2 y 4
+// invertibles. Asi cualquier subconjunto de bobinas consecutivas tiene una
+// de cada grupo, y el campo nulo se puede ejercitar con solo dos montadas
+// (ver SoftMega2560.ino, donde el default son BOB1 y BOB2).
 enum class FieldMode : uint8_t { X, Null };
 
 // Unico punto del firmware que decide QUE senal reciben las bobinas.

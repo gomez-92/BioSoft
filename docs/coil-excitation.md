@@ -29,11 +29,11 @@ bobina real sería inventar números.
 ## 2. La cadena de señal
 
 ```
-                        ┌─► directa ────────────────► par 1-2
+                        ┌─► directa ───────────────► bobinas 1 y 3
 AD9833 ──► senoidal ────┤
   (forma y frecuencia)  └─► inversor ──┐
-                                       ├─ mux ──────► par 3-4
-                        (directa) ─────┘   ▲          (en fase o a 180°)
+                                       ├─ mux ─────► bobinas 2 y 4
+                        (directa) ─────┘   ▲         (en fase o a 180°)
                                            │
                               selector de modo (1 GPIO)
 
@@ -45,11 +45,18 @@ interruptor general ────────────────────
 ```
 
 La inversión de fase para el campo nulo es **analógica**, no por software: un
-op-amp inversor produce la señal opuesta y un multiplexor elige cuál recibe el
-par 3-4. Se descartó usar un segundo AD9833 con fase programable porque dos
-generadores con osciladores independientes derivan y el campo nulo dejaría de
-serlo a los pocos minutos — el razonamiento completo está en
+op-amp inversor produce la señal opuesta y un multiplexor elige cuál reciben
+las bobinas 2 y 4. Se descartó usar un segundo AD9833 con fase programable
+porque dos generadores con osciladores independientes derivan y el campo nulo
+dejaría de serlo a los pocos minutos — el razonamiento completo está en
 `docs/adr/001-inversion-de-fase.md`.
+
+Los grupos son **alternados** (1 y 3 fijas, 2 y 4 invertibles) y no pares
+contiguos. Así cualquier subconjunto de bobinas consecutivas tiene una de cada
+grupo, y los dos modos de experimento se pueden ejercitar con solo dos bobinas
+montadas — que es el default del firmware hoy (BOB1 y BOB2). Con el
+agrupamiento por pares contiguos, dos bobinas caerían en el mismo grupo y el
+campo nulo no sería verificable hasta tener las cuatro.
 
 La decisión de fondo: **la senoidal y la intensidad viajan por caminos
 separados y se combinan en la etapa de potencia**. El AD9833 aporta la forma
