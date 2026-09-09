@@ -150,14 +150,36 @@ Key collaborators:
   only calls `_finish()` while `State::Running` — pressing it while idle is a
   no-op, so it doesn't push a bogus `result_data` (and bounce the ESP32 to
   Resultado) for an experiment that never ran.
-- CEM1 (magnetic field) is currently fed by `MagnetometerVoltageSim`
-  (`magnetometervoltagesim.hpp`), **not** the real `MagnetometerMlx90393` driver
-  — that instantiation is still commented out in `SoftMega2560.ino` (no
-  bobinas/lab access yet). The sim reads a plain analog voltage on `A0` and maps
-  it linearly to mT, purely so the Detector → `flag_data` → ESP32 telemetry path
-  can be exercised without hardware; it does **not** validate `FieldController`
-  against anything physically meaningful. Swap back to `MagnetometerMlx90393`
-  (and drop the sim) before any real-coil test.
+- CEM1 (magnetic field) can now be fed by either `MagnetometerVoltageSim` or the
+  real `MagnetometerMlx90393` driver, selected at `start` time via a testMode
+  1-6 param (`testmoderesolver.hpp`, `Engine::_applyTestMode()`) instead of a
+  hardcoded `.ino` instantiation — added for INT-001 bring-up so sim/real (and
+  CEM1 on/off) can be toggled from the ESP32's Configuración screen without
+  reflashing. `_applyTestMode()` must run *before* the CEM1 source is
+  configured in `onCommand`'s `Start` handler — it does
+  `clearMagnetometers()`/`addMagnetometer()` (and analogous for the CEM
+  source), so calling it after `configureSource("CEM1", ...)` silently drops
+  that config (`Source::addSample()` is a no-op while `_configured` is false).
+  The sim reads a plain analog voltage on `A0` and maps it linearly to mT; it
+  does **not** validate `FieldController` against anything physically
+  meaningful.
+- `MagnetometerManager::addMagnetometer()` only calls `magnetometer->begin()`
+  if the magnetometer is not already `isValid()`. Needed because
+  `_applyTestMode()` re-runs `clearMagnetometers()`/`addMagnetometer()` on every
+  `start`, and unconditionally calling `begin()` on `MagnetometerMlx90393`
+  re-inits the Adafruit driver (full chip reset) on an already-working sensor
+  seconds after its initial `begin()` in `setup()` — reproducible on bench as
+  `begin_I2C` failing the *second* time (first always OK), with no actual
+  wiring problem. A magnetometer that never connected, or that dropped mid-run,
+  still gets its `begin()` retried since it's not valid.
+- `MagnetometerMlx90393::update()` converts the Adafruit driver's raw reading
+  (µT) to mT before storing it — the rest of the system (ESP32 targets, the
+  sim, `FieldController`, `DetectorConfigBuilder`) works in mT, so without this
+  conversion the real sensor reports ~1000x what everything else expects. Logs
+  both units on every read (`DEBUG_MAGNETOMETER_MLX90393`) since the mT value
+  can round to 0.0000 near ambient field, and the raw µT figure is what
+  distinguishes "sensor isn't reading" from "ambient field really is that
+  small."
 - `detector.addSource("CEM1")` is commented out in `SoftMega2560.ino`
   (2026-08-29, bring-up sin A0 cableado): with `A0` floating, the sim's noisy
   reading falls outside `DetectorConfigBuilder::buildCemConfig`'s critical band
@@ -165,6 +187,13 @@ Key collaborators:
   window ending, firing a false `"critical"` flag and cutting the experiment
   early. `TEMP1` stays registered. Re-enable the `addSource("CEM1")` line once
   `A0` has a real potentiometer/voltage source wired.
+- `FieldController`'s proportional term (`fieldcontroller.hpp`) is now a real
+  continuous P step — `kp * error` clamped to `maxStep` — replacing the old
+  coarse/fine two-speed jump (audited as MOD-011 in Trello). The old version
+  moved `_output` by the same fixed `fineStep` whether the error was 0.011 or
+  0.099, which felt like the duty "bouncing" at the slightest deviation instead
+  of easing in; `Config::kp`/`maxStep` replace the old
+  `Config::coarseStep`/`fineStep` fields.
 - **I2C hang hazard**: `ThermometerDS18B20::update()`
   (`dallasThermometer.requestTemperatures()`) always blocks ~750ms per call
   regardless of whether a sensor is on the bus, and

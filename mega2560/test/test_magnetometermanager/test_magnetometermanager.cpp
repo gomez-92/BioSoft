@@ -66,6 +66,32 @@ void test_addMagnetometer_assigns_sequential_ids_and_calls_begin(void) {
     TEST_ASSERT_EQUAL_UINT8(2, manager.magnetometerCount());
 }
 
+void test_addMagnetometer_skips_begin_when_already_valid(void) {
+    // Regresion bring-up INT-001 (2026-09-01): Engine::_applyTestMode() hace
+    // clearMagnetometers()+addMagnetometer() en cada "start". Con begin()
+    // incondicional, eso reinicializaba MagnetometerMlx90393 en caliente en
+    // cada experimento y fallaba en banco aunque el sensor ya funcionara
+    // desde el boot. addMagnetometer() ahora saltea begin() si el
+    // magnetometro ya reporta isValid()==true.
+    MagnetometerManager manager;
+    FakeMagnetometer m0("CEM1");
+    m0.valid = true;
+
+    manager.addMagnetometer(&m0);
+
+    TEST_ASSERT_EQUAL_UINT8(0, m0.beginCalls);
+}
+
+void test_addMagnetometer_calls_begin_when_invalid(void) {
+    MagnetometerManager manager;
+    FakeMagnetometer m0("CEM1");
+    m0.valid = false;
+
+    manager.addMagnetometer(&m0);
+
+    TEST_ASSERT_EQUAL_UINT8(1, m0.beginCalls);
+}
+
 void test_addMagnetometer_rejects_null_without_adding(void) {
     MagnetometerManager manager;
     TEST_ASSERT_EQUAL_UINT8(0xFF, manager.addMagnetometer(nullptr));
@@ -199,6 +225,8 @@ int main(int argc, char** argv) {
     UNITY_BEGIN();
 
     RUN_TEST(test_addMagnetometer_assigns_sequential_ids_and_calls_begin);
+    RUN_TEST(test_addMagnetometer_skips_begin_when_already_valid);
+    RUN_TEST(test_addMagnetometer_calls_begin_when_invalid);
     RUN_TEST(test_addMagnetometer_rejects_null_without_adding);
     RUN_TEST(test_addMagnetometer_rejects_when_full_returns_0xFF);
 

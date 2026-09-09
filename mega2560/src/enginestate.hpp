@@ -2,8 +2,10 @@
 #include "debugconfig.hpp"
 
 // Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
-// el interruptor maestro).
-constexpr bool DEBUG_ENGINESTATE = true;
+// el interruptor maestro). Apagado (2026-09-01) durante bring-up INT-001
+// centrado en el circuito de campo magnetico -- transiciones de estado
+// genericas, no aportan a esa depuracion.
+constexpr bool DEBUG_ENGINESTATE = false;
 
 namespace State {
   constexpr const char* Idle      = "idle";

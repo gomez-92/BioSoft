@@ -6,8 +6,9 @@
 #include "debugconfig.hpp"
 
 // Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
-// el interruptor maestro).
-constexpr bool DEBUG_SERIALLINK = true;
+// el interruptor maestro). Apagado (2026-09-01) durante bring-up INT-001
+// centrado en el circuito de campo magnetico -- no aporta a esa depuracion.
+constexpr bool DEBUG_SERIALLINK = false;
 // =========================
 // Configuración del protocolo
 // =========================

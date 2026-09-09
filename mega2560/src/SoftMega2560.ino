@@ -22,8 +22,10 @@
 #include <avr/wdt.h>
 
 // Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
-// el interruptor maestro).
-constexpr bool DEBUG_MAIN = true;
+// el interruptor maestro). Apagado (2026-09-01) durante bring-up INT-001
+// centrado en el circuito de campo magnetico -- reset cause/RAM no aportan
+// a esa depuracion. Volver a true si hace falta diagnosticar boot/memoria.
+constexpr bool DEBUG_MAIN = false;
 
 void printResetCause() {
 
@@ -52,6 +54,33 @@ void printResetCause() {
 
   if (resetCause & _BV(JTRF)) {
     DEBUG_PRINTLN(DEBUG_MAIN, F("[RESET] JTAG reset"));
+  }
+}
+
+// Diagnostico temporal bring-up INT-001 (2026-09-01): MagnetometerMlx90393::begin()
+// viene fallando (begin_I2C addr=0xC -> FALLO) con el sensor recien cableado --
+// este scan barre las 127 direcciones I2C posibles y loguea cuales responden,
+// para distinguir "el bus esta vivo pero el sensor esta en otra direccion"
+// de "el sensor no esta en el bus para nada" (cableado/alimentacion). Gateado
+// con el flag del magnetometro (no DEBUG_MAIN) para que quede visible durante
+// este bring-up sin tener que reactivar el ruido general del modulo main.
+void scanI2CBus() {
+  DEBUG_PRINTLN(DEBUG_MAGNETOMETER_MLX90393, F("[I2C] Escaneando bus..."));
+  uint8_t found = 0;
+  for (uint8_t address = 1; address < 127; address++) {
+    Wire.beginTransmission(address);
+    if (Wire.endTransmission() == 0) {
+      DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, F("[I2C] Dispositivo encontrado en 0x"));
+      DEBUG_PRINTLN(DEBUG_MAGNETOMETER_MLX90393, address, HEX);
+      found++;
+    }
+  }
+  if (found == 0) {
+    DEBUG_PRINTLN(DEBUG_MAGNETOMETER_MLX90393, F("[I2C] Ningun dispositivo respondio -- bus muerto (cableado/alimentacion/pull-ups), no es un problema de direccion"));
+  } else {
+    DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, F("[I2C] Escaneo completo, "));
+    DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, found);
+    DEBUG_PRINTLN(DEBUG_MAGNETOMETER_MLX90393, F(" dispositivo(s) encontrado(s)"));
   }
 }
 
@@ -132,6 +161,7 @@ void setup() {
   delay(1000);
   spi.begin();
   Wire.begin();
+  scanI2CBus();
 
   /* ===== magnetometers =====*/
   magnetometermanager.clearMagnetometers();

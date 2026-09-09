@@ -280,8 +280,6 @@ inline void Engine::_finish(const char* reason, const char* description) {
 inline void Engine::_sendState() {
   JsonDocument doc;
   doc["status"] = _engineState.getState();
-  DEBUG_PRINT(DEBUG_ENGINE, "send status: ");
-  DEBUG_PRINTLN(DEBUG_ENGINE, _engineState.getState());
   _serial.sendCommand(Commands::StateData, doc);
 }
 
@@ -401,9 +399,7 @@ inline void Engine::_sendCemData() {
 inline void Engine::_sendCurrentData() {
   JsonDocument doc;
   _currentSensorsManager.publishMeasures(doc);
-  bool queued = _serial.sendCommand(Commands::CurrentData, doc);
-  DEBUG_PRINT(DEBUG_ENGINE, F("[CURRENT] current_data encolado: "));
-  DEBUG_PRINTLN(DEBUG_ENGINE, queued ? F("OK") : F("FALLO (cola TX llena)"));
+  _serial.sendCommand(Commands::CurrentData, doc);
 }
 
 // Engine State Callbacks
@@ -456,9 +452,6 @@ inline void Engine::onResult() {
 
 // Timer Callback
 inline void Engine::onTimer(const char* name) {
-  DEBUG_PRINT(DEBUG_ENGINE, "Iniciando: ");
-  DEBUG_PRINTLN(DEBUG_ENGINE, name);
-  unsigned long t1 = millis();
   if(strcmp(name, Tasks::SendState) == 0) {
     _sendState();
   }
@@ -500,19 +493,10 @@ inline void Engine::onTimer(const char* name) {
   else if(strcmp(name, Tasks::Finish) == 0) {
     _finish("completed", "Duracion completa alcanzada");
   }
-  unsigned long t2 = millis();
-  DEBUG_PRINT(DEBUG_ENGINE, name);
-  DEBUG_PRINT(DEBUG_ENGINE, " tardó ");
-  DEBUG_PRINT(DEBUG_ENGINE, t2 - t1);
-  DEBUG_PRINTLN(DEBUG_ENGINE, " ms");
-  
 }
 
 // Serial Callbacks
 inline void Engine::onCommand(const char* command, JsonVariantConst params) {
-
-  DEBUG_PRINT(DEBUG_ENGINE, F("command: "));
-  DEBUG_PRINTLN(DEBUG_ENGINE, command);
 
   if (strcmp(command, Commands::Ping) == 0) {
 
@@ -630,6 +614,18 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
 
     DEBUG_PRINT(DEBUG_ENGINE, F("[START] testMode = "));
     DEBUG_PRINTLN(DEBUG_ENGINE, testMode);
+
+    // Aplicado ACA, antes de configurar CEM1: _applyTestMode() decide si la
+    // source CEM1 existe en el Detector (removeSource + addSource
+    // condicional, ver su implementacion). Si se aplicara mas tarde (como
+    // antes, ver bug corregido 2026-09-01 mas abajo), configureSource("CEM1",
+    // ...) de mas abajo corre contra una source que todavia no existe (o que
+    // _applyTestMode va a recrear vacia despues), y la config se pierde en
+    // silencio -- Source::addSample() no hace nada si _configured es false,
+    // asi que el Detector nunca evalua CEM1 sin importar los rangos.
+    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Aplicando testMode..."));
+
+    _applyTestMode(testMode);
 
 
     // ========================================================
@@ -780,10 +776,6 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
     // ========================================================
 
     DEBUG_PRINTLN(DEBUG_ENGINE, );
-    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Aplicando testMode..."));
-
-    _applyTestMode(testMode);
-
     DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Iniciando experimento..."));
 
     _start();
@@ -897,7 +889,6 @@ inline void Engine::onCurrentSensorSample(ICurrentSensor* sensor) {
   unsigned long now = millis();
   if(now - _lastCurrentSampleSent >= _currentSampleSendInterval) {
     _lastCurrentSampleSent = now;
-    DEBUG_PRINTLN(DEBUG_ENGINE, F("[CURRENT] enviando current_data al ESP32..."));
     _sendCurrentData();
   }
 }

@@ -47,8 +47,24 @@ inline MagnetometerManager::MagnetometerManager() : _magnetometerCount(0), _list
 
 inline uint8_t MagnetometerManager::addMagnetometer(IMagnetometer* magnetometer) {
   if (_magnetometerCount >= MAX_MAGNETOMETERS || magnetometer == nullptr) return 0xFF;
-  magnetometer->begin();
-  
+
+  // Bring-up INT-001 (2026-09-01): solo llama begin() si el magnetometro
+  // TODAVIA no esta valido. Engine::_applyTestMode() hace clearMagnetometers()
+  // + addMagnetometer() en cada "start" (para poder alternar sim/real por
+  // testMode sin reflashear) -- con begin() incondicional, eso reinicializaba
+  // MagnetometerMlx90393 (recrea el Adafruit_I2CDevice interno + reset
+  // completo del chip via Adafruit_MLX90393::_init()) en cada experimento,
+  // aunque ya hubiera arrancado bien en setup(). Esa reinicializacion en
+  // caliente, segundos despues del begin() inicial, fallaba de forma
+  // reproducible en banco (begin_I2C -> FALLO la segunda vez, primera vez
+  // siempre OK) dejando el sensor invalido para el resto del experimento sin
+  // ningun problema de cableado real. Si el sensor SI esta invalido (nunca
+  // conecto, o se desconecto en medio de un experimento anterior), begin()
+  // sigue llamandose para reintentar la inicializacion.
+  if (!magnetometer->isValid()) {
+    magnetometer->begin();
+  }
+
   ManagedMagnetometer& m = _magnetometers[_magnetometerCount];
   m.magnetometer = magnetometer;
   m.magnetometerId = _magnetometerCount;

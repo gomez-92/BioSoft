@@ -14,7 +14,7 @@ void setUp(void) {
 void tearDown(void) {}
 
 // =====================================================================
-// Paso proporcional discreto
+// Paso proporcional continuo
 // =====================================================================
 
 void test_error_within_deadband_leaves_output_unchanged(void) {
@@ -27,24 +27,42 @@ void test_error_within_deadband_leaves_output_unchanged(void) {
     TEST_ASSERT_EQUAL_FLOAT(0.0f, out);
 }
 
-void test_error_above_ten_percent_uses_coarse_step(void) {
+void test_large_error_clamps_step_to_max_step(void) {
     FieldController::Config cfg;
     FieldController controller(cfg);
     controller.setSetpoint(1.0f);
 
-    float out = controller.update(0.5f); // error=0.5 > 0.1 -> coarseStep
+    // error=0.5 -> kp*error=0.05, ya en el limite de maxStep (0.05)
+    float out = controller.update(0.5f);
 
-    TEST_ASSERT_FLOAT_WITHIN(0.0001f, cfg.coarseStep, out);
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, cfg.maxStep, out);
 }
 
-void test_error_between_deadband_and_ten_percent_uses_fine_step(void) {
+void test_step_scales_proportionally_with_error(void) {
     FieldController::Config cfg;
     FieldController controller(cfg);
     controller.setSetpoint(1.0f);
 
-    float out = controller.update(0.95f); // error=0.05, entre deadBand y 0.1 -> fineStep
+    // error=0.05 -> kp*error=0.1*0.05=0.005, por debajo de maxStep
+    float out = controller.update(0.95f);
 
-    TEST_ASSERT_FLOAT_WITHIN(0.0001f, cfg.fineStep, out);
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, cfg.kp * 0.05f, out);
+}
+
+void test_smaller_error_produces_smaller_step_than_larger_error(void) {
+    // Confirma la razon del cambio (MOD-011): un error apenas fuera de la
+    // deadBand ya no produce el mismo salto que un error mucho mayor.
+    FieldController::Config cfgSmall;
+    FieldController small(cfgSmall);
+    small.setSetpoint(1.0f);
+    float stepSmall = small.update(0.98f); // error=0.02, apenas fuera de deadBand
+
+    FieldController::Config cfgLarge;
+    FieldController large(cfgLarge);
+    large.setSetpoint(1.0f);
+    float stepLarge = large.update(0.5f); // error=0.5
+
+    TEST_ASSERT_TRUE(stepSmall < stepLarge);
 }
 
 // =====================================================================
@@ -69,13 +87,14 @@ void test_proportional_and_slow_integral_never_apply_in_the_same_call(void) {
     FieldController controller(cfg);
     controller.setSetpoint(1.0f);
 
-    controller.update(0.5f);  // error=0.5, coarse -> output=0.05
-    controller.update(1.5f);  // error=-0.5, coarse -> output=0.00
+    controller.update(0.5f);  // error=0.5, kp*error=0.05=maxStep -> output=0.05
+    controller.update(1.5f);  // error=-0.5, step=-0.05=maxStep -> output=0.00
     float out = controller.update(0.6f); // error=0.4 (>deadBand), llena la ventana [0.5,1.5,0.6] (variation=1.0 > driftThreshold)
 
-    // Si la integral tambien hubiera aplicado, output seria 0.00 + 0.05 (paso)
-    // + 0.04 (integral: 0.4*1.0*0.1) = 0.09, no 0.05.
-    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.05f, out);
+    // Paso proporcional: kp*error=0.1*0.4=0.04 (no satura maxStep) -> output=0.04.
+    // Si la integral tambien hubiera aplicado, output seria 0.00 + 0.04 (paso)
+    // + 0.04 (integral: 0.4*1.0*0.1) = 0.08, no 0.04.
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.04f, out);
 }
 
 void test_slow_integral_applies_only_when_settled_with_drift(void) {
@@ -188,8 +207,9 @@ int main(int argc, char** argv) {
     UNITY_BEGIN();
 
     RUN_TEST(test_error_within_deadband_leaves_output_unchanged);
-    RUN_TEST(test_error_above_ten_percent_uses_coarse_step);
-    RUN_TEST(test_error_between_deadband_and_ten_percent_uses_fine_step);
+    RUN_TEST(test_large_error_clamps_step_to_max_step);
+    RUN_TEST(test_step_scales_proportionally_with_error);
+    RUN_TEST(test_smaller_error_produces_smaller_step_than_larger_error);
 
     RUN_TEST(test_proportional_and_slow_integral_never_apply_in_the_same_call);
     RUN_TEST(test_slow_integral_applies_only_when_settled_with_drift);

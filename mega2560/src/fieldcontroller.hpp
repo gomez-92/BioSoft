@@ -2,14 +2,13 @@
 
 #include <Arduino.h>
 
-// Regulador de intensidad de CEM. NO es un PI clasico continuo (asi lo
-// describia el contrato original, ver auditoria de MOD-011 en Trello) --
-// combina dos mecanismos MUTUAMENTE EXCLUYENTES en cada update() (rama
-// if/else sobre el mismo `error`, ver mas abajo):
-//   1) Paso proporcional discreto (coarse/fine): si |error| > deadBand,
-//      mueve _output un paso fijo hacia el setpoint (paso grande si el
-//      error es grande, paso fino si es chico). Es lo que hace la mayor
-//      parte del trabajo.
+// Regulador de intensidad de CEM. Combina dos mecanismos MUTUAMENTE
+// EXCLUYENTES en cada update() (rama if/else sobre el mismo `error`, ver
+// mas abajo):
+//   1) Paso proporcional continuo: si |error| > deadBand, mueve _output
+//      por `kp * error`, clampeado a +-maxStep. Es lo que hace la mayor
+//      parte del trabajo, y ahora escala con la magnitud del desvio en
+//      vez de saltar entre dos velocidades fijas (ver MOD-011 mas abajo).
 //   2) Integral lenta condicional: solo se evalua cuando el paso de arriba
 //      NO corrio en esta misma llamada (|error| <= deadBand, "asentado")
 //      pero la medicion sigue variando mas de lo esperado dentro de una
@@ -26,14 +25,25 @@
 // reemplazo por un unico if/else sobre el mismo `error` de esta llamada:
 // asi la exclusion mutua es estructural, no depende de recordar estado
 // entre llamadas.
+//
+// Paso proporcional discreto -> continuo (auditoria MOD-011, 2026-09-01):
+// el paso proporcional original saltaba entre dos velocidades fijas
+// (coarseStep si |error| > 0.1, fineStep si no) sin relacion con la
+// magnitud real del error dentro de cada banda -- un error de 0.011 y uno
+// de 0.099 producian el mismo salto de fineStep, y ese salto se repetia
+// entero en cada llamada a update() mientras el error siguiera fuera de
+// la deadBand. Eso se sentia como un duty que "rebota" ante la minima
+// desviacion en vez de acercarse suavemente. Reemplazado por un paso
+// proporcional real (kp * error, clampeado a maxStep) que escala de forma
+// continua con el error.
 class FieldController {
   public:
 
     struct Config {
         float outputMin = 0.0f;
         float outputMax = 1.0f;
-        float coarseStep = 0.05f;   // paso cuando |error| > 0.1 (10% del setpoint)
-        float fineStep = 0.01f;     // paso cuando |error| esta entre deadBand y 0.1
+        float kp = 0.1f;            // ganancia proporcional: step = kp * error
+        float maxStep = 0.05f;      // clamp del paso proporcional por llamada a update()
         // Tiempo (segundos) que update() ASUME que paso desde la llamada
         // anterior -- no se mide con millis(), es un valor fijo usado para
         // escalar el termino integral. Debe coincidir con la cadencia real
@@ -81,14 +91,13 @@ inline float FieldController::update(float measuredField) {
   float error = _setpoint - measuredField;
   float variation = windowVariation();
 
-  // Paso proporcional discreto (coarse si el error es grande, >10% del
-  // setpoint; fine si es chico pero todavia fuera de la deadBand) e
-  // integral lenta (solo si hay ventana llena y la medicion sigue
-  // variando mas que driftThreshold) son ramas de un mismo if/else: nunca
-  // pueden aplicar los dos en la misma llamada a update().
+  // Paso proporcional continuo (escala con la magnitud del error, clampeado
+  // a maxStep) e integral lenta (solo si hay ventana llena y la medicion
+  // sigue variando mas que driftThreshold) son ramas de un mismo if/else:
+  // nunca pueden aplicar los dos en la misma llamada a update().
   if (fabs(error) > _config.deadBand) {
-      float step = (fabs(error) > 0.1f) ? _config.coarseStep : _config.fineStep;
-      _output += (error > 0.0f) ? step : -step;
+      float step = clamp(_config.kp * error, -_config.maxStep, _config.maxStep);
+      _output += step;
   } else if (_windowFilled && variation > _config.driftThreshold) {
     _slowIntegral += error * _config.sampleTime * _config.integralGain;
     _slowIntegral = clamp(_slowIntegral, -_config.integralLimit, _config.integralLimit);
