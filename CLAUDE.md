@@ -245,6 +245,23 @@ Key collaborators:
   the 10–50 Hz sine so the power stage can filter the PWM into a DC level.
   Intensity reaches the coil as the *amplitude* of a continuous sine (PWM → RC →
   DC level → gain), never by chopping the sine itself.
+- The 180° phase inversion for the null-field control group is **analog** — an
+  op-amp inverter plus a mux picking direct vs. inverted for coil pair 3-4, one
+  GPIO — not a second AD9833 with a programmed phase. The reason is written up
+  in `docs/adr/001-inversion-de-fase.md` and is worth knowing before anyone
+  proposes the software route again: two AD9833 boards each carry their own
+  25 MHz oscillator, and since output frequency is `fMCLK × FREQREG/2²⁸`, a few
+  ppm of clock mismatch makes the *relative phase rotate continuously* — at
+  50 Hz with the usual 50–100 ppm, a full turn every 200–400 s. The null field
+  would hold at startup and be summing in phase minutes later, silently
+  contaminating the control group (residual field goes as `2·sin(φ/2)`: 1° of
+  error ⇒ 1.7%, 18° ⇒ 31%). The AD9833's phase register aligns channels *within
+  one chip*, not across chips. Sharing one MCLK fixes it in principle but needs
+  the second board's oscillator desoldered, 25 MHz routed between boards, and
+  both phase accumulators reset with back-to-back SPI writes — at 50 Hz, 1 ms of
+  skew between those two writes is 18° of error, so even a `DEBUG_PRINTLN`
+  between them would matter. The analog inverter is exact by construction
+  instead, which is the whole argument.
 - Current (`SCT013-1`) is measured and sent to the ESP32 but is not, and was
   never meant to be, a Detector source — by design the only sources are `TEMP1`
   and `CEM1`. `Engine::onCurrentSensorSample` still calls

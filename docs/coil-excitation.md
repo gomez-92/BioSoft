@@ -29,13 +29,27 @@ bobina real sería inventar números.
 ## 2. La cadena de señal
 
 ```
-AD9833 ──► senoidal (forma y frecuencia) ──┐
-                                           ├──► etapa de potencia ──► bobina
-PWM ──► filtro RC ──► nivel DC (amplitud) ─┘         (fuera de alcance)
-                                           
-enable (por bobina) ───────────────────────► habilita/corta ese canal
-interruptor general ───────────────────────► corta toda la etapa
+                        ┌─► directa ────────────────► par 1-2
+AD9833 ──► senoidal ────┤
+  (forma y frecuencia)  └─► inversor ──┐
+                                       ├─ mux ──────► par 3-4
+                        (directa) ─────┘   ▲          (en fase o a 180°)
+                                           │
+                              selector de modo (1 GPIO)
+
+PWM ──► filtro RC ──► nivel DC (amplitud) ─────► etapa de potencia ──► bobina
+                                                    (fuera de alcance)
+
+enable (por bobina) ───────────────────────────► habilita/corta ese canal
+interruptor general ───────────────────────────► corta toda la etapa
 ```
+
+La inversión de fase para el campo nulo es **analógica**, no por software: un
+op-amp inversor produce la señal opuesta y un multiplexor elige cuál recibe el
+par 3-4. Se descartó usar un segundo AD9833 con fase programable porque dos
+generadores con osciladores independientes derivan y el campo nulo dejaría de
+serlo a los pocos minutos — el razonamiento completo está en
+`docs/adr/001-inversion-de-fase.md`.
 
 La decisión de fondo: **la senoidal y la intensidad viajan por caminos
 separados y se combinan en la etapa de potencia**. El AD9833 aporta la forma
@@ -63,7 +77,7 @@ los profesores pide dejar atrás.
 | Forma | senoidal (el chip también puede triangular y cuadrada; no se usan) |
 | Frecuencia | la del experimento, elegida por el operador (hoy 10 o 50 Hz) |
 | Nivel | salida de bajo nivel del AD9833, con offset DC — **a medir en banco** |
-| Cantidad | 1 por par de bobinas (2 generadores, ver tarjeta "Segundo generador senoidal") |
+| Cantidad | **1 solo** para todo el sistema (ver ADR-001) |
 
 El nivel de salida del AD9833 es de bajo nivel y viene con offset DC: **no es
 apto para atacar una bobina directamente**, y requiere una etapa de
@@ -183,8 +197,8 @@ justifica ahí), pero ya no participa del control de intensidad.
 - Corte general: un relé.
 
 **Falta (tarjetas propias, no este documento):**
-- `CoilExcitationManager` — orquesta los 2 AD9833 y el modo de experimento
-  (campo X / campo nulo por fase de 180°).
+- `CoilExcitationManager` — el generador y el selector de modo de experimento
+  (campo X / campo nulo), que es un unico GPIO hacia el multiplexor.
 - `CoilChannel` — PWM individual + enable por bobina, ×4.
 - Colapsar `RelayManager` a un interruptor general único.
 - Control de intensidad individual por bobina y calibración del regulador
@@ -204,21 +218,24 @@ Lo que quien arme la etapa tiene que resolver, y que este sistema **no**
 provee:
 
 1. **Acondicionar la senoidal del AD9833**: centrado y ganancia hasta el rango
-   que necesite la bobina, con buffer capaz de manejar 2 cargas por generador.
-2. **Filtrar el PWM**: red RC que convierta 3906 Hz / 8 bits en un nivel DC
+   que necesite la bobina, con buffer capaz de manejar las cargas.
+2. **Generar la rama invertida y seleccionarla**: op-amp inversor referenciado
+   al offset (no a masa) mas un multiplexor analogico gobernado por un GPIO,
+   con ambas ramas bufferadas por igual para que queden simetricas. Ver ADR-001.
+3. **Filtrar el PWM**: red RC que convierta 3906 Hz / 8 bits en un nivel DC
    estable, con rizado tolerable y respuesta suficientemente rápida para el
    lazo de control (cadencia de corrección: una muestra de magnetómetro cada
    500 ms).
-3. **Combinar ambas**: la etapa cuya ganancia o amplitud dependa de ese nivel
+4. **Combinar ambas**: la etapa cuya ganancia o amplitud dependa de ese nivel
    DC (VCA, multiplicador o equivalente).
-4. **Respetar el enable por bobina y el interruptor general** como cortes
+5. **Respetar el enable por bobina y el interruptor general** como cortes
    efectivos de la salida.
-5. **Potencia y alimentación** acordes a la bobina real.
+6. **Potencia y alimentación** acordes a la bobina real.
 
 ## 9. Abierto
 
 - Nivel de salida real del AD9833 en el armado concreto — medir en banco.
-- Topología del acondicionamiento (offset, ganancia) — pendiente desde las
-  sesiones del 2026-09-07/09.
+- Topología del acondicionamiento (offset, ganancia) y elección concreta del
+  op-amp y del multiplexor — pendiente desde las sesiones del 2026-09-07/09.
 - Valores del filtro RC, que dependen de la etapa elegida.
 - Datos de la bobina y del túnel de magnetoterapia del banco de pruebas.
