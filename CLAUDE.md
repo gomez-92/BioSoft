@@ -364,12 +364,36 @@ before assuming a command name is unused. Note that `Commands::ConfigSource`
 does not actually exist: `Engine::_configureSource()` is commented out in
 `engine.hpp`, but the command name was never declared in either copy of
 `commands.hpp`, so reviving it means adding the constant to both, not just
-uncommenting the handler. `Engine::_readRule()` *is* live code (not commented
-out) and already parses the exact `{cooldown, maxEvents, threshold}` shape the
+uncommenting the handler. This is a *different* command from `config_source`
+in the SD-config schema (`docs/config-schema.md` §7, for `detector.sources`,
+still unimplemented) — don't conflate the two when that section gets built.
+`Engine::_readRule()` *is* live code (not commented out) and already parses
+the exact `{cooldown, maxEvents, threshold}` shape the
 SD config schema uses for the Detector's rules. Per-flag telemetry (`flag_data`,
 `Commands::OneFlagsData`) *is* wired end to end: the Mega's `Detector::onFlag`
 sends one `flag_data` per event, and the ESP32 renders the last 3 into the
 Running screen's Alertas tab (see below).
+
+`config_intervals`/`config_control`/`config_coil` (`Commands::ConfigIntervals`
+etc., both copies of `commands.hpp`) *are* live — they're the first tramo of
+the SD-config schema that actually crosses the serial link, added on top of
+the phase-1 work below. `Engine::onCommand` applies each one key-by-key
+(`params["x"].is<T>()`, same idiom `Start` already uses) and **always acks
+once the frame parses**, regardless of whether individual keys were valid —
+an invalid/missing key is logged and leaves that one value unchanged, it
+doesn't block the ack or the rest of the frame. `config_coil` identifies its
+target by `name` via the new `CoilChannels::findByName()`, not by index (the
+ack echoes `name` back too, since up to 4 `config_coil` frames can be in
+flight for the ESP32 to disambiguate — see below). `FieldController` gained
+`setKp`/`setMaxStep`/`setDeadBand` (+ getters) so `control` can be applied
+after construction; `CoilChannel::setCalibrationFactor()`'s clamp widened
+from "reject `<=0`" to the schema's `0.1`–`5.0` range. `enabled:false` on a
+coil calls `disable()` — it does **not** remove the channel from
+`CoilChannels` (channels are wired fixed in the `.ino`, there's no runtime
+add/remove), so it's a weaker guarantee than the schema's "not registered"
+wording, just with the same practical effect (no PWM, no field).
+`mega2560/src/intervals.hpp` is `inline`/mutable now too (was `constexpr`),
+mirroring the ESP32 side, so `config_intervals` has something to write into.
 
 ### esp32 — HMI, connectivity, and screen state machine
 
@@ -418,10 +442,15 @@ and `StateListener` (own app state, from `SystemData`).
   compiled defaults stayed in place, which is a perfectly valid boot.
   Its 8 KB read buffer is `static` on purpose: on the stack it would overflow
   Arduino's `loopTask` (8192 bytes total).
-  **Scope today is phase 1 only** — `menus` and `intervals.esp32`. The `control`,
-  `coils`, `detector`, `currentSensors` and `telemetry` sections are specified in
-  the schema but not yet applied; the first three belong to the Mega and need the
-  serial config commands that do not exist yet.
+  **Phase 1** (`menus`, `intervals.esp32`) is applied locally, by `ConfigLoader`
+  itself. **Phase 2** (`intervals.mega`, `control`, `coils`) is now parsed and
+  held here too, but `ConfigLoader` never applies it — those three sections
+  belong to the Mega, so `ConfigLoader` only stores them (each value tagged
+  with its own `has` flag, since a missing/invalid key must forward nothing
+  and let the Mega keep its own compiled default — there's no ESP32-side
+  default to fall back to for values that aren't its own) for `MySystem` to
+  read when building the `config_*` frames (see below). `detector`,
+  `currentSensors` and `telemetry` are still fully unimplemented.
 - `ConfigurationOptions` and `Intervals` (ESP32) are **no longer `constexpr`** —
   they are fixed-size static buffers plus a real length counter (`countXxx`),
   seeded with the compiled defaults and overwritten by `ConfigLoader`. Option
@@ -445,6 +474,18 @@ and `StateListener` (own app state, from `SystemData`).
   `stop` the ESP32 can wait up to ~5s for the confirming `"ready"` before the
   Busy screen's own 6s timeout (`BusyController::update()`,
   `screencontroller.hpp`) fires first.
+- `MySystem::_sendMegaConfig()` (called from `onSerialConnected()`, so it
+  fires on every connect *and* reconnect) generalizes that same ack/retry
+  pattern to an arbitrary set of frames instead of one fixed command: it
+  sends 1 `config_intervals` + 1 `config_control` + up to 4 `config_coil`
+  frames (one per SD-configured coil), tracks each as an entry in
+  `_pendingConfig[]`, and a single `Tasks::ReSendConfig` task (not one task
+  per frame) resends whatever is still active until `Commands::Ack` clears
+  it. Matching an ack to its `_pendingConfig` entry is by `command` string
+  alone for `config_intervals`/`config_control` (only one of each can be in
+  flight), but needs `command` **and** the coil `name` the ack echoes back
+  for `config_coil`, since several can be pending at once. Once every entry
+  is inactive, `_cancelPendingConfig()` removes `Tasks::ReSendConfig` itself.
 - That Busy-timeout race has a fallback in `MySystem::onScreenEvent()`
   (`ScreenType::BUSY` + `EventName::Timeout`): for `StateData::Starting` it
   calls `_processState(StateData::Ready)` (back to Principal); for

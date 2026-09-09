@@ -145,11 +145,65 @@ void test_invalid_factor_is_rejected(void) {
     CoilChannel channel(pwm, EnablePin1, "BOB1");
     channel.setCalibrationFactor(1.3f);
 
-    channel.setCalibrationFactor(0.0f);
+    TEST_ASSERT_FALSE(channel.setCalibrationFactor(0.0f));
     TEST_ASSERT_EQUAL_FLOAT(1.3f, channel.calibrationFactor());
 
-    channel.setCalibrationFactor(-2.0f);
+    TEST_ASSERT_FALSE(channel.setCalibrationFactor(-2.0f));
     TEST_ASSERT_EQUAL_FLOAT(1.3f, channel.calibrationFactor());
+}
+
+// Rango del schema (docs/config-schema.md, seccion "coils"): 0.1-5.0. Fuera
+// de eso se rechaza igual que <=0, aunque el valor sea positivo.
+void test_factor_outside_schema_range_is_rejected(void) {
+    PwmDriver pwm(PwmPin1);
+    CoilChannel channel(pwm, EnablePin1, "BOB1");
+    channel.setCalibrationFactor(1.3f);
+
+    TEST_ASSERT_FALSE(channel.setCalibrationFactor(0.05f));
+    TEST_ASSERT_EQUAL_FLOAT(1.3f, channel.calibrationFactor());
+
+    TEST_ASSERT_FALSE(channel.setCalibrationFactor(5.1f));
+    TEST_ASSERT_EQUAL_FLOAT(1.3f, channel.calibrationFactor());
+
+    TEST_ASSERT_TRUE(channel.setCalibrationFactor(0.1f));
+    TEST_ASSERT_EQUAL_FLOAT(0.1f, channel.calibrationFactor());
+
+    TEST_ASSERT_TRUE(channel.setCalibrationFactor(5.0f));
+    TEST_ASSERT_EQUAL_FLOAT(5.0f, channel.calibrationFactor());
+}
+
+// =====================================================================
+// CoilChannels::findByName -- config_coil identifica el canal por nombre,
+// no por indice (docs/config-schema.md seccion 10.1).
+// =====================================================================
+
+void test_findByName_returns_matching_channel(void) {
+    PwmDriver pwm1(PwmPin1);
+    PwmDriver pwm2(PwmPin2);
+    CoilChannel c1(pwm1, EnablePin1, "BOB1");
+    CoilChannel c2(pwm2, EnablePin2, "BOB2");
+    CoilChannels channels;
+    channels.addChannel(&c1);
+    channels.addChannel(&c2);
+
+    TEST_ASSERT_EQUAL_STRING("BOB2", channels.findByName("BOB2")->getName());
+    TEST_ASSERT_EQUAL_PTR(&c1, channels.findByName("BOB1"));
+}
+
+void test_findByName_returns_null_when_not_found(void) {
+    PwmDriver pwm(PwmPin1);
+    CoilChannel c(pwm, EnablePin1, "BOB1");
+    CoilChannels channels;
+    channels.addChannel(&c);
+
+    TEST_ASSERT_NULL(channels.findByName("BOB9"));
+    TEST_ASSERT_NULL(channels.findByName(nullptr));
+}
+
+void test_findByName_returns_null_with_no_channels(void) {
+    CoilChannels channels;
+
+    TEST_ASSERT_NULL(channels.findByName("BOB1"));
 }
 
 // =====================================================================
@@ -263,6 +317,7 @@ int main(int argc, char** argv) {
     RUN_TEST(test_factor_scales_the_common_duty);
     RUN_TEST(test_factor_pushing_above_one_clamps_to_full_duty);
     RUN_TEST(test_invalid_factor_is_rejected);
+    RUN_TEST(test_factor_outside_schema_range_is_rejected);
 
     RUN_TEST(test_addChannel_counts_and_returns_channels);
     RUN_TEST(test_addChannel_rejects_null_and_beyond_max);
@@ -270,6 +325,10 @@ int main(int argc, char** argv) {
     RUN_TEST(test_enableAll_and_disableAll_reach_every_channel);
     RUN_TEST(test_clearChannels_empties_the_set);
     RUN_TEST(test_collective_operations_are_safe_with_no_channels);
+
+    RUN_TEST(test_findByName_returns_matching_channel);
+    RUN_TEST(test_findByName_returns_null_when_not_found);
+    RUN_TEST(test_findByName_returns_null_with_no_channels);
 
     return UNITY_END();
 }

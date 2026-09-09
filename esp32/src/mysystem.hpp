@@ -15,6 +15,7 @@
 #include "display.hpp"
 #include "screenmanager.hpp"
 #include "configurationoptions.hpp"
+#include "configloader.hpp"
 #include "tasks.hpp"
 #include "intervals.hpp"
 #include "debugconfig.hpp"
@@ -42,7 +43,22 @@ class MySystem :
     BrokerManager& _brokerManager;
     DisplayDriver& _display;
     ScreenManager& _screenManager;
-    
+
+    // Frames config_intervals/config_control/config_coil en vuelo, mandados
+    // desde onSerialConnected() y reenviados por Tasks::ReSendConfig hasta
+    // que cada uno tenga su ack (docs/config-schema.md seccion 10). Tope:
+    // 1 (intervals) + 1 (control) + MaxCoils (coils).
+    static constexpr uint8_t MaxPendingConfigFrames = 2 + ConfigLoader::MaxCoils;
+    struct PendingConfigFrame {
+      bool active = false;
+      const char* command = nullptr;
+      // Solo usado cuando command == Commands::ConfigCoil: config_intervals/
+      // config_control tienen un unico pendiente a la vez y el nombre del
+      // comando alcanza para identificarlo, pero puede haber hasta 4
+      // config_coil en vuelo simultaneamente.
+      char coilName[ConfigurationOptions::MaxLabelLength] = "";
+    };
+    PendingConfigFrame _pendingConfig[MaxPendingConfigFrames];
 
   public:
     MySystem(SerialLink& serial, Timer& timer, WiFiManager& wifiManager, BrokerManager& brokerManager, DisplayDriver& display, ScreenManager& screenManager);
@@ -54,6 +70,13 @@ class MySystem :
     void _sendStart();
     void _sendStop();
     void _sendReset();
+
+    void _sendMegaConfig();
+    void _resendPendingConfig();
+    void _cancelPendingConfig(const char* command, const char* coilName);
+    void _buildConfigIntervalsDoc(JsonDocument& doc);
+    void _buildConfigControlDoc(JsonDocument& doc);
+    void _buildConfigCoilDoc(JsonDocument& doc, const ConfigLoader::CoilConfig& coil);
 
     bool _publish(const char* topic, const char* payload);
     void _publishMeasures();
@@ -349,6 +372,132 @@ inline void MySystem::_sendReset() {
   _serial.sendCommand(Commands::Reset, doc);
 }
 
+inline void MySystem::_buildConfigIntervalsDoc(JsonDocument& doc) {
+  const auto& mega = ConfigLoader::megaIntervalsConfig();
+  if (mega.ping.has) doc["ping"] = mega.ping.value;
+  if (mega.sendState.has) doc["sendState"] = mega.sendState.value;
+  if (mega.measureTemperature.has) doc["measureTemperature"] = mega.measureTemperature.value;
+  if (mega.measureCurrent.has) doc["measureCurrent"] = mega.measureCurrent.value;
+  if (mega.measureMagneticField.has) doc["measureMagneticField"] = mega.measureMagneticField.value;
+  if (mega.updateProgress.has) doc["updateProgress"] = mega.updateProgress.value;
+  if (mega.sendFlags.has) doc["sendFlags"] = mega.sendFlags.value;
+  if (mega.sendResult.has) doc["sendResult"] = mega.sendResult.value;
+  if (mega.settlingTime.has) doc["settlingTime"] = mega.settlingTime.value;
+}
+
+inline void MySystem::_buildConfigControlDoc(JsonDocument& doc) {
+  const auto& control = ConfigLoader::controlConfig();
+  if (control.hasKp) doc["kp"] = control.kp;
+  if (control.hasMaxStep) doc["maxStep"] = control.maxStep;
+  if (control.hasDeadBand) doc["deadBand"] = control.deadBand;
+}
+
+inline void MySystem::_buildConfigCoilDoc(JsonDocument& doc, const ConfigLoader::CoilConfig& coil) {
+  doc["name"] = coil.name;
+  if (coil.hasEnabled) doc["enabled"] = coil.enabled;
+  if (coil.hasCalibrationFactor) doc["calibrationFactor"] = coil.calibrationFactor;
+}
+
+// Dispara al conectar/reconectar (onSerialConnected) -- manda 1 frame
+// config_intervals, 1 config_control y hasta 4 config_coil (uno por canal
+// leido de la SD), y arranca Tasks::ReSendConfig para reintentar los que no
+// tengan ack. Claves ausentes en ConfigLoader (has=false) simplemente no se
+// incluyen en el frame -- el Mega se queda con su propio default.
+inline void MySystem::_sendMegaConfig() {
+  for (uint8_t i = 0; i < MaxPendingConfigFrames; i++) {
+    _pendingConfig[i] = PendingConfigFrame();
+  }
+
+  uint8_t slot = 0;
+
+  JsonDocument intervalsDoc;
+  _buildConfigIntervalsDoc(intervalsDoc);
+  _serial.sendCommand(Commands::ConfigIntervals, intervalsDoc);
+  _pendingConfig[slot].active = true;
+  _pendingConfig[slot].command = Commands::ConfigIntervals;
+  slot++;
+
+  JsonDocument controlDoc;
+  _buildConfigControlDoc(controlDoc);
+  _serial.sendCommand(Commands::ConfigControl, controlDoc);
+  _pendingConfig[slot].active = true;
+  _pendingConfig[slot].command = Commands::ConfigControl;
+  slot++;
+
+  uint8_t coilCount = ConfigLoader::coilConfigCount();
+  const ConfigLoader::CoilConfig* coils = ConfigLoader::coilConfigs();
+  for (uint8_t i = 0; i < coilCount && slot < MaxPendingConfigFrames; i++) {
+    JsonDocument coilDoc;
+    _buildConfigCoilDoc(coilDoc, coils[i]);
+    _serial.sendCommand(Commands::ConfigCoil, coilDoc);
+    _pendingConfig[slot].active = true;
+    _pendingConfig[slot].command = Commands::ConfigCoil;
+    snprintf(_pendingConfig[slot].coilName, sizeof(_pendingConfig[slot].coilName), "%s", coils[i].name);
+    slot++;
+  }
+
+  _timer.addTask(Tasks::ReSendConfig, Intervals::ReSendConfig);
+}
+
+// Reenvia cada frame que sigue activo, reconstruyendolo desde ConfigLoader
+// (no cachea el JSON armado). Un config_coil se reenvia buscando de nuevo su
+// entrada por nombre -- si esa bobina ya no esta en ConfigLoader (no deberia
+// pasar, la config no cambia en runtime) simplemente no se reenvia ese slot.
+inline void MySystem::_resendPendingConfig() {
+  for (uint8_t i = 0; i < MaxPendingConfigFrames; i++) {
+    if (!_pendingConfig[i].active) continue;
+
+    if (strcmp(_pendingConfig[i].command, Commands::ConfigIntervals) == 0) {
+      JsonDocument doc;
+      _buildConfigIntervalsDoc(doc);
+      _serial.sendCommand(Commands::ConfigIntervals, doc);
+    }
+    else if (strcmp(_pendingConfig[i].command, Commands::ConfigControl) == 0) {
+      JsonDocument doc;
+      _buildConfigControlDoc(doc);
+      _serial.sendCommand(Commands::ConfigControl, doc);
+    }
+    else if (strcmp(_pendingConfig[i].command, Commands::ConfigCoil) == 0) {
+      uint8_t coilCount = ConfigLoader::coilConfigCount();
+      const ConfigLoader::CoilConfig* coils = ConfigLoader::coilConfigs();
+      for (uint8_t c = 0; c < coilCount; c++) {
+        if (strcmp(coils[c].name, _pendingConfig[i].coilName) != 0) continue;
+        JsonDocument doc;
+        _buildConfigCoilDoc(doc, coils[c]);
+        _serial.sendCommand(Commands::ConfigCoil, doc);
+        break;
+      }
+    }
+  }
+}
+
+// Marca inactivo el pendiente que matchea `command` (y ademas `coilName`
+// cuando command es config_coil, unico caso con mas de un pendiente en
+// vuelo del mismo comando). Remueve Tasks::ReSendConfig apenas no queda
+// ninguno activo.
+inline void MySystem::_cancelPendingConfig(const char* command, const char* coilName) {
+  bool anyActive = false;
+
+  for (uint8_t i = 0; i < MaxPendingConfigFrames; i++) {
+    if (!_pendingConfig[i].active) continue;
+
+    bool matches = _pendingConfig[i].command != nullptr && strcmp(_pendingConfig[i].command, command) == 0;
+    if (matches && strcmp(command, Commands::ConfigCoil) == 0) {
+      matches = coilName != nullptr && strcmp(_pendingConfig[i].coilName, coilName) == 0;
+    }
+
+    if (matches) {
+      _pendingConfig[i].active = false;
+    } else {
+      anyActive = true;
+    }
+  }
+
+  if (!anyActive) {
+    _timer.removeTask(Tasks::ReSendConfig);
+  }
+}
+
 inline bool MySystem::_publish(const char* topic, const char* payload) {
   return _brokerManager.publish(topic, payload);
 }
@@ -478,6 +627,13 @@ inline void MySystem::onCommand(const char* command, JsonVariantConst params) {
       else if(strcmp(ack, Commands::Stop) == 0) {
         _timer.removeTask(Tasks::ReSendStop);
       }
+      else if(strcmp(ack, Commands::ConfigIntervals) == 0 || strcmp(ack, Commands::ConfigControl) == 0) {
+        _cancelPendingConfig(ack, nullptr);
+      }
+      else if(strcmp(ack, Commands::ConfigCoil) == 0) {
+        const char* coilName = params["name"] | "";
+        _cancelPendingConfig(ack, coilName);
+      }
     }
   }
   //else if(strcmp(command, Commands::ProgressData) == 0) {}
@@ -572,10 +728,17 @@ inline void MySystem::onTimer(const char* name) {
   else if(strcmp(name, Tasks::PublishStatus) == 0) {
     _publishStatus();
   }
+  else if(strcmp(name, Tasks::ReSendConfig) == 0) {
+    _resendPendingConfig();
+  }
 }
 
 inline void MySystem::onSerialConnected() {
   _data.communication.serialOk = true;
+  // Dispara en cada conexion/reconexion (docs/config-schema.md seccion
+  // 10.2): el Mega queda configurado antes de que pueda existir un
+  // experimento, y un reset del Mega lo reconfigura solo al reconectar.
+  _sendMegaConfig();
 }
 
 inline void MySystem::onSerialDisconnected() {

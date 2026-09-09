@@ -125,6 +125,11 @@ class Engine :
     void _sendCemData();
     void _sendCurrentData();
 
+    // Aplica config_intervals/config_control/config_coil (docs/config-schema.md
+    // seccion 10) -- cada clave se valida independiente, una invalida o
+    // ausente deja el default/valor actual sin bloquear el resto del frame.
+    void _applyIntervalParam(JsonVariantConst params, const char* key, unsigned long& target);
+
   public:
     void onReady() override;
     void onStart() override;
@@ -348,6 +353,18 @@ inline void Engine::_configureSource(JsonVariantConst params) {
   }
 }
 */
+
+inline void Engine::_applyIntervalParam(JsonVariantConst params, const char* key, unsigned long& target) {
+  if (!params[key].is<unsigned long>()) return;
+
+  unsigned long value = params[key].as<unsigned long>();
+  if (value == 0) {
+    DEBUG_PRINT(DEBUG_ENGINE, F("[CONFIG_INTERVALS] Valor invalido para "));
+    DEBUG_PRINTLN(DEBUG_ENGINE, key);
+    return;
+  }
+  target = value;
+}
 
 inline void Engine::_readRule(JsonVariantConst json, Rule& rule) {
   if (json.isNull())  return;
@@ -835,6 +852,91 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
 
     JsonDocument doc;
     doc["command"] = Commands::Reset;
+
+    _serial.sendCommand(
+      Commands::Ack,
+      doc
+    );
+  }
+
+  // config_intervals/config_control/config_coil: frames fragmentados que la
+  // ESP32 manda al reconectar con las secciones intervals.mega/control/coils
+  // del archivo de la SD (docs/config-schema.md seccion 10). El ack confirma
+  // que el frame llego y se pudo parsear, no que cada clave era valida --
+  // una clave invalida se loguea y esa clave particular queda en su valor
+  // actual, sin bloquear el ack ni las demas claves del mismo frame.
+
+  else if (strcmp(command, Commands::ConfigIntervals) == 0) {
+
+    _applyIntervalParam(params, "ping", Intervals::Ping);
+    _applyIntervalParam(params, "sendState", Intervals::SendState);
+    _applyIntervalParam(params, "measureTemperature", Intervals::MeasureTemperature);
+    _applyIntervalParam(params, "measureCurrent", Intervals::MeasureCurrent);
+    _applyIntervalParam(params, "measureMagneticField", Intervals::MeasureMagneticField);
+    _applyIntervalParam(params, "updateProgress", Intervals::UpdateProgress);
+    _applyIntervalParam(params, "sendFlags", Intervals::SendFlags);
+    _applyIntervalParam(params, "sendResult", Intervals::SendResult);
+    _applyIntervalParam(params, "settlingTime", Intervals::SettlingTime);
+
+    JsonDocument doc;
+    doc["command"] = Commands::ConfigIntervals;
+
+    _serial.sendCommand(
+      Commands::Ack,
+      doc
+    );
+  }
+
+  else if (strcmp(command, Commands::ConfigControl) == 0) {
+
+    if (params["kp"].is<float>() && !_fieldController.setKp(params["kp"].as<float>())) {
+      DEBUG_PRINTLN(DEBUG_ENGINE, F("[CONFIG_CONTROL] kp invalido -- se ignora"));
+    }
+    if (params["maxStep"].is<float>() && !_fieldController.setMaxStep(params["maxStep"].as<float>())) {
+      DEBUG_PRINTLN(DEBUG_ENGINE, F("[CONFIG_CONTROL] maxStep invalido -- se ignora"));
+    }
+    if (params["deadBand"].is<float>() && !_fieldController.setDeadBand(params["deadBand"].as<float>())) {
+      DEBUG_PRINTLN(DEBUG_ENGINE, F("[CONFIG_CONTROL] deadBand invalido -- se ignora"));
+    }
+
+    JsonDocument doc;
+    doc["command"] = Commands::ConfigControl;
+
+    _serial.sendCommand(
+      Commands::Ack,
+      doc
+    );
+  }
+
+  else if (strcmp(command, Commands::ConfigCoil) == 0) {
+
+    const char* coilName = params["name"];
+    if (coilName == nullptr) {
+      DEBUG_PRINTLN(DEBUG_ENGINE, F("[CONFIG_COIL][ERROR] Parametro 'name' ausente -- sin ack"));
+      return;
+    }
+
+    CoilChannel* channel = _coilChannels.findByName(coilName);
+    if (channel == nullptr) {
+      DEBUG_PRINT(DEBUG_ENGINE, F("[CONFIG_COIL] Canal desconocido: "));
+      DEBUG_PRINTLN(DEBUG_ENGINE, coilName);
+    } else {
+      if (params["enabled"].is<bool>()) {
+        if (params["enabled"].as<bool>()) channel->enable();
+        else channel->disable();
+      }
+      if (params["calibrationFactor"].is<float>()) {
+        channel->setCalibrationFactor(params["calibrationFactor"].as<float>());
+      }
+    }
+
+    // El frame llego bien aunque el canal no exista -- el ack lleva `name`
+    // para que la ESP32 sepa cual de sus hasta 4 config_coil pendientes
+    // cancelar (a diferencia de Start/Stop/Reset, acá puede haber varios
+    // frames del mismo comando en vuelo a la vez).
+    JsonDocument doc;
+    doc["command"] = Commands::ConfigCoil;
+    doc["name"] = coilName;
 
     _serial.sendCommand(
       Commands::Ack,

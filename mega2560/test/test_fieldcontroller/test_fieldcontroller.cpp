@@ -239,6 +239,86 @@ void test_makeConfig_leaves_tuning_parameters_at_defaults(void) {
     TEST_ASSERT_EQUAL_FLOAT(defaults.integralGain, config.integralGain);
 }
 
+// =====================================================================
+// setKp / setMaxStep / setDeadBand -- aplicar `control` (config_control)
+// despues de construido el objeto. Cada uno devuelve false y deja el valor
+// actual si el argumento no pasa su clamp.
+// =====================================================================
+
+void test_setKp_applies_valid_value(void) {
+    FieldController::Config cfg;
+    FieldController controller(cfg);
+
+    TEST_ASSERT_TRUE(controller.setKp(0.25f));
+    TEST_ASSERT_EQUAL_FLOAT(0.25f, controller.kp());
+}
+
+void test_setKp_rejects_zero_or_negative(void) {
+    FieldController::Config cfg;
+    FieldController controller(cfg);
+    float original = controller.kp();
+
+    TEST_ASSERT_FALSE(controller.setKp(0.0f));
+    TEST_ASSERT_FALSE(controller.setKp(-0.1f));
+    TEST_ASSERT_EQUAL_FLOAT(original, controller.kp());
+}
+
+void test_setMaxStep_applies_valid_value(void) {
+    FieldController::Config cfg;
+    FieldController controller(cfg);
+
+    TEST_ASSERT_TRUE(controller.setMaxStep(0.2f));
+    TEST_ASSERT_EQUAL_FLOAT(0.2f, controller.maxStep());
+}
+
+void test_setMaxStep_rejects_zero_or_negative(void) {
+    FieldController::Config cfg;
+    FieldController controller(cfg);
+    float original = controller.maxStep();
+
+    TEST_ASSERT_FALSE(controller.setMaxStep(0.0f));
+    TEST_ASSERT_FALSE(controller.setMaxStep(-0.05f));
+    TEST_ASSERT_EQUAL_FLOAT(original, controller.maxStep());
+}
+
+void test_setDeadBand_applies_valid_value_including_zero(void) {
+    // deadBand=0 es valido (corregir ante cualquier error, por minimo que
+    // sea) -- a diferencia de kp/maxStep, acá el rechazo es solo negativo.
+    FieldController::Config cfg;
+    FieldController controller(cfg);
+
+    TEST_ASSERT_TRUE(controller.setDeadBand(0.0f));
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, controller.deadBand());
+
+    TEST_ASSERT_TRUE(controller.setDeadBand(0.03f));
+    TEST_ASSERT_EQUAL_FLOAT(0.03f, controller.deadBand());
+}
+
+void test_setDeadBand_rejects_negative(void) {
+    FieldController::Config cfg;
+    FieldController controller(cfg);
+    float original = controller.deadBand();
+
+    TEST_ASSERT_FALSE(controller.setDeadBand(-0.01f));
+    TEST_ASSERT_EQUAL_FLOAT(original, controller.deadBand());
+}
+
+void test_setters_do_not_affect_each_other(void) {
+    // config_control puede traer solo alguna de las 3 claves -- Engine solo
+    // llama al setter de la que vino. Confirma que tocar una no desplaza
+    // las otras dos.
+    FieldController::Config cfg;
+    FieldController controller(cfg);
+    float originalMaxStep = controller.maxStep();
+    float originalDeadBand = controller.deadBand();
+
+    controller.setKp(0.5f);
+
+    TEST_ASSERT_EQUAL_FLOAT(0.5f, controller.kp());
+    TEST_ASSERT_EQUAL_FLOAT(originalMaxStep, controller.maxStep());
+    TEST_ASSERT_EQUAL_FLOAT(originalDeadBand, controller.deadBand());
+}
+
 int main(int argc, char** argv) {
     UNITY_BEGIN();
 
@@ -261,6 +341,14 @@ int main(int argc, char** argv) {
     RUN_TEST(test_makeConfig_derives_sample_time_from_interval);
     RUN_TEST(test_makeConfig_tracks_a_different_interval);
     RUN_TEST(test_makeConfig_leaves_tuning_parameters_at_defaults);
+
+    RUN_TEST(test_setKp_applies_valid_value);
+    RUN_TEST(test_setKp_rejects_zero_or_negative);
+    RUN_TEST(test_setMaxStep_applies_valid_value);
+    RUN_TEST(test_setMaxStep_rejects_zero_or_negative);
+    RUN_TEST(test_setDeadBand_applies_valid_value_including_zero);
+    RUN_TEST(test_setDeadBand_rejects_negative);
+    RUN_TEST(test_setters_do_not_affect_each_other);
 
     return UNITY_END();
 }

@@ -8,4 +8,5 @@ namespace Tasks {
   constexpr const char* UpdateProgress        = "UPDATE_PROGRESS";
   constexpr const char* PublishMeasures       = "PUBLISH_MEASURES";
   constexpr const char* PublishStatus         = "PUBLISH_STATUS";
+  constexpr const char* ReSendConfig          = "RESEND_CONFIG";
 };

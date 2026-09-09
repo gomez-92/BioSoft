@@ -68,6 +68,18 @@ class FieldController {
     float getOutput() const;
     void reset();
 
+    // Setters de calibracion, para pisar Config despues de construido el
+    // objeto -- lo usa Engine al aplicar la seccion `control` que llega por
+    // config_control (ver docs/config-schema.md). Devuelven false y dejan el
+    // valor actual sin tocar si el argumento no pasa el clamp; el llamador
+    // decide que hacer con el rechazo (Engine lo loguea).
+    bool setKp(float kp);
+    bool setMaxStep(float maxStep);
+    bool setDeadBand(float deadBand);
+    float kp() const;
+    float maxStep() const;
+    float deadBand() const;
+
   private:
     static constexpr uint8_t MAX_WINDOW_SIZE = 10;
     Config _config;
@@ -134,6 +146,36 @@ inline float FieldController::update(float measuredField) {
 
 inline float FieldController::getOutput() const {
     return _output;
+}
+
+inline bool FieldController::setKp(float kp) {
+  if (kp <= 0.0f) return false;
+  _config.kp = kp;
+  return true;
+}
+
+inline bool FieldController::setMaxStep(float maxStep) {
+  if (maxStep <= 0.0f) return false;
+  _config.maxStep = maxStep;
+  return true;
+}
+
+inline bool FieldController::setDeadBand(float deadBand) {
+  if (deadBand < 0.0f) return false;
+  _config.deadBand = deadBand;
+  return true;
+}
+
+inline float FieldController::kp() const {
+  return _config.kp;
+}
+
+inline float FieldController::maxStep() const {
+  return _config.maxStep;
+}
+
+inline float FieldController::deadBand() const {
+  return _config.deadBand;
 }
 
 inline void FieldController::reset() {

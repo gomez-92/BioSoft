@@ -50,7 +50,10 @@ class CoilChannel {
     // antes de escribirlo al PWM.
     void setIntensity(float duty);
 
-    void setCalibrationFactor(float factor);
+    // Rango 0.1-5.0 (docs/config-schema.md, seccion "coils"): fuera de eso,
+    // o cero o negativo, se rechaza y devuelve false sin tocar el factor
+    // actual.
+    bool setCalibrationFactor(float factor);
     float calibrationFactor() const;
 
     const char* getName() const;
@@ -119,14 +122,15 @@ inline void CoilChannel::setIntensity(float duty) {
   _pwm.write(scaled);
 }
 
-inline void CoilChannel::setCalibrationFactor(float factor) {
-  if (factor <= 0.0f) {
+inline bool CoilChannel::setCalibrationFactor(float factor) {
+  if (factor < 0.1f || factor > 5.0f) {
     DEBUG_PRINT(DEBUG_COILCHANNEL, F("[COIL] Factor invalido para "));
     DEBUG_PRINT(DEBUG_COILCHANNEL, _name);
     DEBUG_PRINTLN(DEBUG_COILCHANNEL, F(" -- se ignora"));
-    return;
+    return false;
   }
   _factor = factor;
+  return true;
 }
 
 inline float CoilChannel::calibrationFactor() const {
@@ -157,6 +161,10 @@ class CoilChannels {
     bool addChannel(CoilChannel* channel);
     uint8_t count() const;
     CoilChannel* getChannel(uint8_t index);
+    // Busca por nombre exacto (strcmp) -- lo usa Engine para aplicar
+    // config_coil, que identifica el canal por `name`, no por indice.
+    // nullptr si ninguno matchea.
+    CoilChannel* findByName(const char* name);
     void clearChannels();
 
     void beginAll();
@@ -196,6 +204,16 @@ inline uint8_t CoilChannels::count() const {
 inline CoilChannel* CoilChannels::getChannel(uint8_t index) {
   if (index >= _count) return nullptr;
   return _channels[index];
+}
+
+inline CoilChannel* CoilChannels::findByName(const char* name) {
+  if (name == nullptr) return nullptr;
+  for (uint8_t i = 0; i < _count; i++) {
+    if (_channels[i] && strcmp(_channels[i]->getName(), name) == 0) {
+      return _channels[i];
+    }
+  }
+  return nullptr;
 }
 
 inline void CoilChannels::clearChannels() {

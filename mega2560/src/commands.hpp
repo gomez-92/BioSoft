@@ -13,4 +13,7 @@ namespace Commands {
   constexpr const char* CurrentData           = "current_data";
   constexpr const char* OneFlagsData          = "flag_data";
   constexpr const char* Ack                   = "ack";
+  constexpr const char* ConfigIntervals       = "config_intervals";
+  constexpr const char* ConfigControl         = "config_control";
+  constexpr const char* ConfigCoil            = "config_coil";
 };

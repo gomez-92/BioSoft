@@ -25,15 +25,55 @@ constexpr bool DEBUG_CONFIGLOADER = true;
 // un archivo corrupto dejaria el equipo en una combinacion de parametros que
 // nadie eligio ni audito.
 //
-// ALCANCE ACTUAL: secciones `menus` e `intervals.esp32` (fase 1 del orden de
-// implementacion del esquema). Las secciones `control`, `coils`,
-// `detector`, `currentSensors` y `telemetry` estan definidas en el esquema
-// pero todavia no se aplican: las tres primeras viajan al Mega por el
-// protocolo serie y requieren los comandos de configuracion, que no existen
-// aun.
+// ALCANCE ACTUAL: `menus` e `intervals.esp32` se aplican localmente (fase 1).
+// `intervals.mega`, `control` y `coils` se parsean y quedan guardados acá,
+// pero esta clase NO los aplica -- son del Mega, y viajan por el protocolo
+// serie fragmentado que dispara MySystem::onSerialConnected() (ver
+// mysystem.hpp::_sendMegaConfig() y docs/config-schema.md seccion 10).
+// `detector`, `currentSensors` y `telemetry` siguen sin implementar.
 namespace ConfigLoader {
 
   constexpr const char* ConfigPath = "/biosoft/config.json";
+  constexpr uint8_t MaxCoils = 4;
+
+  // Cada valor de una seccion que viaja al Mega se guarda con su propio flag
+  // `has`: distingue "el archivo no traia esta clave" (el Mega se queda con
+  // SU default compilado) de "el archivo la traia en 0/invalida" (ya
+  // rechazado acá, tampoco se manda). Solo se envian al Mega las claves con
+  // has=true.
+  struct MegaIntervalValue {
+    bool has = false;
+    unsigned long value = 0;
+  };
+
+  struct MegaIntervalsConfig {
+    MegaIntervalValue ping;
+    MegaIntervalValue sendState;
+    MegaIntervalValue measureTemperature;
+    MegaIntervalValue measureCurrent;
+    MegaIntervalValue measureMagneticField;
+    MegaIntervalValue updateProgress;
+    MegaIntervalValue sendFlags;
+    MegaIntervalValue sendResult;
+    MegaIntervalValue settlingTime;
+  };
+
+  struct ControlConfig {
+    bool hasKp = false;
+    float kp = 0.0f;
+    bool hasMaxStep = false;
+    float maxStep = 0.0f;
+    bool hasDeadBand = false;
+    float deadBand = 0.0f;
+  };
+
+  struct CoilConfig {
+    char name[ConfigurationOptions::MaxLabelLength] = "";
+    bool hasEnabled = false;
+    bool enabled = true;
+    bool hasCalibrationFactor = false;
+    float calibrationFactor = 1.0f;
+  };
 
   // La version del esquema que este firmware entiende. Un archivo con otra
   // version se descarta entero, igual que uno corrupto: es preferible
@@ -46,6 +86,18 @@ namespace ConfigLoader {
   // SdStorage::readFile devuelve false y lo dice en el log -- por eso el
   // truncado no puede confundirse con un JSON invalido.
   constexpr size_t MaxFileSize = 8192;
+
+  inline MegaIntervalsConfig _megaIntervalsConfig;
+  inline ControlConfig _controlConfig;
+  inline CoilConfig _coilConfigs[MaxCoils];
+  inline uint8_t _coilConfigCount = 0;
+
+  // MySystem los lee para armar los frames config_intervals/config_control/
+  // config_coil al reconectar (ver mysystem.hpp::_sendMegaConfig()).
+  inline const MegaIntervalsConfig& megaIntervalsConfig() { return _megaIntervalsConfig; }
+  inline const ControlConfig& controlConfig() { return _controlConfig; }
+  inline const CoilConfig* coilConfigs() { return _coilConfigs; }
+  inline uint8_t coilConfigCount() { return _coilConfigCount; }
 
   namespace {
 
@@ -196,8 +248,9 @@ namespace ConfigLoader {
         return;
       }
 
-      // Solo la porcion de la ESP32. `intervals.mega` viaja al Mega2560 por
-      // el protocolo serie y todavia no esta implementado (ver esquema).
+      // Solo la porcion de la ESP32 -- `intervals.mega` la lee
+      // loadMegaIntervals(), mas abajo, porque no se aplica local sino que
+      // se reenvia.
       JsonObjectConst esp32 = intervals["esp32"];
       if (esp32.isNull()) return;
 
@@ -208,6 +261,116 @@ namespace ConfigLoader {
       applyInterval(esp32["updateProgress"], Intervals::UpdateProgress, "updateProgress");
 
       DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] intervalos de la ESP32 aplicados"));
+    }
+
+    // Mismo criterio de rechazo que applyInterval (0/negativo se ignora),
+    // pero acá NO hay valor local que pisar: solo se marca `has=true` para
+    // que _sendMegaConfig() sepa que clave incluir en el frame
+    // config_intervals. La clave que no vino, o vino invalida, simplemente
+    // no se manda -- el Mega se queda con su propio default compilado.
+    inline void applyMegaInterval(JsonVariantConst value, MegaIntervalValue& target, const char* name) {
+      target = MegaIntervalValue();
+      if (!value.is<unsigned long>()) return;
+
+      unsigned long parsed = value.as<unsigned long>();
+      if (parsed == 0) {
+        DEBUG_PRINT(DEBUG_CONFIGLOADER, F("[CONFIG] intervalo (mega) "));
+        DEBUG_PRINT(DEBUG_CONFIGLOADER, name);
+        DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F(" en 0: se ignora"));
+        return;
+      }
+      target.has = true;
+      target.value = parsed;
+    }
+
+    inline void loadMegaIntervals(JsonObjectConst intervals) {
+      _megaIntervalsConfig = MegaIntervalsConfig();
+      if (intervals.isNull()) return;
+
+      JsonObjectConst mega = intervals["mega"];
+      if (mega.isNull()) {
+        DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] sin seccion 'intervals.mega': el Mega arranca con sus defaults"));
+        return;
+      }
+
+      applyMegaInterval(mega["ping"], _megaIntervalsConfig.ping, "ping");
+      applyMegaInterval(mega["sendState"], _megaIntervalsConfig.sendState, "sendState");
+      applyMegaInterval(mega["measureTemperature"], _megaIntervalsConfig.measureTemperature, "measureTemperature");
+      applyMegaInterval(mega["measureCurrent"], _megaIntervalsConfig.measureCurrent, "measureCurrent");
+      applyMegaInterval(mega["measureMagneticField"], _megaIntervalsConfig.measureMagneticField, "measureMagneticField");
+      applyMegaInterval(mega["updateProgress"], _megaIntervalsConfig.updateProgress, "updateProgress");
+      applyMegaInterval(mega["sendFlags"], _megaIntervalsConfig.sendFlags, "sendFlags");
+      applyMegaInterval(mega["sendResult"], _megaIntervalsConfig.sendResult, "sendResult");
+      applyMegaInterval(mega["settlingTime"], _megaIntervalsConfig.settlingTime, "settlingTime");
+
+      DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] intervalos del Mega leidos, se reenvian al conectar"));
+    }
+
+    inline void loadControl(JsonObjectConst control) {
+      _controlConfig = ControlConfig();
+      if (control.isNull()) {
+        DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] sin seccion 'control': el Mega arranca con sus defaults"));
+        return;
+      }
+
+      if (control["kp"].is<float>()) {
+        _controlConfig.hasKp = true;
+        _controlConfig.kp = control["kp"].as<float>();
+      }
+      if (control["maxStep"].is<float>()) {
+        _controlConfig.hasMaxStep = true;
+        _controlConfig.maxStep = control["maxStep"].as<float>();
+      }
+      if (control["deadBand"].is<float>()) {
+        _controlConfig.hasDeadBand = true;
+        _controlConfig.deadBand = control["deadBand"].as<float>();
+      }
+
+      DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] seccion 'control' leida, se reenvia al conectar"));
+    }
+
+    // Rango 0.1-5.0 de calibrationFactor NO se valida acá -- lo hace
+    // CoilChannel::setCalibrationFactor() del lado Mega, que es quien tiene
+    // la autoridad sobre sus propios canales. Acá solo se extrae lo que el
+    // JSON trae con el tipo correcto.
+    inline void loadCoils(JsonArrayConst coils) {
+      _coilConfigCount = 0;
+      if (coils.isNull()) {
+        DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] sin seccion 'coils': el Mega arranca con sus defaults"));
+        return;
+      }
+
+      for (JsonObjectConst coil : coils) {
+        if (_coilConfigCount >= MaxCoils) {
+          DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] 'coils' excede el tope de 4: se ignora el resto"));
+          break;
+        }
+
+        const char* name = coil["name"] | "";
+        if (name[0] == '\0') {
+          DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] entrada de 'coils' sin 'name': se ignora"));
+          continue;
+        }
+
+        CoilConfig& entry = _coilConfigs[_coilConfigCount];
+        entry = CoilConfig();
+        copyLabel(entry.name, name);
+
+        if (coil["enabled"].is<bool>()) {
+          entry.hasEnabled = true;
+          entry.enabled = coil["enabled"].as<bool>();
+        }
+        if (coil["calibrationFactor"].is<float>()) {
+          entry.hasCalibrationFactor = true;
+          entry.calibrationFactor = coil["calibrationFactor"].as<float>();
+        }
+
+        _coilConfigCount++;
+      }
+
+      DEBUG_PRINT(DEBUG_CONFIGLOADER, F("[CONFIG] 'coils': "));
+      DEBUG_PRINT(DEBUG_CONFIGLOADER, _coilConfigCount);
+      DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F(" canales leidos, se reenvian al conectar"));
     }
 
   }
@@ -268,6 +431,9 @@ namespace ConfigLoader {
 
     loadMenus(doc["menus"]);
     loadIntervals(doc["intervals"]);
+    loadMegaIntervals(doc["intervals"]);
+    loadControl(doc["control"]);
+    loadCoils(doc["coils"]);
 
     DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] configuracion aplicada"));
     DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] ----------------------------------------"));

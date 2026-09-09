@@ -21,4 +21,8 @@ namespace Intervals {
   // limite real del plan de Datacake que se este usando.
   inline unsigned long PublishMeasures       = 30000;
   inline unsigned long PublishStatus         = 30000;
+
+  // Reintento del envio fragmentado de config_intervals/config_control/
+  // config_coil al Mega (ver mysystem.hpp::_sendMegaConfig()).
+  inline unsigned long ReSendConfig          = 4000;
 };
