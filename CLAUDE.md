@@ -108,7 +108,17 @@ Key collaborators:
   `Engine` uses to add/remove periodic `Timer` tasks (see `tasks.hpp` /
   `intervals.hpp`).
 - `FieldController` — closed-loop control (setpoint from `start` command) driving
-  `PwmDriver` based on live magnetometer readings.
+  `PwmDriver` based on live magnetometer readings. Its gains are **not tuned
+  against real coils yet** — `docs/protocolo-calibracion-intensidad.md` is the
+  bench procedure that does it. Two things there are worth knowing before
+  touching this class: `kp` cannot be read off the settled duty (at equilibrium
+  the error is zero, so every `kp` lands on the same duty — it only changes how
+  fast and whether it oscillates); it is computed as `α/K` from the plant gain
+  `K` (mT per unit of duty) measured **open-loop**, with α ≈ 0.1–0.3, since
+  `kp·error` is a duty step and so carries units of duty/mT. And because there
+  is exactly one magnetometer — by design, not by omission — per-coil intensity
+  can never be four independent loops; it is one loop plus a per-coil scaling
+  factor measured once at calibration.
 - `CoilExcitation` (`coilexcitation.hpp`) — the only place that
   decides *what signal the coils get*. `Engine` no longer touches
   `SignalGenerator` directly: `_start()`/`_stop()` go through
