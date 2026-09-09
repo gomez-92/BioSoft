@@ -126,7 +126,12 @@ CurrentSensorsManager currentsensormanager;
 
 /*===== outputs =====*/
 SignalGenerator signalGenerator(spi, SPI_CS_PIN);
-PwmDriver pwmDriver(PWM_PIN);
+// 3906 Hz (prescaler 8) es la frecuencia acordada como contrato de salida
+// para la excitacion de bobinas -- ver docs/coil-excitation.md. Es la mas
+// alta alcanzable sin cambiar el modo del timer, y deja margen holgado para
+// que la etapa de potencia filtre el PWM a un nivel DC sin que el rizado se
+// mezcle con la senoidal de trabajo (10-50 Hz).
+PwmDriver pwmDriver(PWM_PIN, 3906);
 FieldController::Config config;
 FieldController fieldController(config);
 RelayManager relayManager;

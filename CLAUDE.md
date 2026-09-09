@@ -215,9 +215,36 @@ Key collaborators:
   now actually applied via `applyFrequency()`, called from `enable()` and *not*
   the constructor — `pwmDriver` is a global object and its constructor runs
   before Arduino's `init()` configures the timers, which would silently
-  overwrite anything touched earlier. Only works for pins 44/45/46, and only
-  snaps to the nearest of 5 fixed prescaler-derived frequencies, not an
-  arbitrary value.
+  overwrite anything touched earlier. It only snaps to the nearest of 5 fixed
+  prescaler-derived frequencies, never an arbitrary value.
+- **The Mega2560 has hardware PWM on 15 pins (2–13 and 44–46), not 3.** The
+  "only 44/45/46" claim that circulated in Trello was a garbled merge of two
+  separate facts: `A0`..`A15` have no timer (true), and `PwmDriver` used to
+  write `TCCR5B` unconditionally (also true, now fixed). `PwmTiming::timerForPin()`
+  (`pwmdriver.hpp`) covers the four 16-bit timers, which share one prescaler
+  table: Timer1 (11,12), Timer3 (2,3,5), Timer4 (6,7,8), Timer5 (44,45,46).
+  **Timer0 (4,13) and Timer2 (9,10) are excluded on purpose** — Timer0 clocks
+  `millis()`/`delay()` (and every periodic `Timer` task with it), and Timer2 has
+  7 prescalers instead of 5, so the shared table would map to a different
+  divisor. Note the frequency is **per timer, not per pin**: the 3 pins of a
+  timer share one prescaler and the last `enable()` wins, silently. So four coil
+  channels fit without a DAC or multiplexing (44/45/46 + one of Timer4), but
+  Timer3's pins are already taken by OneWire/relay/SPI-CS.
+- `PwmTiming::frequencyFor()` divides by `2 * N * top`, and the factor of 2 is
+  load-bearing: the Arduino core puts timers 1/3/4/5 in **8-bit phase-correct**
+  PWM, where one period is `2*top` ticks. The original code omitted it, which
+  reported double the real frequency and picked the wrong prescaler — asking for
+  the 490 Hz default selected ÷256 (~122 Hz real) instead of the ÷64 the timer
+  already had, quietly degrading a correct configuration. `test_pwmdriver` pins
+  the frequency→prescaler table so this can't silently regress; the `TCCRnB`
+  write itself is still not observable on host.
+- The PWM frequency is now set explicitly to **3906 Hz** (prescaler 8) in
+  `SoftMega2560.ino`, not left at the 490 Hz default — it is the output contract
+  for coil excitation (`docs/coil-excitation.md`): the highest value reachable
+  without changing the timer mode, leaving nearly two decades of headroom over
+  the 10–50 Hz sine so the power stage can filter the PWM into a DC level.
+  Intensity reaches the coil as the *amplitude* of a continuous sine (PWM → RC →
+  DC level → gain), never by chopping the sine itself.
 - Current (`SCT013-1`) is measured and sent to the ESP32 but is not, and was
   never meant to be, a Detector source — by design the only sources are `TEMP1`
   and `CEM1`. `Engine::onCurrentSensorSample` still calls
