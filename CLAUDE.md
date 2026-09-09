@@ -95,7 +95,7 @@ callbacks. Consumers implement `CommandListener` and call `sendCommand(...)` /
 `Engine` (`mega2560/src/engine.hpp`) is the central orchestrator, composed via
 constructor-injected references to all managers/drivers (`Timer`, `SerialLink`,
 `MagnetometerManager`, `ThermometerManager`, `CurrentSensorsManager`,
-`CoilExcitation`, `PwmDriver`, `FieldController`, `RelayManager`, `Detector`).
+`CoilExcitation`, `PwmDriver`, `FieldController`, `MainPowerSwitch`, `Detector`).
 It implements multiple listener interfaces (`EngineStateListener`,
 `RuntimeStateListener`, `TimerListener`, `CommandListener`, sensor sample
 listeners, `DetectorListener`) and reacts to events rather than polling — sensor
@@ -131,8 +131,22 @@ Key collaborators:
   exposing a domain concept (`FieldMode`) and guarding an invariant, not by
   managing a collection. It briefly *was* `CoilExcitationManager`, back when the
   design had two AD9833s to orchestrate; the name outlived that design and was
-  actively misleading, so it went. Same reasoning retires `RelayManager` (a
-  container of N for a fixed N=1) — see that card.
+  actively misleading, so it went. The same reasoning retired `RelayManager`,
+  now `MainPowerSwitch` (see below).
+- `MainPowerSwitch` (`mainpowerswitch.hpp`) — the general cutoff for the whole
+  power stage (the remote 3-pin GND/VDD/enable connector), distinct from the
+  per-coil enable that will live in `CoilChannel`. It wraps **one** `Relay`;
+  `Engine` calls `enable()`/`disable()` and no longer reasons about open and
+  closed contacts, which are a property of the relay and not of the experiment.
+  It replaced `RelayManager` (an `addRelay`/`beginAll`/`openAll` container for up
+  to 10 relays) for the reason above: by design there is exactly one relay, so a
+  manager-of-N at a fixed N=1 was indirection without a concept. `Relay` itself
+  is unchanged — its 200 ms blanking still makes sense for a real mechanical
+  relay, **and it still applies underneath**: an `enable()`/`disable()` requested
+  within 200 ms of the previous change is a silent no-op with no return value, so
+  `isEnabled()` is the only way to confirm what actually happened. `begin()` is
+  called once, from `Engine::begin()` — the `.ino` used to call it too, and that
+  duplicate is gone.
 - `Detector` — evaluates per-source (`CEM1`, `TEMP1`, ...) rules (critical
   threshold, streak, frequency) from sensor sample history and raises `onFlag`
   events. Overall health scoring used to live here (`Engine::_evaluateHealthData()`)

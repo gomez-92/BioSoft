@@ -11,7 +11,7 @@
 #include "thermometerds18b20.hpp"
 #include "currentmanager.hpp"
 #include "currentsensorsct013.hpp"
-#include "relaymanager.hpp"
+#include "mainpowerswitch.hpp"
 #include "fieldcontroller.hpp"
 #include "pwmdriver.hpp"
 #include "signalgenerator.hpp"
@@ -147,7 +147,11 @@ CoilExcitation coilExcitation(signalGenerator, FIELD_MODE_PIN, HIGH);
 PwmDriver pwmDriver(PWM_PIN, 3906);
 FieldController::Config config;
 FieldController fieldController(config);
-RelayManager relayManager;
+// Interruptor general de la etapa de potencia. El Relay se declara acá y no
+// dentro de MainPowerSwitch para que el pin y el tipo de activacion queden
+// visibles junto al resto del cableado de la placa.
+Relay mainRelay(RELE1_PIN, Relay::ACTIVE_LOW);
+MainPowerSwitch mainPowerSwitch(mainRelay);
 Detector detector;
 EmergencyButton emergencyButton(EMERGENCY_BUTTON_PIN);
 
@@ -160,7 +164,7 @@ Engine engine(
   coilExcitation,
   pwmDriver,
   fieldController,
-  relayManager,
+  mainPowerSwitch,
   detector,
   emergencyButton,
   magnetometerSim,
@@ -241,10 +245,9 @@ void setup() {
   );
   currentsensormanager.addCurrentSensor(currentSensor1);
 
-  /* ===== relays =====*/
-  Relay* rele1 = new Relay(RELE1_PIN, Relay::ACTIVE_LOW);
-  relayManager.addRelay(rele1);
-  relayManager.beginAll();
+  /* ===== interruptor general =====*/
+  // No se llama begin() acá: lo hace Engine::begin(), igual que con
+  // CoilExcitation. Antes estaba duplicado en los dos lados.
 
   /* ===== detector =====*/
   detector.clear();

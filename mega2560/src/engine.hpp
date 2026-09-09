@@ -14,7 +14,7 @@
 #include "coilexcitation.hpp"
 #include "pwmdriver.hpp"
 #include "fieldcontroller.hpp"
-#include "relaymanager.hpp"
+#include "mainpowerswitch.hpp"
 #include "detector.hpp"
 #include "emergencybutton.hpp"
 #include "safetymargins.hpp"
@@ -48,7 +48,7 @@ class Engine :
     CoilExcitation& _coilExcitation;
     PwmDriver& _pwmDriver;
     FieldController& _fieldController;
-    RelayManager& _relayManager;
+    MainPowerSwitch& _mainPowerSwitch;
     Detector& _detector;
     EmergencyButton& _emergencyButton;
     // Mientras esta en true (ver _start()), las muestras de sensores se
@@ -92,7 +92,7 @@ class Engine :
       CoilExcitation& coilExcitation,
       PwmDriver& pwmDriver,
       FieldController& fieldController,
-      RelayManager& relayManager,
+      MainPowerSwitch& mainPowerSwitch,
       Detector& detector,
       EmergencyButton& emergencyButton,
       IMagnetometer& simMagnetometer,
@@ -152,7 +152,7 @@ inline Engine::Engine(
   CoilExcitation& coilExcitation,
   PwmDriver& pwmDriver,
   FieldController& fieldController,
-  RelayManager& relayManager,
+  MainPowerSwitch& mainPowerSwitch,
   Detector& detector,
   EmergencyButton& emergencyButton,
   IMagnetometer& simMagnetometer,
@@ -166,7 +166,7 @@ inline Engine::Engine(
   _coilExcitation(coilExcitation),
   _pwmDriver(pwmDriver),
   _fieldController(fieldController),
-  _relayManager(relayManager),
+  _mainPowerSwitch(mainPowerSwitch),
   _detector(detector),
   _emergencyButton(emergencyButton),
   _isSettlingTime(false),
@@ -189,7 +189,7 @@ inline Engine::Engine(
 
 inline void Engine::begin() {
 
-  _relayManager.beginAll();
+  _mainPowerSwitch.begin();
   _pwmDriver.disable();
   _fieldController.reset();
   _timer.begin();
@@ -219,12 +219,12 @@ inline void Engine::_start() {
     _pwmDriver.write(_fieldController.getOutput());
     _pwmDriver.enable();
   }
-  _relayManager.closeAll();
+  _mainPowerSwitch.enable();
   _engineState.setState(State::Running);
 }
 
 inline void Engine::_stop() {
-  _relayManager.openAll();
+  _mainPowerSwitch.disable();
   _coilExcitation.stop();
   _pwmDriver.disable();
   _fieldController.reset();
@@ -232,7 +232,7 @@ inline void Engine::_stop() {
 }
 
 inline void Engine::_reset() {
-  _relayManager.openAll();
+  _mainPowerSwitch.disable();
   _coilExcitation.stop();
   _pwmDriver.disable();
   _fieldController.reset();

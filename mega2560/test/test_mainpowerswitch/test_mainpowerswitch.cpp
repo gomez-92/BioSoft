@@ -2,12 +2,12 @@
 #include <unity.h>
 
 #include "../support/arduino_fakes.hpp"
-#include "../../src/relaymanager.hpp"
+#include "../../src/mainpowerswitch.hpp"
 
 using namespace fakeit;
 
 // =====================================================================
-// Relay/RelayManager tocan pinMode/digitalWrite/millis directamente (no
+// Relay/MainPowerSwitch tocan pinMode/digitalWrite/millis directamente (no
 // hay interfaz de por medio, a diferencia de los managers de sensores).
 // fakeMillis simula el reloj: cada test lo mueve a mano para ejercitar el
 // blanking de 200ms sin depender de tiempo real.
@@ -149,94 +149,76 @@ void test_isClosed_and_isOpen_are_complementary(void) {
 }
 
 // =====================================================================
-// RelayManager::addRelay
+// MainPowerSwitch -- envuelve UN Relay y traduce el vocabulario del rele
+// (open/close) al del dominio (disable/enable).
+//
+// Los tests de RelayManager que vivian acá (limite de addRelay, skip de
+// slots nulos en xxxAll) se eliminaron con esa clase: probaban el manejo
+// de una coleccion de N relés que por diseno nunca existio -- siempre
+// hubo uno solo.
 // =====================================================================
 
-void test_addRelay_accepts_up_to_max_relays(void) {
-    RelayManager manager;
-    Relay relays[10] = {
-        Relay(0, Relay::ACTIVE_HIGH), Relay(1, Relay::ACTIVE_HIGH),
-        Relay(2, Relay::ACTIVE_HIGH), Relay(3, Relay::ACTIVE_HIGH),
-        Relay(4, Relay::ACTIVE_HIGH), Relay(5, Relay::ACTIVE_HIGH),
-        Relay(6, Relay::ACTIVE_HIGH), Relay(7, Relay::ACTIVE_HIGH),
-        Relay(8, Relay::ACTIVE_HIGH), Relay(9, Relay::ACTIVE_HIGH),
-    };
-    for (int i = 0; i < 10; i++) {
-        TEST_ASSERT_TRUE(manager.addRelay(&relays[i]));
-    }
-    TEST_ASSERT_EQUAL_INT(10, manager.count());
+void test_begin_delegates_to_the_wrapped_relay(void) {
+    Relay relay(7, Relay::ACTIVE_HIGH);
+    MainPowerSwitch mainSwitch(relay);
+
+    mainSwitch.begin();
+
+    Verify(Method(ArduinoFake(), pinMode).Using(7, OUTPUT)).Once();
+    TEST_ASSERT_FALSE(mainSwitch.isEnabled());
 }
 
-void test_addRelay_rejects_beyond_max_relays(void) {
-    RelayManager manager;
-    Relay relays[10] = {
-        Relay(0, Relay::ACTIVE_HIGH), Relay(1, Relay::ACTIVE_HIGH),
-        Relay(2, Relay::ACTIVE_HIGH), Relay(3, Relay::ACTIVE_HIGH),
-        Relay(4, Relay::ACTIVE_HIGH), Relay(5, Relay::ACTIVE_HIGH),
-        Relay(6, Relay::ACTIVE_HIGH), Relay(7, Relay::ACTIVE_HIGH),
-        Relay(8, Relay::ACTIVE_HIGH), Relay(9, Relay::ACTIVE_HIGH),
-    };
-    for (int i = 0; i < 10; i++) manager.addRelay(&relays[i]);
+// enable() cierra el rele: habilitar la etapa de potencia es dejar pasar
+// corriente, sin importar como se llame del lado del hardware.
+void test_enable_closes_the_relay(void) {
+    Relay relay(7, Relay::ACTIVE_HIGH);
+    MainPowerSwitch mainSwitch(relay);
+    mainSwitch.begin();
 
-    Relay overflow(10, Relay::ACTIVE_HIGH);
-    TEST_ASSERT_FALSE(manager.addRelay(&overflow));
-    TEST_ASSERT_EQUAL_INT(10, manager.count());
-}
-
-// =====================================================================
-// RelayManager::xxxAll -- aplica a cada rele, salta nulos, blanking individual
-// =====================================================================
-
-void test_beginAll_calls_begin_on_every_registered_relay(void) {
-    RelayManager manager;
-    Relay r0(2, Relay::ACTIVE_HIGH);
-    Relay r1(3, Relay::ACTIVE_LOW);
-    manager.addRelay(&r0);
-    manager.addRelay(&r1);
-
-    manager.beginAll();
-
-    Verify(Method(ArduinoFake(), pinMode).Using(2, OUTPUT)).Once();
-    Verify(Method(ArduinoFake(), pinMode).Using(3, OUTPUT)).Once();
-    TEST_ASSERT_TRUE(r0.isOpen());
-    TEST_ASSERT_TRUE(r1.isOpen());
-}
-
-void test_closeAll_respects_individual_blanking(void) {
-    RelayManager manager;
-    Relay r0(2, Relay::ACTIVE_HIGH);
-    Relay r1(3, Relay::ACTIVE_HIGH);
-    manager.addRelay(&r0);
-    manager.addRelay(&r1);
-
-    fakeMillis = 0;
-    manager.beginAll(); // ambos OFF, _lastChange = 0
-
-    // r1 tiene un cambio reciente propio, dentro del blanking; r0 no.
-    fakeMillis = 50;
-    r1.close();
-    TEST_ASSERT_TRUE(r1.isOpen()); // bloqueado por blanking, sigue OFF
-
-    fakeMillis = 250; // >=200ms desde el begin() de ambos, y desde el intento de r1
-    manager.closeAll();
-
-    TEST_ASSERT_TRUE(r0.isClosed());
-    TEST_ASSERT_TRUE(r1.isClosed());
-}
-
-void test_openAll_skips_null_slots(void) {
-    RelayManager manager;
-    Relay r0(2, Relay::ACTIVE_HIGH);
-    manager.addRelay(&r0);
-    manager.addRelay(nullptr);
-
-    fakeMillis = 0;
-    manager.beginAll();
     fakeMillis = 200;
+    mainSwitch.enable();
 
-    // No debe crashear con el slot nulo intercalado.
-    manager.openAll();
-    TEST_ASSERT_TRUE(r0.isOpen());
+    TEST_ASSERT_TRUE(mainSwitch.isEnabled());
+    Verify(Method(ArduinoFake(), digitalWrite).Using(7, HIGH)).AtLeast(1);
+}
+
+void test_disable_opens_the_relay(void) {
+    Relay relay(7, Relay::ACTIVE_HIGH);
+    MainPowerSwitch mainSwitch(relay);
+    mainSwitch.begin();
+    fakeMillis = 200;
+    mainSwitch.enable();
+
+    fakeMillis = 400;
+    mainSwitch.disable();
+
+    TEST_ASSERT_FALSE(mainSwitch.isEnabled());
+}
+
+// El wrapper no anula el blanking del rele: sigue siendo un no-op
+// silencioso si se pide un cambio antes de los 200ms. Engine no se entera,
+// por eso isEnabled() es la unica forma de confirmar el estado real.
+void test_switch_still_respects_relay_blanking(void) {
+    Relay relay(7, Relay::ACTIVE_LOW);
+    MainPowerSwitch mainSwitch(relay);
+    mainSwitch.begin();
+
+    fakeMillis = 100;   // antes de que pasen los 200ms del begin()
+    mainSwitch.enable();
+
+    TEST_ASSERT_FALSE(mainSwitch.isEnabled());
+}
+
+void test_switch_honours_active_low_wiring(void) {
+    Relay relay(7, Relay::ACTIVE_LOW);
+    MainPowerSwitch mainSwitch(relay);
+    mainSwitch.begin();
+
+    fakeMillis = 200;
+    mainSwitch.enable();
+
+    TEST_ASSERT_TRUE(mainSwitch.isEnabled());
+    Verify(Method(ArduinoFake(), digitalWrite).Using(7, LOW)).AtLeast(1);
 }
 
 int main(int argc, char** argv) {
@@ -255,12 +237,11 @@ int main(int argc, char** argv) {
 
     RUN_TEST(test_isClosed_and_isOpen_are_complementary);
 
-    RUN_TEST(test_addRelay_accepts_up_to_max_relays);
-    RUN_TEST(test_addRelay_rejects_beyond_max_relays);
-
-    RUN_TEST(test_beginAll_calls_begin_on_every_registered_relay);
-    RUN_TEST(test_closeAll_respects_individual_blanking);
-    RUN_TEST(test_openAll_skips_null_slots);
+    RUN_TEST(test_begin_delegates_to_the_wrapped_relay);
+    RUN_TEST(test_enable_closes_the_relay);
+    RUN_TEST(test_disable_opens_the_relay);
+    RUN_TEST(test_switch_still_respects_relay_blanking);
+    RUN_TEST(test_switch_honours_active_low_wiring);
 
     return UNITY_END();
 }

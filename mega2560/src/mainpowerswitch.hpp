@@ -1,4 +1,4 @@
-#pragma once;
+#pragma once
 #include <Arduino.h>
 #include "debugconfig.hpp"
 
@@ -34,21 +34,34 @@ class Relay {
 
 };
 
-class RelayManager {
+// Interruptor general de la etapa de potencia: habilita o corta TODO lo que
+// llega a las bobinas. Es el corte de seguridad remoto (conector de 3 pines
+// GND/VDD/enable), distinto de la habilitacion individual por bobina que
+// vive en CoilChannel.
+//
+// Envuelve un unico Relay en vez de ser un contenedor de N. Antes esto era
+// RelayManager (addRelay/beginAll/openAll/closeAll sobre un array de hasta
+// 10), pero por diseno hay UN solo rele: un "manager de N" para N=1 fijo es
+// indireccion sin concepto -- el mismo criterio por el que CoilExcitation no
+// se llama Manager, y por el que SafetyMargins no es una clase.
+//
+// Lo que si aporta es vocabulario: Engine pide enable()/disable() sobre el
+// interruptor general y deja de razonar en contactos abiertos y cerrados,
+// que es un detalle del rele y no del experimento.
+//
+// El blanking de Relay sigue vigente por debajo: un enable() o disable()
+// pedido dentro de los 200ms del cambio anterior es un no-op SILENCIOSO. Si
+// hace falta confirmar que se aplico, consultar isEnabled() despues.
+class MainPowerSwitch {
   private:
-    static const int MAX_RELAYS = 10;   // Adjustable limit
-    Relay* _relays[MAX_RELAYS];
-    int _relayCount;
+    Relay& _relay;
 
   public:
-    RelayManager();
-    bool addRelay(Relay* relay);   // Adds a relay to the manager
-    int count() const;             // Number of relays
-    Relay* getRelay(int index);    // Returns pointer to relay
-    void beginAll();               // Calls begin() on all relays
-    void openAll();                // Opens all
-    void closeAll();               // Closes all
-    void toggleAll();              // Toggles all
+    explicit MainPowerSwitch(Relay& relay);
+    void begin();
+    void enable();          // Habilita la etapa de potencia (rele cerrado)
+    void disable();         // Corta la etapa de potencia (rele abierto)
+    bool isEnabled();
 };
 
 inline Relay::Relay(int pin, ActivationType type) : _pin(pin), _type(type), _state(false), _lastChange(0) {}
@@ -115,48 +128,20 @@ inline void Relay::applyState() {
     }
 }
 
-inline RelayManager::RelayManager() : _relayCount(0) {
-  for (int i = 0; i < MAX_RELAYS; i++) {
-      _relays[i] = nullptr;
-  }
+inline MainPowerSwitch::MainPowerSwitch(Relay& relay) : _relay(relay) {}
+
+inline void MainPowerSwitch::begin() {
+  _relay.begin();
 }
 
-inline bool RelayManager::addRelay(Relay* relay) {
-  if (_relayCount >= MAX_RELAYS) {
-      DEBUG_PRINTLN(DEBUG_RELAY, "RelayManager: Max relays reached");
-      return false;
-  }
-
-  _relays[_relayCount] = relay;
-  _relayCount++;
-  return true;
+inline void MainPowerSwitch::enable() {
+  _relay.close();
 }
 
-inline int RelayManager::count() const {
-  return _relayCount;
+inline void MainPowerSwitch::disable() {
+  _relay.open();
 }
 
-inline Relay* RelayManager::getRelay(int index) {
-  if (index < 0 || index >= _relayCount) return nullptr;
-  return _relays[index];
-}
-
-inline void RelayManager::beginAll() {
-  for (int i = 0; i < _relayCount; i++)
-    if(_relays[i]) _relays[i]->begin();
-}
-
-inline void RelayManager::openAll() {
-  for (int i = 0; i < _relayCount; i++)
-    if(_relays[i]) _relays[i]->open();
-}
-
-inline void RelayManager::closeAll() {
-  for (int i = 0; i < _relayCount; i++)
-    if(_relays[i]) _relays[i]->close();
-}
-
-inline void RelayManager::toggleAll() {
-  for (int i = 0; i < _relayCount; i++)
-    if(_relays[i]) _relays[i]->toggle();
+inline bool MainPowerSwitch::isEnabled() {
+  return _relay.isClosed();
 }
