@@ -181,6 +181,32 @@ void test_config_current_fits(void) {
     TEST_ASSERT_TRUE(survivesTransport(Commands::ConfigCurrent, doc));
 }
 
+// =====================================================================
+// start -- no es un frame de configuracion, pero comparte el mismo buffer
+// y es el unico que crecio despues de que se fijaron los presupuestos: al
+// sumarle el modo de experimento paso de 8 claves a 9. Si algun dia no
+// entra, el sintoma NO seria un error: el Mega recibiria un start con CRC
+// valido y sin `mode`, y correria campo X creyendo que la pantalla nunca
+// pidio otra cosa -- que es exactamente lo que hace con una pantalla vieja.
+// Un grupo control expuesto a campo real, sin una sola linea de log que lo
+// delate.
+// =====================================================================
+
+void test_start_fits_with_field_mode(void) {
+    JsonDocument doc;
+    doc["cem"] = 2.123456f;
+    doc["freq"] = 50;
+    doc["dur"] = 7200000UL;
+    doc["tol"] = 10;
+    doc["tnmin"] = 28.123456f;
+    doc["tnmax"] = 42.123456f;
+    doc["tcmin"] = 23.123456f;
+    doc["tcmax"] = 47.123456f;
+    doc["mode"] = "null";   // el mas largo de los dos valores posibles
+
+    TEST_ASSERT_TRUE(survivesTransport(Commands::Start, doc));
+}
+
 // Este es el test que justifica la fragmentacion: una fuente entera con la
 // forma del esquema (cabecera + las 3 reglas anidadas) NO entra en un frame.
 // docs/config-schema.md 10.1 asumia que si; por eso detector.sources viaja
@@ -226,6 +252,8 @@ int main(int argc, char** argv) {
     RUN_TEST(test_config_source_header_fits);
     RUN_TEST(test_config_rule_fits);
     RUN_TEST(test_whole_source_in_one_frame_does_not_fit);
+
+    RUN_TEST(test_start_fits_with_field_mode);
 
     RUN_TEST(test_every_command_name_fits_in_the_command_field);
 

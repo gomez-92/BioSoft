@@ -31,6 +31,20 @@ namespace ConfigurationOptions {
   struct OptionTolFieldIntensity { char label[MaxLabelLength]; int tol; };
   struct OptionRangeTemperature { char label[MaxLabelLength]; float tmin; float tmax; };
 
+  // El modo de experimento NO se parametriza desde la SD, a diferencia de
+  // todos los menus de arriba. Sus dos valores son una condicion
+  // experimental fija del diseño -- campo X o campo nulo (grupo control) --
+  // y no numeros que el operador calibre. Dejarlo en el archivo permitiria
+  // borrar "Campo nulo" de la lista y volver el grupo control inalcanzable
+  // sin que nada lo indique.
+  //
+  // Por eso `value` es un `const char*` y no un buffer propio: no viene de
+  // ningun JsonDocument que se destruya, es literal de compilacion. Ese
+  // string es el que viaja como parametro `mode` del comando `start`, y el
+  // Mega lo compara con "null" (engine.hpp); cualquier otro valor, o su
+  // ausencia, significa campo X.
+  struct OptionFieldMode { char label[MaxLabelLength]; const char* value; };
+
   /* ============================================================
    *  OPCIONES (DEFAULTS COMPILADOS)
    * ============================================================ */
@@ -76,5 +90,12 @@ namespace ConfigurationOptions {
     {"20~50 C", 20, 50}
   };
   inline uint8_t countRangeCriticalTemperature = 3;
+
+  // Tope propio, fijo en 2: no es un menu extensible como los anteriores.
+  inline OptionFieldMode optionsFieldMode[2] = {
+    {"Campo X", "x"},
+    {"Campo nulo", "null"}
+  };
+  inline uint8_t countFieldMode = 2;
 
 };

@@ -326,6 +326,32 @@ inline void MySystem::_sendStart() {
 
 
     // ========================================================
+    // MODO DE EXPERIMENTO (campo X / campo nulo)
+    // ========================================================
+
+    // Se manda SIEMPRE, aunque hoy sea siempre "x": el Mega trata `mode`
+    // como opcional justamente para tolerar una pantalla vieja que no lo
+    // mande (engine.hpp, handler de Start), pero esta no lo es. Mandarlo
+    // explicito deja el modo visible en el log del Mega en cada arranque,
+    // que es donde se confirma en banco cual de las dos condiciones
+    // experimentales quedo activa.
+
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, "[START] Obteniendo modo de experimento...");
+
+    auto mode = ConfigurationOptions::optionsFieldMode[
+        _data.configuration.fieldModeOption
+    ].value;
+
+    DEBUG_PRINT(DEBUG_MYSYSTEM, "[START] fieldModeOption = ");
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, _data.configuration.fieldModeOption);
+
+    DEBUG_PRINT(DEBUG_MYSYSTEM, "[START] mode = ");
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, mode);
+
+    doc["mode"] = mode;
+
+
+    // ========================================================
     // JSON FINAL
     // ========================================================
 

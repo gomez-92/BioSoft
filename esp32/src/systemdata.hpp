@@ -23,6 +23,17 @@ struct ConfigurationData {
   uint8_t fieldIntensityToleranceOption = 0;
   uint8_t normalTemperatureRangeOption = 0;
   uint8_t criticalTemperatureRangeOption = 0;
+
+  // Modo de experimento: indice en ConfigurationOptions::optionsFieldMode.
+  // 0 = campo X. El default es X y no campo nulo a proposito, igual que en
+  // el Mega: un campo nulo silencioso se ve exactamente igual que un
+  // experimento normal, y contaminaria el grupo control sin sintoma.
+  //
+  // Todavia no hay dropdown que lo cambie -- el widget de la pantalla
+  // Configuracion esta pendiente de SquareLine (ver tarjeta 15 de Trello).
+  // Hasta que exista, este valor queda siempre en 0 y `start` viaja con
+  // mode="x", que es el comportamiento actual del sistema.
+  uint8_t fieldModeOption = 0;
 };
 
 struct ProgressData {

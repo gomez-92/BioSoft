@@ -142,7 +142,13 @@ Key collaborators:
   *optional* `mode` param on `start` ("null" ⇒ `Null`, anything else or absent ⇒
   `X`), so an older ESP32 build keeps working; the default is `X` on purpose,
   since a silently-null experiment would look exactly like a normal one. The
-  ESP32 does not send it yet — the Configuración selector is its own card.
+  ESP32 **does** send it now, always and explicitly, from `_sendStart()`
+  (`ConfigurationOptions::optionsFieldMode` → `configuration.fieldModeOption`),
+  but the Configuración dropdown that would let the operator change it is still
+  pending in SquareLine — so the value is fixed at `"x"` until that widget
+  exists. `test_start_fits_with_field_mode` (native) pins that the 9-key `start`
+  frame still fits, since a truncated `start` would drop `mode` silently and run
+  the control group with real field.
   `ISignalGenerator` is declared here (same pattern as `IMagnetometer` living in
   `magnetometermanager.hpp`) so it can be host-tested without pulling in
   `AD9833.h`/SPI; `SignalGenerator` implements it.

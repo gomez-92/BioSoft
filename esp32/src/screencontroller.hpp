@@ -24,12 +24,12 @@ static void btnRunningDetenerClick(lv_event_t * e);
 static void btnResultadoVolverClick(lv_event_t * e);
 
 
-// "count" es SIEMPRE un literal hardcodeado en cada call site (ver
-// ConfigurationController::init()), no sizeof(options)/sizeof(options[0])
-// -- si se agrega o saca una opcion de un arreglo en configurationoptions.hpp
-// hay que actualizar el literal a mano tambien, o buildDropdown lee fuera
-// de los limites del arreglo (paso en la tolerancia de CEM, ver Trello
-// MOD-025: quedo en 3 despues de sacar una opcion, hasta que se corrigio).
+// "count" es el contador real de cada menu (ConfigurationOptions::countXxx),
+// no un literal escrito a mano en el call site ni sizeof(options)/sizeof(...).
+// Antes era un literal y ya se desincronizo una vez: la tolerancia de CEM
+// quedo en 3 despues de sacarle una opcion y buildDropdown leia fuera del
+// arreglo (Trello MOD-025). Con las listas viniendo de la SD un literal
+// directamente no puede funcionar: el largo recien se conoce en runtime.
 template<typename T>
 inline void buildDropdown(lv_obj_t* dropdown, const T* options, int count) {
   std::string items;
@@ -231,6 +231,16 @@ inline void ConfigurationController::init() {
   buildDropdown(ui_ToleranciaCampoOpciones, ConfigurationOptions::optionsTolFieldIntensity, ConfigurationOptions::countTolFieldIntensity);
   buildDropdown(ui_RangoTempNormalOpciones, ConfigurationOptions::optionsRangeNormalTemperature, ConfigurationOptions::countRangeNormalTemperature);
   buildDropdown(ui_RangoTempCritOpciones, ConfigurationOptions::optionsRangeCriticalTemperature, ConfigurationOptions::countRangeCriticalTemperature);
+
+  // PENDIENTE (SquareLine, tarjeta 15 de Trello): dropdown de modo de
+  // experimento (campo X / campo nulo). Todo lo que no es el widget ya
+  // esta: ConfigurationOptions::optionsFieldMode/countFieldMode,
+  // SystemData::configuration.fieldModeOption y el envio del parametro
+  // `mode` en MySystem::_sendStart(). Cuando exista el objeto en ui_
+  // Configuracion.c, esto son 4 lineas siguiendo el patron de arriba:
+  // buildDropdown + add_event_cb aca, lv_dropdown_set_selected en
+  // _applyState(), la rama en onDropdownChanged() y la asignacion en
+  // onSave(). Mientras tanto el modo queda fijo en campo X.
 
   // Callbacks dropdown (wrapper estático)
   lv_obj_add_event_cb(ui_DuracionOpciones, dropdownConfigSelectedChanged, LV_EVENT_VALUE_CHANGED, this);
