@@ -52,6 +52,13 @@ state machines, protocol framing) can also be unit-tested on the host,
 cd mega2560 && pio test -e native
 ```
 
+The external configuration generator (`tools/`, see below) is plain JS and has
+its own host check, which needs nothing installed but node:
+
+```
+node tools/test-generador.js
+```
+
 This uses PlatformIO's `native` platform (host gcc/g++, not the AVR
 toolchain) with the Unity test framework and the `ArduinoFake` library to
 mock `Arduino.h`/`Serial`. See `mega2560/test/test_detector/` for the first
@@ -666,6 +673,42 @@ and `StateListener` (own app state, from `SystemData`).
   Leaving Resultado is manual only, via `ui_ResultadoBtnVolver` (already built in
   SquareLine, just needed wiring) → `EventName::Back` → resets `_data.result` and
   shows `PRINCIPAL`.
+
+### `tools/` — external configuration generator
+
+`tools/generador-config.html` is the app that produces `/biosoft/config.json`
+for the SD card (Trello card 13). It is **one self-contained HTML file with no
+build step, no dependencies and no CDN**: it opens by double-click on any
+machine and works offline. That is the whole point — the alternative designs
+all needed a toolchain and a distribution story for what is, in the end, a form
+that writes a JSON file. `tools/test-generador.js` re-runs its validation rules
+in node with a stub DOM (`node tools/test-generador.js`), which is the same
+"pin what breaks silently" role the `pio test -e native` suites play for the
+Mega.
+
+Two things there are worth knowing before touching it:
+
+- **Integers and floats are not interchangeable in the file, asymmetrically.**
+  Verified against the ArduinoJson 7 the firmware compiles: `is<float>()`
+  accepts both `1` and `1.0`, but `is<unsigned long>()` accepts `1` and
+  **rejects `1.0`**. So a float may be written as an integer, but an
+  integer-typed key written with a decimal point is dropped in silence — it
+  keeps the compiled default in `intervals`/`bufferSize`, and is **worse in
+  `menus`**, where `ConfigLoader` reads `option["value"] | 0` and the `|`
+  fallback fires precisely when `is<T>()` is false: the option lands on `0`,
+  and the operator gets a menu entry of 0 ms. The generator blocks the download
+  on any non-integer in an int-typed field; that check is the main reason to
+  generate the file rather than hand-edit it.
+- **The 128-byte telemetry payload cannot overflow**, so the generator
+  deliberately does *not* validate it. `Topics::TelemetryField::name` is a
+  `char[16]` and the topic a `char[64]`, so every key is truncated to 15
+  characters no matter how long it arrives in the file; the heaviest batch
+  (measures, 3 floats) then tops out at 4 + 3×(15+3+12) = 94 bytes. That makes
+  `_publishTelemetry()`'s "don't publish a truncated payload" guard genuinely
+  defensive — correct, but unreachable while those buffers are 16. A blocking
+  error for a condition that cannot happen would be worse than none, so the
+  generator only reports the computed size. If `MaxFieldNameLength` ever grows,
+  that number is what says how much room is left.
 
 ### Style notes specific to this codebase
 

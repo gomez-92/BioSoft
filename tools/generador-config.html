@@ -1,0 +1,760 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Generador de config.json — BioSoft</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#ffffff; --ink:#16191d; --muted:#5f6873; --line:#dfe3e8;
+    --accent:#1f6feb; --err:#b3261e; --errbg:#fdeceb; --warn:#8a5a00; --warnbg:#fff6e0;
+    --ok:#136a3a; --okbg:#e8f5ee; --code:#f2f4f7;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#14171b; --panel:#1b1f24; --ink:#e6e9ee; --muted:#9aa4b0; --line:#2c333b;
+      --accent:#6ea8ff; --err:#ff8a80; --errbg:#3a1f1d; --warn:#ffcf70; --warnbg:#3a2f16;
+      --ok:#7ee0a8; --okbg:#17301f; --code:#12151a;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  header{position:sticky;top:0;z-index:10;background:var(--panel);
+         border-bottom:1px solid var(--line);padding:12px 20px}
+  .bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;max-width:1100px;margin:0 auto}
+  h1{font-size:16px;margin:0;flex:1;min-width:240px}
+  h1 small{display:block;font-weight:400;color:var(--muted);font-size:12px}
+  main{max-width:1100px;margin:0 auto;padding:20px}
+  button{font:inherit;padding:7px 13px;border-radius:6px;border:1px solid var(--line);
+         background:var(--panel);color:var(--ink);cursor:pointer}
+  button:hover{border-color:var(--accent)}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+  button.primary:disabled{opacity:.45;cursor:not-allowed}
+  button.mini{padding:3px 8px;font-size:12px}
+  section{background:var(--panel);border:1px solid var(--line);border-radius:8px;
+          padding:16px 18px;margin-bottom:16px}
+  section > h2{font-size:15px;margin:0 0 4px}
+  .hint{color:var(--muted);font-size:12.5px;margin:0 0 14px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
+  label.f{display:block}
+  label.f > span:first-child{display:block;font-size:12px;color:var(--muted);margin-bottom:3px}
+  input[type=text],input[type=number],select{width:100%;padding:6px 8px;border-radius:5px;
+    border:1px solid var(--line);background:var(--bg);color:var(--ink);font:inherit}
+  .row{display:flex;gap:10px;align-items:flex-end;padding:8px 0;border-bottom:1px dashed var(--line)}
+  .row:last-of-type{border-bottom:0}
+  .row .grow{flex:1}
+  .row .w110{width:110px;flex:none}
+  .chk{display:flex;gap:7px;align-items:center;white-space:nowrap}
+  .sub{border:1px solid var(--line);border-radius:6px;padding:12px 14px;margin-top:12px}
+  .sub h3{font-size:13.5px;margin:0 0 10px}
+  .tablewrap{overflow-x:auto}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:5px 8px 5px 0;vertical-align:bottom}
+  th{color:var(--muted);font-weight:500;font-size:12px}
+  .msgs{max-width:1100px;margin:0 auto}
+  .msg{padding:8px 12px;border-radius:6px;margin-top:8px;font-size:13px}
+  .msg ul{margin:6px 0 0;padding-left:20px}
+  .msg.e{background:var(--errbg);color:var(--err);border:1px solid var(--err)}
+  .msg.w{background:var(--warnbg);color:var(--warn);border:1px solid var(--warn)}
+  .msg.o{background:var(--okbg);color:var(--ok);border:1px solid var(--ok)}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:6px;
+      padding:12px;overflow:auto;max-height:340px;font-size:12px}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="bar">
+    <h1>Generador de <code>config.json</code>
+      <small>BioSoft — esquema v1 · destino <code>/biosoft/config.json</code> en la SD del CYD</small></h1>
+    <input type="file" id="file" accept=".json,application/json" hidden>
+    <button id="btnLoad">Cargar archivo…</button>
+    <button id="btnReset">Restaurar defaults</button>
+    <button class="primary" id="dl">Descargar config.json</button>
+  </div>
+  <div class="msgs" id="msgs"></div>
+</header>
+
+<main id="app"></main>
+
+<script>
+"use strict";
+
+/* ===========================================================================
+ * Defaults: identicos a docs/config.example.json, que a su vez son identicos
+ * a los defaults compilados del firmware. Arrancar de aca significa que un
+ * archivo generado sin tocar nada no cambia el comportamiento del equipo.
+ * =========================================================================== */
+const DEFAULTS = {
+  schemaVersion: 1,
+  menus: {
+    fieldIntensity: [{label:"1.0 mT",value:1.0},{label:"2.0 mT",value:2.0}],
+    frequency: [{label:"10 Hz",value:10},{label:"50 Hz",value:50}],
+    duration: [{label:"00h 01m",value:60000},{label:"00h 05m",value:300000},
+               {label:"00h 10m",value:600000},{label:"01h 00m",value:3600000},
+               {label:"01h 30m",value:5400000},{label:"02h 00m",value:7200000}],
+    fieldTolerance: [{label:"5%",value:5},{label:"10%",value:10}],
+    temperatureNormal: [{label:"30~40 C",min:30,max:40},{label:"28~42 C",min:28,max:42},
+                        {label:"26~44 C",min:26,max:44}],
+    temperatureCritical: [{label:"25~45 C",min:25,max:45},{label:"23~47 C",min:23,max:47},
+                          {label:"20~50 C",min:20,max:50}]
+  },
+  intervals: {
+    esp32: {updateScreens:50,reSendStart:4000,reSendStop:4000,reSendReset:4000,updateProgress:5000},
+    mega: {ping:2000,sendState:5000,measureTemperature:5000,measureCurrent:8500,
+           measureMagneticField:500,updateProgress:1000,sendFlags:25000,sendResult:1000,
+           settlingTime:10000}
+  },
+  control: {enabled:true,kp:0.1,maxStep:0.05,deadBand:0.01},
+  coils: [
+    {name:"BOB1",enabled:true, calibrationFactor:1.0},
+    {name:"BOB2",enabled:true, calibrationFactor:1.0},
+    {name:"BOB3",enabled:false,calibrationFactor:1.0},
+    {name:"BOB4",enabled:false,calibrationFactor:1.0}
+  ],
+  detector: { sources: [
+    {name:"CEM1",enabled:false,sensor:"sim",bufferSize:32,
+     range:{mode:"derived",criticalMultiplier:1.25},
+     rules:{critical:{threshold:3,cooldown:1,maxEvents:2},
+            streak:{threshold:5,cooldown:4,maxEvents:5},
+            frequency:{threshold:16,cooldown:16,maxEvents:3}}},
+    {name:"TEMP1",enabled:true,sensor:"ds18b20",bufferSize:32,
+     range:{mode:"operator"},
+     rules:{critical:{threshold:3,cooldown:1,maxEvents:2},
+            streak:{threshold:5,cooldown:4,maxEvents:5},
+            frequency:{threshold:16,cooldown:16,maxEvents:3}}}
+  ]},
+  currentSensors: [
+    {name:"SCT013-1",enabled:true, address:72,channel:0,ratedCurrent:5.0,ratedVoltage:1.0,calibration:0.775,sampleRate:860,integrationTimeMs:200},
+    {name:"SCT013-2",enabled:false,address:72,channel:1,ratedCurrent:5.0,ratedVoltage:1.0,calibration:0.775,sampleRate:860,integrationTimeMs:200},
+    {name:"SCT013-3",enabled:false,address:73,channel:0,ratedCurrent:5.0,ratedVoltage:1.0,calibration:0.775,sampleRate:860,integrationTimeMs:200},
+    {name:"SCT013-4",enabled:false,address:73,channel:1,ratedCurrent:5.0,ratedVoltage:1.0,calibration:0.775,sampleRate:860,integrationTimeMs:200}
+  ],
+  telemetry: {
+    topic:"biosoft/telemetry",
+    intervals:{measures:30000,status:30000},
+    fields:{
+      magneticField:{enabled:true,name:"CEM1"},
+      temperature:{enabled:true,name:"TEMP1"},
+      current:{enabled:true,name:"BOB1"},
+      health:{enabled:true,name:"ESTADO"},
+      progress:{enabled:true,name:"PROGRESS"},
+      elapsedTime:{enabled:true,name:"ELAPSED_TIME"}
+    }
+  }
+};
+
+/* Topes del esquema (seccion 1.3: todo tope de memoria es de compilacion). */
+const MAX_MENU_OPTIONS = 8;
+const MAX_LABEL  = 15;   // label de menu, name de bobina, de sensor y de campo
+const MAX_TOPIC  = 63;
+const MQTT_BUFFER = 128; // char payload[128] en MySystem::_publishTelemetry()
+
+const clone = o => JSON.parse(JSON.stringify(o));
+let state = clone(DEFAULTS);
+
+/* ===========================================================================
+ * Enteros vs. floats: NO es cosmetico.
+ *
+ * Verificado contra ArduinoJson 7, la version que compila el firmware:
+ *   is<float>()         acepta 1 y 1.0   -> un float se puede escribir entero
+ *   is<unsigned long>() acepta 1, RECHAZA 1.0
+ *
+ * O sea que una clave entera escrita con punto decimal se pierde en silencio.
+ * En intervals y bufferSize queda el default compilado; en los menus es peor,
+ * porque ConfigLoader los lee con `option["value"] | 0` y el fallback del
+ * operador | se aplica justamente cuando is<T>() da false: la opcion queda
+ * en 0, y el operador ve un menu con una duracion de 0 ms.
+ *
+ * Por eso todo campo INT se valida con Number.isInteger antes de dejar
+ * descargar. Es la razon principal por la que conviene generar el archivo
+ * con esta herramienta en vez de editarlo a mano.
+ * =========================================================================== */
+const INT = "int", FLT = "float";
+
+const getPath = p => p.split(".").reduce((o,k) => o[k], state);
+function setPath(p, v){
+  const parts = p.split(".");
+  const last = parts.pop();
+  parts.reduce((o,k) => o[k], state)[last] = v;
+}
+
+/* ---------- helpers de render ---------- */
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+function num(path, kind, label){
+  const step = kind === INT ? "1" : "any";
+  return '<label class="f"><span>' + esc(label) + '</span>' +
+    '<input type="number" step="' + step + '" data-path="' + path + '" data-kind="' + kind + '"' +
+    ' value="' + getPath(path) + '"></label>';
+}
+function txt(path, label, maxlen){
+  return '<label class="f"><span>' + esc(label) + '</span>' +
+    '<input type="text" maxlength="' + (maxlen || 60) + '" data-path="' + path + '" data-kind="str"' +
+    ' value="' + esc(getPath(path)) + '"></label>';
+}
+function chk(path, label){
+  return '<label class="chk"><input type="checkbox" data-path="' + path + '" data-kind="bool"' +
+    (getPath(path) ? " checked" : "") + '> <span>' + esc(label) + '</span></label>';
+}
+function sel(path, label, opts){
+  const v = String(getPath(path));
+  return '<label class="f"><span>' + esc(label) + '</span>' +
+    '<select data-path="' + path + '" data-kind="str">' +
+    opts.map(o => '<option value="' + o + '"' + (o === v ? " selected" : "") + '>' + o + '</option>').join("") +
+    '</select></label>';
+}
+
+/* ---------- metadatos de las secciones ---------- */
+const MENUS = [
+  {key:"fieldIntensity",      title:"Intensidad de campo objetivo", unit:"mT", kind:FLT},
+  {key:"frequency",           title:"Frecuencia",                   unit:"Hz", kind:INT},
+  {key:"duration",            title:"Duracion",                     unit:"ms", kind:INT},
+  {key:"fieldTolerance",      title:"Tolerancia de campo",          unit:"%",  kind:INT},
+  {key:"temperatureNormal",   title:"Rango de temperatura normal",  unit:"C",  kind:FLT, range:true},
+  {key:"temperatureCritical", title:"Rango de temperatura critica", unit:"C",  kind:FLT, range:true}
+];
+
+const INTERVALS_ESP32 = [
+  ["updateScreens","Refresco de pantalla"], ["reSendStart","Reintento de start"],
+  ["reSendStop","Reintento de stop"],       ["reSendReset","Reintento de reset"],
+  ["updateProgress","Actualizacion de progreso"]
+];
+const INTERVALS_MEGA = [
+  ["ping","Ping del enlace serie"],            ["sendState","Envio de estado"],
+  ["measureTemperature","Medicion de temperatura"], ["measureCurrent","Medicion de corriente"],
+  ["measureMagneticField","Medicion de campo"],["updateProgress","Actualizacion de progreso"],
+  ["sendFlags","Envio de flags"],              ["sendResult","Envio de resultado"],
+  ["settlingTime","Ventana de asentamiento"]
+];
+
+const RULES = [
+  ["critical", "Critica",   "muestras criticas consecutivas"],
+  ["streak",   "Racha",     "muestras no normales consecutivas"],
+  ["frequency","Frecuencia","muestras no normales dentro de la ventana"]
+];
+
+const TELEMETRY_FIELDS = [
+  ["magneticField","Campo magnetico",     "measures"],
+  ["temperature",  "Temperatura",         "measures"],
+  ["current",      "Corriente",           "measures"],
+  ["health",       "Salud",               "status"],
+  ["progress",     "Progreso",            "status"],
+  ["elapsedTime",  "Tiempo transcurrido", "status"]
+];
+
+/* ===========================================================================
+ * Render
+ * =========================================================================== */
+function render(){
+  document.getElementById("app").innerHTML =
+    sMenus() + sIntervals() + sControl() + sCoils() + sDetector() + sCurrent() + sTelemetry() + sPreview();
+  validate();
+}
+
+function sMenus(){
+  let h = '<section><h2>1 · Menus de la pantalla</h2>' +
+    '<p class="hint">Opciones que ofrecen los dropdowns de la pantalla Configuracion. Maximo ' +
+    MAX_MENU_OPTIONS + ' por menu; las etiquetas se truncan a ' + MAX_LABEL + ' caracteres. Un menu ' +
+    'vacio se trata como ausente y cae a los defaults compilados. Solo ESP32.</p>';
+  MENUS.forEach(m => {
+    const list = state.menus[m.key];
+    h += '<div class="sub"><h3>' + m.title +
+      ' <span style="color:var(--muted);font-weight:400">(' + list.length + '/' + MAX_MENU_OPTIONS +
+      ' · ' + m.unit + ')</span></h3>';
+    list.forEach((_, i) => {
+      const base = "menus." + m.key + "." + i;
+      h += '<div class="row"><div class="grow">' + txt(base + ".label", "Etiqueta", MAX_LABEL) + '</div>';
+      h += m.range
+        ? '<div class="w110">' + num(base + ".min", m.kind, "Min") + '</div>' +
+          '<div class="w110">' + num(base + ".max", m.kind, "Max") + '</div>'
+        : '<div class="w110">' + num(base + ".value", m.kind, "Valor") + '</div>';
+      h += '<button class="mini" data-del="' + m.key + '" data-i="' + i + '"' +
+           (list.length <= 1 ? " disabled" : "") + '>Quitar</button></div>';
+    });
+    h += '<div style="margin-top:10px"><button class="mini" data-add="' + m.key + '"' +
+         (list.length >= MAX_MENU_OPTIONS ? " disabled" : "") + '>Agregar opcion</button></div></div>';
+  });
+  return h + '</section>';
+}
+
+function sIntervals(){
+  const f = (grp, meta) => meta.map(([k, lbl]) =>
+    num("intervals." + grp + "." + k, INT, lbl + " (" + k + ")")).join("");
+  return '<section><h2>2 · Intervalos de tareas</h2>' +
+    '<p class="hint">Milisegundos, enteros positivos. Un 0 se rechaza y esa clave queda en su ' +
+    'default. <code>intervals.mega</code> viaja al Mega2560 en el frame <code>config_intervals</code>. ' +
+    'Los intervalos de publicacion remota no van aca sino en Telemetria.</p>' +
+    '<div class="sub"><h3>ESP32</h3><div class="grid">' + f("esp32", INTERVALS_ESP32) + '</div></div>' +
+    '<div class="sub"><h3>Mega2560</h3><div class="grid">' + f("mega", INTERVALS_MEGA) + '</div></div>' +
+    '</section>';
+}
+
+function sControl(){
+  return '<section><h2>3 · Control de intensidad</h2>' +
+    '<p class="hint">Calibracion de <code>FieldController</code>. <b>kp no se elige a ojo</b>: es ' +
+    '<code>alfa/K</code>, con alfa entre 0,1 y 0,3 y K la ganancia de planta medida en lazo abierto ' +
+    '(ver <code>docs/protocolo-calibracion-intensidad.md</code>). <code>sampleTime</code> no esta aca ' +
+    'a proposito: se deriva de <code>measureMagneticField</code>, para que no se pueda desincronizar ' +
+    'de lo que tiene que seguir. Viaja al Mega2560.</p>' +
+    '<div class="grid">' +
+      '<div style="align-self:end;padding-bottom:6px">' +
+        chk("control.enabled", "Lazo activo (si no, mide pero no toca el PWM)") + '</div>' +
+      num("control.kp", FLT, "kp — ganancia proporcional (duty/mT)") +
+      num("control.maxStep", FLT, "maxStep — clamp del paso (duty)") +
+      num("control.deadBand", FLT, "deadBand — zona muerta (mT)") +
+    '</div></section>';
+}
+
+function sCoils(){
+  let h = '<section><h2>4 · Canales de bobina</h2>' +
+    '<p class="hint">Hay <b>un solo magnetometro</b>, asi que no existe lazo por bobina: el ' +
+    '<code>calibrationFactor</code> escala el duty comun (<code>duty_canal = duty_comun x factor</code>). ' +
+    'Un <b>1,0 significa "todavia sin medir"</b>, no "medido y sin desvio". Rango aceptado 0,1 a 5,0. ' +
+    'Las bobinas 1 y 3 toman la senal directa y las 2 y 4 pasan por el mux invertible: el agrupamiento ' +
+    'es cableado, no configurable. Viaja al Mega2560.</p><div class="tablewrap"><table>' +
+    '<tr><th>#</th><th>Nombre</th><th>Habilitada</th><th>Factor</th><th>Grupo de fase</th></tr>';
+  state.coils.forEach((c, i) => {
+    h += '<tr><td>' + (i + 1) + '</td>' +
+      '<td style="width:180px">' + txt("coils." + i + ".name", "", MAX_LABEL) + '</td>' +
+      '<td>' + chk("coils." + i + ".enabled", "") + '</td>' +
+      '<td style="width:120px">' + num("coils." + i + ".calibrationFactor", FLT, "") + '</td>' +
+      '<td style="color:var(--muted)">' + (i % 2 === 0 ? "directa (fijo)" : "mux (invertible)") + '</td></tr>';
+  });
+  return h + '</table></div></section>';
+}
+
+function sDetector(){
+  let h = '<section><h2>5 · Fuentes del Detector</h2>' +
+    '<p class="hint">La seccion de mayor impacto en seguridad: define cuando una lectura es anormal y ' +
+    'cuando se corta el experimento. Las fuentes son fijas (CEM1 y TEMP1); lo configurable es el sensor, ' +
+    'los rangos y las reglas. El Mega <b>descarta la regla entera</b> si algun campo cae fuera de rango, ' +
+    'en vez de recortarla: media regla corta (o no corta) un experimento con numeros que no eligio nadie. ' +
+    'Se guarda al recibirse pero se aplica recien al arrancar el proximo experimento.</p>';
+  state.detector.sources.forEach((s, i) => {
+    const sensors = s.name === "CEM1" ? ["sim", "mlx90393"] : ["ds18b20"];
+    h += '<div class="sub"><h3>' + s.name + '</h3><div class="grid">' +
+      '<div style="align-self:end;padding-bottom:6px">' +
+        chk("detector.sources." + i + ".enabled", "Vigilada por el Detector") + '</div>' +
+      sel("detector.sources." + i + ".sensor", "Sensor", sensors) +
+      num("detector.sources." + i + ".bufferSize", INT, "bufferSize — ventana (8 a 32)");
+    h += s.range.mode === "derived"
+      ? num("detector.sources." + i + ".range.criticalMultiplier", FLT, "criticalMultiplier (1,0 a 3,0)")
+      : '<label class="f"><span>Rangos</span><input type="text" disabled ' +
+        'value="del operador (menus de temperatura)"></label>';
+    h += '</div><div class="tablewrap"><table style="margin-top:12px">' +
+      '<tr><th>Regla</th><th>Que cuenta</th><th>threshold</th><th>cooldown</th><th>maxEvents</th></tr>';
+    RULES.forEach(([k, lbl, desc]) => {
+      const b = "detector.sources." + i + ".rules." + k;
+      h += '<tr><td><b>' + lbl + '</b></td><td style="color:var(--muted)">' + desc + '</td>' +
+        '<td style="width:100px">' + num(b + ".threshold", INT, "") + '</td>' +
+        '<td style="width:100px">' + num(b + ".cooldown", INT, "") + '</td>' +
+        '<td style="width:100px">' + num(b + ".maxEvents", INT, "") + '</td></tr>';
+    });
+    h += '</table></div></div>';
+  });
+  return h + '</section>';
+}
+
+function sCurrent(){
+  let h = '<section><h2>6 · Canales de corriente</h2>' +
+    '<p class="hint">Un ADS1115 tiene 4 entradas simples pero solo <b>2 pares diferenciales</b>, y el ' +
+    'SCT013 se lee diferencial: por eso los 4 canales necesitan dos modulos (0x48 y 0x49) y cada entrada ' +
+    'se identifica por el par (address, channel), que es su identidad fisica. El segundo modulo puede ' +
+    'quedar configurado aunque no exista fisicamente: <code>begin()</code> prueba la direccion antes de ' +
+    'hablarle, asi que no cuelga el bus. No son fuentes del Detector. Viaja al Mega2560.</p>' +
+    '<div class="tablewrap"><table>' +
+    '<tr><th>Nombre</th><th>On</th><th>Modulo</th><th>Canal</th><th>A nom.</th><th>V nom.</th>' +
+    '<th>Calib.</th><th>SPS</th><th>Integr. ms</th></tr>';
+  state.currentSensors.forEach((c, i) => {
+    const b = "currentSensors." + i;
+    h += '<tr>' +
+      '<td style="width:150px">' + txt(b + ".name", "", MAX_LABEL) + '</td>' +
+      '<td>' + chk(b + ".enabled", "") + '</td>' +
+      '<td style="width:100px">' + sel(b + ".address", "", ["72", "73"]) + '</td>' +
+      '<td style="width:80px">' + sel(b + ".channel", "", ["0", "1"]) + '</td>' +
+      '<td style="width:90px">' + num(b + ".ratedCurrent", FLT, "") + '</td>' +
+      '<td style="width:90px">' + num(b + ".ratedVoltage", FLT, "") + '</td>' +
+      '<td style="width:90px">' + num(b + ".calibration", FLT, "") + '</td>' +
+      '<td style="width:90px">' + num(b + ".sampleRate", INT, "") + '</td>' +
+      '<td style="width:90px">' + num(b + ".integrationTimeMs", INT, "") + '</td></tr>';
+  });
+  return h + '</table></div>' +
+    '<p class="hint" style="margin-top:12px"><b>sampleRate es por modulo, no por canal.</b> Es un ' +
+    'registro del ADS1115 que sus dos canales comparten: si los dos piden valores distintos, gana el ' +
+    'ultimo que se configura, en silencio.</p></section>';
+}
+
+function sTelemetry(){
+  let h = '<section><h2>7 · Telemetria remota</h2>' +
+    '<p class="hint">El set de campos es <b>cerrado</b>: son los 6 que el firmware sabe producir. Lo ' +
+    'configurable es cuales se publican, con que clave y a que cadencia. <b>Cambiar el topic o cualquier ' +
+    'nombre rompe el dashboard</b>: el Decoder de Datacake espera exactamente esas claves, y si se ' +
+    'renombra una, ese valor deja de llegar sin ningun error visible del lado del firmware. Solo ESP32.</p>' +
+    '<div class="grid">' +
+      txt("telemetry.topic", "Topic MQTT", MAX_TOPIC) +
+      num("telemetry.intervals.measures", INT, "Cadencia de mediciones (ms)") +
+      num("telemetry.intervals.status", INT, "Cadencia de estado (ms)") +
+    '</div><div class="tablewrap"><table style="margin-top:14px">' +
+    '<tr><th>Campo</th><th>Publica</th><th>Clave en el payload</th><th>Tanda</th></tr>';
+  TELEMETRY_FIELDS.forEach(([k, lbl, batch]) => {
+    h += '<tr><td>' + lbl + '</td>' +
+      '<td>' + chk("telemetry.fields." + k + ".enabled", "") + '</td>' +
+      '<td style="width:220px">' + txt("telemetry.fields." + k + ".name", "", MAX_LABEL) + '</td>' +
+      '<td style="color:var(--muted)">' + (batch === "measures" ? "mediciones" : "estado") + '</td></tr>';
+  });
+  return h + '</table></div></section>';
+}
+
+function sPreview(){
+  return '<section><h2>Archivo generado</h2>' +
+    '<p class="hint">Esto es exactamente lo que se descarga. Va en la SD como ' +
+    '<code>/biosoft/config.json</code>.</p><pre id="preview"></pre></section>';
+}
+
+/* ===========================================================================
+ * Edicion
+ *
+ * Los cambios de valor solo actualizan el estado y revalidan: NO re-renderizan,
+ * porque reconstruir el DOM en cada tecla haria perder el foco del campo que se
+ * esta escribiendo. Solo las operaciones estructurales (agregar/quitar opcion,
+ * cargar archivo, restaurar defaults) vuelven a renderizar.
+ * =========================================================================== */
+document.addEventListener("input", onEdit);
+document.addEventListener("change", onEdit);
+
+function onEdit(e){
+  const el = e.target;
+  const path = el.dataset && el.dataset.path;
+  if (!path) return;
+  const kind = el.dataset.kind;
+  let v;
+  if (kind === "bool") v = el.checked;
+  else if (kind === "str"){
+    v = el.value;
+    // address y channel son numericos aunque su widget sea un <select>
+    if (/\.(address|channel)$/.test(path)) v = parseInt(v, 10);
+  } else {
+    v = el.value === "" ? NaN : Number(el.value);
+  }
+  setPath(path, v);
+  validate();
+}
+
+document.addEventListener("click", e => {
+  const add = e.target.dataset && e.target.dataset.add;
+  const del = e.target.dataset && e.target.dataset.del;
+  if (add){
+    const m = MENUS.find(x => x.key === add);
+    state.menus[add].push(m.range ? {label:"", min:0, max:0} : {label:"", value:0});
+    render();
+  } else if (del){
+    state.menus[del].splice(parseInt(e.target.dataset.i, 10), 1);
+    render();
+  }
+});
+
+document.getElementById("btnReset").addEventListener("click", () => { state = clone(DEFAULTS); render(); });
+document.getElementById("btnLoad").addEventListener("click", () => document.getElementById("file").click());
+document.getElementById("dl").addEventListener("click", download);
+
+/* ===========================================================================
+ * Validacion
+ *
+ * Dos niveles, y la diferencia importa:
+ *   error -> el firmware descartaria ese valor (o el archivo entero) EN
+ *            SILENCIO. Bloquea la descarga.
+ *   aviso -> el archivo es valido, pero la combinacion tiene una consecuencia
+ *            que recien se ve en banco. No bloquea.
+ * =========================================================================== */
+let errors = [], warns = [], info = "";
+const err  = m => errors.push(m);
+const warn = m => warns.push(m);
+
+const isInt = v => Number.isFinite(v) && Number.isInteger(v);
+const isNum = v => Number.isFinite(v);
+
+function validate(){
+  errors = []; warns = []; info = "";
+
+  /* --- 1. menus --- */
+  MENUS.forEach(m => {
+    const list = state.menus[m.key];
+    if (list.length === 0)
+      warn('Menu "' + m.title + '" vacio: la pantalla usaria los defaults compilados.');
+    if (list.length > MAX_MENU_OPTIONS)
+      err('Menu "' + m.title + '" tiene ' + list.length + ' opciones: a partir de la ' +
+          (MAX_MENU_OPTIONS + 1) + ' se ignoran.');
+    list.forEach((o, i) => {
+      const tag = m.title + " — opcion " + (i + 1);
+      if (!o.label || !o.label.trim()) err(tag + ": falta la etiqueta.");
+      else if (o.label.length > MAX_LABEL)
+        warn(tag + ": la etiqueta se truncara a " + MAX_LABEL + " caracteres.");
+      if (m.range){
+        if (!isNum(o.min) || !isNum(o.max)) err(tag + ": min y max tienen que ser numeros.");
+        else if (o.min >= o.max) err(tag + ": min (" + o.min + ") tiene que ser menor que max (" + o.max + ").");
+      } else if (!isNum(o.value)){
+        err(tag + ": el valor tiene que ser un numero.");
+      } else if (m.kind === INT && !isInt(o.value)){
+        err(tag + ": " + m.title + " es un entero. Escrito con decimales, ConfigLoader lo lee con " +
+            '"value | 0" y el fallback se aplica cuando el tipo no coincide: la opcion quedaria en 0.');
+      } else if (o.value <= 0){
+        err(tag + ": el valor tiene que ser mayor que 0.");
+      }
+    });
+  });
+
+  /* --- 2. intervals --- */
+  const chkInterval = (grp, meta) => meta.forEach(([k, lbl]) => {
+    const v = state.intervals[grp][k];
+    if (!isInt(v))
+      err("Intervalo " + lbl + " (" + grp + "." + k + "): tiene que ser un entero en ms. " +
+          "Con decimales, is<unsigned long>() lo rechaza y queda el default compilado.");
+    else if (v <= 0)
+      err("Intervalo " + lbl + " (" + grp + "." + k + "): un 0 se rechaza, esa tarea nunca correria.");
+  });
+  chkInterval("esp32", INTERVALS_ESP32);
+  chkInterval("mega", INTERVALS_MEGA);
+
+  const mt = state.intervals.mega.measureTemperature;
+  if (isInt(mt) && mt < 1000)
+    err("measureTemperature en " + mt + " ms: ThermometerDS18B20::update() bloquea ~750 ms por " +
+        "llamada aunque no haya sensor en el bus, asi que no puede bajar de 1000.");
+  const st = state.intervals.mega.settlingTime;
+  if (isInt(st) && st < DEFAULTS.intervals.mega.settlingTime)
+    warn("settlingTime por debajo del default (" + DEFAULTS.intervals.mega.settlingTime + " ms): " +
+         "acerca el primer flag posible al arranque, cuando el lazo de control todavia no convergio.");
+
+  /* --- 3. control --- */
+  if (!isNum(state.control.kp) || state.control.kp <= 0) err("control.kp tiene que ser mayor que 0.");
+  if (!isNum(state.control.maxStep) || state.control.maxStep <= 0) err("control.maxStep tiene que ser mayor que 0.");
+  if (!isNum(state.control.deadBand) || state.control.deadBand < 0) err("control.deadBand no puede ser negativo.");
+  if (!state.control.enabled)
+    warn("control.enabled en false: el lazo mide y reporta pero NO excita las bobinas. Es el modo de " +
+         "sensado para bring-up, no una corrida real.");
+
+  /* --- 4. coils --- */
+  const usados = new Set();
+  state.coils.forEach((c, i) => {
+    const tag = "Bobina " + (i + 1);
+    if (!c.name || !c.name.trim())
+      err(tag + ": falta el nombre. El frame config_coil identifica el canal por nombre, no por indice.");
+    else if (c.name.length > MAX_LABEL)
+      warn(tag + ": el nombre se truncara a " + MAX_LABEL + " caracteres.");
+    else if (usados.has(c.name))
+      err(tag + ': el nombre "' + c.name + '" esta repetido, y es lo que usa findByName() para ' +
+          "resolver a que canal aplicar el frame.");
+    if (c.name) usados.add(c.name);
+    if (!isNum(c.calibrationFactor) || c.calibrationFactor < 0.1 || c.calibrationFactor > 5.0)
+      err(tag + ": calibrationFactor fuera del rango 0,1 a 5,0 — el Mega lo rechaza y deja 1.0.");
+  });
+  const on = state.coils.map((c, i) => c.enabled ? i : -1).filter(i => i >= 0);
+  if (on.length === 0)
+    warn("Ninguna bobina habilitada: no habria campo en ningun modo.");
+  else if (on.every(i => i % 2 === 0) || on.every(i => i % 2 === 1))
+    warn("Todas las bobinas habilitadas caen en el mismo grupo de fase (1 y 3 directa, 2 y 4 mux): " +
+         "el modo de campo nulo no cancelaria nada y no seria verificable.");
+
+  /* --- 5. detector --- */
+  state.detector.sources.forEach(s => {
+    const bs = s.bufferSize;
+    if (!isInt(bs) || bs < 8 || bs > 32)
+      err(s.name + ": bufferSize tiene que ser un entero entre 8 y 32 (tope de RAM del Mega).");
+    if (s.range.mode === "derived"){
+      const cm = s.range.criticalMultiplier;
+      if (!isNum(cm) || cm < 1.0 || cm > 3.0)
+        err(s.name + ": criticalMultiplier fuera del rango 1,0 a 3,0.");
+    }
+    RULES.forEach(([k, lbl]) => {
+      const r = s.rules[k], tag = s.name + " / regla " + lbl;
+      if (!isInt(r.threshold) || r.threshold < 1 || (isInt(bs) && r.threshold > bs))
+        err(tag + ": threshold tiene que ser un entero entre 1 y bufferSize (" + bs + "). " +
+            "Si algo cae fuera, el Mega descarta la regla entera y queda su default compilado.");
+      if (!isInt(r.cooldown) || r.cooldown < 0 || r.cooldown > 64)
+        err(tag + ": cooldown tiene que ser un entero entre 0 y 64.");
+      if (!isInt(r.maxEvents) || r.maxEvents < 1 || r.maxEvents > 10)
+        err(tag + ": maxEvents tiene que ser un entero entre 1 y 10.");
+    });
+    if (!s.enabled)
+      warn(s.name + " deshabilitada: se sigue midiendo y mostrando en pantalla, pero no puede " +
+           "generar flags ni cortar el experimento.");
+  });
+  const temp1 = state.detector.sources.find(s => s.name === "TEMP1");
+  if (temp1 && isInt(mt) && isInt(temp1.bufferSize))
+    info = "Ventana del Detector para TEMP1: " + temp1.bufferSize + " muestras x " + mt + " ms = " +
+           (temp1.bufferSize * mt / 1000).toFixed(0) + " s de tiempo real. La regla de frecuencia " +
+           "cuenta dentro de esa ventana, asi que cambiar measureTemperature corre su significado.";
+
+  /* --- 6. currentSensors --- */
+  const slots = new Set();
+  state.currentSensors.forEach((c, i) => {
+    const tag = "Canal de corriente " + (i + 1);
+    if (c.address !== 72 && c.address !== 73)
+      err(tag + ": address tiene que ser 72 (0x48) o 73 (0x49).");
+    if (c.channel !== 0 && c.channel !== 1)
+      err(tag + ": channel tiene que ser 0 o 1 — el ADS1115 no tiene un par diferencial 2 ni 3.");
+    const slot = c.address + "/" + c.channel;
+    if (slots.has(slot))
+      err(tag + ": el par (address " + c.address + ", channel " + c.channel + ") esta repetido. " +
+          "Ese par es la identidad fisica de la entrada y es como se matchea con su slot.");
+    slots.add(slot);
+    if (!c.name || !c.name.trim())
+      err(tag + ": falta el nombre, que es el identificador que viaja en current_data.");
+    else if (c.name.length > MAX_LABEL)
+      warn(tag + ": el nombre se truncara a " + MAX_LABEL + " caracteres.");
+    if (!isInt(c.sampleRate) || c.sampleRate <= 0)
+      err(tag + ": sampleRate tiene que ser un entero positivo (SPS).");
+    if (!isInt(c.integrationTimeMs) || c.integrationTimeMs <= 0)
+      err(tag + ": integrationTimeMs tiene que ser un entero positivo.");
+    [["ratedCurrent", "la corriente nominal"], ["ratedVoltage", "la tension nominal"],
+     ["calibration", "el factor de calibracion"]].forEach(([k, lbl]) => {
+      if (!isNum(c[k]) || c[k] <= 0) err(tag + ": " + lbl + " tiene que ser mayor que 0.");
+    });
+  });
+  [72, 73].forEach(addr => {
+    const mod = state.currentSensors.filter(c => c.enabled && c.address === addr);
+    if (mod.length === 2 && mod[0].sampleRate !== mod[1].sampleRate)
+      warn("Modulo 0x" + addr.toString(16) + ": sus dos canales habilitados piden sampleRate distinto (" +
+           mod[0].sampleRate + " y " + mod[1].sampleRate + "). Es un registro del ADS1115 que ambos " +
+           "comparten: gana el ultimo que se configura, en silencio.");
+  });
+
+  /* --- 7. telemetry --- */
+  if (!state.telemetry.topic.trim()) err("Falta el topic MQTT.");
+  else if (state.telemetry.topic.length > MAX_TOPIC)
+    warn("El topic se truncara a " + MAX_TOPIC + " caracteres.");
+  else if (state.telemetry.topic !== DEFAULTS.telemetry.topic)
+    warn('Topic cambiado a "' + state.telemetry.topic + '": hay que actualizar el Decoder de ' +
+         "Datacake o no llega nada.");
+  ["measures", "status"].forEach(k => {
+    if (!isInt(state.telemetry.intervals[k]) || state.telemetry.intervals[k] <= 0)
+      err('Cadencia de telemetria "' + k + '": tiene que ser un entero positivo en ms.');
+  });
+  TELEMETRY_FIELDS.forEach(([k, lbl]) => {
+    const f = state.telemetry.fields[k];
+    if (f.enabled && !f.name.trim())
+      err('Campo de telemetria "' + lbl + '": esta habilitado pero no tiene clave.');
+    else if (f.name.length > MAX_LABEL)
+      warn('Campo de telemetria "' + lbl + '": la clave se truncara a ' + MAX_LABEL + " caracteres.");
+    else if (f.enabled && f.name !== DEFAULTS.telemetry.fields[k].name)
+      warn('Campo "' + lbl + '" renombrado a "' + f.name + '": el Decoder de Datacake espera "' +
+           DEFAULTS.telemetry.fields[k].name + '". Si no se actualiza alla, ese valor deja de llegar.');
+  });
+  checkPayload("mediciones", ["magneticField", "temperature", "current"]);
+  checkPayload("estado",     ["health", "progress", "elapsedTime"]);
+  const pm = payloadBytes(["magneticField", "temperature", "current"]);
+  const ps = payloadBytes(["health", "progress", "elapsedTime"]);
+  info += (info ? " · " : "") + "Payload MQTT en el peor caso: " + pm + " bytes la tanda de " +
+          "mediciones y " + ps + " la de estado, sobre un buffer de " + MQTT_BUFFER + ".";
+
+  paint();
+}
+
+/* Peso del payload MQTT contra el char[128] de _publishTelemetry().
+ *
+ * Deliberadamente NO es una validacion: es informativo, y vale la pena saber
+ * por que. El firmware guarda cada clave en un `char name[16]` (Topics::
+ * TelemetryField) y trunca al copiar, asi que ninguna clave puede superar los
+ * 15 caracteres por mas larga que venga en el archivo. Con ese tope, la tanda
+ * mas pesada -- mediciones, 3 floats -- da 4 + 3x(15+3+12) = 94 bytes, y la de
+ * estado 81. El buffer de 128 no puede desbordar.
+ *
+ * O sea que la guarda de _publishTelemetry() (no publicar en vez de mandar un
+ * JSON cortado) es defensiva de verdad: correcta, pero inalcanzable mientras
+ * los buffers de nombre midan 16. Poner aca un error que bloquee la descarga
+ * por algo que no puede pasar seria peor que no tenerlo: sugeriria un riesgo
+ * inexistente y mandaria a acortar claves sin motivo. Se muestra el numero y
+ * listo. Si alguna vez se agranda MaxFieldNameLength, este calculo es el que
+ * dice cuanto margen queda. */
+const WORST = {magneticField:12, temperature:12, current:12, health:10, progress:3, elapsedTime:10};
+
+function payloadBytes(keys){
+  const on = keys.filter(k => state.telemetry.fields[k].enabled);
+  if (on.length === 0) return 0;
+  let bytes = 2 + (on.length - 1);   // llaves mas las comas
+  // Se mide sobre el nombre YA truncado, que es el que el firmware publica.
+  on.forEach(k => { bytes += Math.min(state.telemetry.fields[k].name.length, MAX_LABEL) + 3 + WORST[k]; });
+  return bytes;
+}
+
+function checkPayload(batch, keys){
+  const on = keys.filter(k => state.telemetry.fields[k].enabled);
+  if (on.length === 0)
+    warn("Tanda de " + batch + ": no hay ningun campo habilitado, esa publicacion no se manda.");
+}
+
+/* ===========================================================================
+ * Salida
+ * =========================================================================== */
+function buildJson(){
+  // Mismo orden de claves que el esquema, para que el archivo sea diffeable
+  // contra docs/config.example.json.
+  return {
+    schemaVersion: 1,
+    menus: state.menus,
+    intervals: state.intervals,
+    control: state.control,
+    coils: state.coils,
+    detector: state.detector,
+    currentSensors: state.currentSensors,
+    telemetry: state.telemetry
+  };
+}
+
+function paint(){
+  document.getElementById("preview").textContent = JSON.stringify(buildJson(), null, 2);
+  document.getElementById("dl").disabled = errors.length > 0;
+
+  const li = arr => "<ul>" + arr.map(m => "<li>" + esc(m) + "</li>").join("") + "</ul>";
+  let h = "";
+  if (errors.length === 0 && warns.length === 0)
+    h += '<div class="msg o">Sin errores ni avisos. El archivo se puede descargar.</div>';
+  if (errors.length)
+    h += '<div class="msg e"><b>' + errors.length + ' error(es)</b> — la descarga esta bloqueada: ' +
+         "el firmware descartaria estos valores en silencio." + li(errors) + "</div>";
+  if (warns.length)
+    h += '<div class="msg w"><b>' + warns.length + ' aviso(s)</b> — el archivo es valido, pero estas ' +
+         "combinaciones tienen consecuencias que recien se ven en banco." + li(warns) + "</div>";
+  if (info) h += '<div class="msg o">' + esc(info) + "</div>";
+  document.getElementById("msgs").innerHTML = h;
+}
+
+function download(){
+  if (errors.length) return;
+  const blob = new Blob([JSON.stringify(buildJson(), null, 2) + "\n"], {type:"application/json"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "config.json";
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+/* Cargar un archivo existente para editarlo. Se mergea sobre los defaults en
+ * vez de reemplazar el estado entero: un archivo al que le falta una seccion
+ * tiene que comportarse aca igual que en el firmware (seccion 1.1 del esquema,
+ * los defaults compilados nunca desaparecen). */
+document.getElementById("file").addEventListener("change", ev => {
+  const f = ev.target.files[0];
+  if (!f) return;
+  const r = new FileReader();
+  r.onload = () => {
+    let parsed;
+    try { parsed = JSON.parse(r.result); }
+    catch (e){ alert("El archivo no es JSON valido:\n\n" + e.message); return; }
+    if (parsed.schemaVersion !== 1)
+      alert("schemaVersion " + parsed.schemaVersion + " — el firmware solo entiende la 1 y " +
+            "descartaria el archivo entero. Se carga igual para que lo puedas corregir.");
+    state = clone(DEFAULTS);
+    ["menus", "intervals", "control", "coils", "detector", "currentSensors", "telemetry"]
+      .forEach(k => { if (parsed[k] !== undefined) state[k] = parsed[k]; });
+    render();
+  };
+  r.readAsText(f);
+  ev.target.value = "";
+});
+
+render();
+</script>
+</body>
+</html>
