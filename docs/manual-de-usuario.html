@@ -1,0 +1,813 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BioSoft — Manual de usuario</title>
+<style>
+/* ===========================================================================
+   Manual de usuario BioSoft — hoja de estilo unica, sin dependencias.
+   Pensada para dos destinos a la vez: lectura en pantalla y PDF impreso.
+   Todo lo que cambia entre uno y otro esta en el bloque @media print del
+   final; el resto es comun.
+   =========================================================================== */
+
+:root{
+  --ink:#191c20;
+  --ink-soft:#3d454e;
+  --muted:#6b7480;
+  --rule:#dfe4ea;
+  --rule-soft:#eef1f4;
+  --paper:#ffffff;
+  --canvas:#f4f2ee;
+  --accent:#0d5c63;
+  --accent-soft:#e6f0f0;
+  --warn:#8a5300;
+  --warn-soft:#fdf3e0;
+  --warn-rule:#e0a54a;
+  --stop:#9c2b20;
+  --stop-soft:#fbebe8;
+  --stop-rule:#d07469;
+  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif;
+  --sans: "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace;
+}
+
+@media screen and (prefers-color-scheme: dark){
+  :root{
+    --ink:#e8eaed; --ink-soft:#c3c9d1; --muted:#98a1ac;
+    --rule:#333b44; --rule-soft:#262c33;
+    --paper:#171a1e; --canvas:#101215;
+    --accent:#5fb8c0; --accent-soft:#14282b;
+    --warn:#e8b464; --warn-soft:#2b2216; --warn-rule:#7a5a22;
+    --stop:#f0928a; --stop-soft:#2c1917; --stop-rule:#7d3b33;
+  }
+}
+
+*{box-sizing:border-box}
+
+body{
+  margin:0;
+  background:var(--canvas);
+  color:var(--ink);
+  font-family:var(--serif);
+  font-size:17px;
+  line-height:1.65;
+  -webkit-font-smoothing:antialiased;
+}
+
+.sheet{
+  max-width:1180px;
+  margin:0 auto;
+  background:var(--paper);
+  min-height:100vh;
+  display:grid;
+  grid-template-columns:250px minmax(0,1fr);
+  gap:0;
+  box-shadow:0 0 0 1px var(--rule-soft);
+}
+@media screen and (max-width:960px){
+  .sheet{grid-template-columns:minmax(0,1fr)}
+  nav.toc{display:none}
+}
+
+/* ---------- portada ---------- */
+.cover{
+  grid-column:1/-1;
+  padding:78px 60px 48px;
+  border-bottom:1px solid var(--rule);
+  background:var(--accent-soft);
+}
+.cover .eyebrow{
+  font-family:var(--sans);
+  font-size:12px;
+  letter-spacing:.16em;
+  text-transform:uppercase;
+  color:var(--accent);
+  font-weight:700;
+  margin:0 0 14px;
+}
+.cover h1{
+  font-family:var(--sans);
+  font-size:50px;
+  line-height:1.05;
+  letter-spacing:-.02em;
+  margin:0 0 6px;
+  font-weight:700;
+}
+.cover .sub{
+  font-size:21px;
+  color:var(--ink-soft);
+  margin:0 0 26px;
+  max-width:34em;
+}
+.cover .meta{
+  font-family:var(--sans);
+  font-size:13px;
+  color:var(--muted);
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px 26px;
+  border-top:1px solid var(--rule);
+  padding-top:18px;
+}
+.cover .meta b{color:var(--ink-soft);font-weight:600}
+
+/* ---------- indice lateral ---------- */
+nav.toc{
+  border-right:1px solid var(--rule);
+  padding:34px 22px 60px 32px;
+  font-family:var(--sans);
+  font-size:13.5px;
+  align-self:start;
+  position:sticky;
+  top:0;
+  max-height:100vh;
+  overflow:auto;
+}
+nav.toc h2{
+  font-size:11px;
+  letter-spacing:.14em;
+  text-transform:uppercase;
+  color:var(--muted);
+  margin:0 0 14px;
+  font-weight:700;
+}
+nav.toc ol{list-style:none;margin:0;padding:0;counter-reset:toc}
+nav.toc li{margin:0 0 3px}
+nav.toc a{
+  display:flex;
+  gap:9px;
+  text-decoration:none;
+  color:var(--ink-soft);
+  padding:4px 8px 4px 0;
+  border-radius:4px;
+  line-height:1.35;
+}
+nav.toc a:hover{color:var(--accent)}
+nav.toc a .n{color:var(--muted);font-variant-numeric:tabular-nums;min-width:1.4em}
+nav.toc a.flag{color:var(--stop);font-weight:600}
+
+/* ---------- cuerpo ---------- */
+article{
+  padding:42px 60px 90px;
+  max-width:44em;
+}
+article > p:first-of-type{font-size:18px}
+
+h2{
+  font-family:var(--sans);
+  font-size:15px;
+  letter-spacing:.1em;
+  text-transform:uppercase;
+  color:var(--accent);
+  font-weight:700;
+  margin:52px 0 4px;
+  padding-top:22px;
+  border-top:2px solid var(--rule);
+}
+h2:first-of-type{margin-top:8px;border-top:0;padding-top:0}
+h2 + .h2title{
+  font-family:var(--sans);
+  font-size:31px;
+  line-height:1.18;
+  letter-spacing:-.015em;
+  font-weight:700;
+  margin:0 0 22px;
+}
+h3{
+  font-family:var(--sans);
+  font-size:19px;
+  font-weight:650;
+  margin:34px 0 8px;
+  letter-spacing:-.01em;
+}
+
+p{margin:0 0 16px}
+strong{font-weight:700}
+em{font-style:italic}
+
+ul,ol{margin:0 0 16px;padding-left:22px}
+li{margin:0 0 7px}
+li::marker{color:var(--muted)}
+
+code{
+  font-family:var(--mono);
+  font-size:.86em;
+  background:var(--rule-soft);
+  padding:1px 5px;
+  border-radius:3px;
+}
+
+a{color:var(--accent)}
+
+/* ---------- tablas ---------- */
+.tablewrap{overflow-x:auto;margin:0 0 22px}
+table{
+  width:100%;
+  border-collapse:collapse;
+  font-family:var(--sans);
+  font-size:14.5px;
+  line-height:1.5;
+}
+thead th{
+  text-align:left;
+  font-size:11.5px;
+  letter-spacing:.09em;
+  text-transform:uppercase;
+  color:var(--muted);
+  font-weight:700;
+  padding:0 14px 8px 0;
+  border-bottom:1.5px solid var(--ink-soft);
+}
+tbody td{
+  padding:10px 14px 10px 0;
+  border-bottom:1px solid var(--rule-soft);
+  vertical-align:top;
+}
+tbody tr:last-child td{border-bottom:1px solid var(--rule)}
+tbody td:first-child{font-weight:600;color:var(--ink);width:30%}
+table.wide tbody td:first-child{width:24%}
+
+/* ---------- llamadas ---------- */
+.callout{
+  margin:0 0 24px;
+  padding:16px 20px;
+  border-left:4px solid var(--accent);
+  background:var(--accent-soft);
+  border-radius:0 5px 5px 0;
+  font-size:16px;
+}
+.callout > :last-child{margin-bottom:0}
+.callout .tag{
+  display:block;
+  font-family:var(--sans);
+  font-size:11px;
+  letter-spacing:.13em;
+  text-transform:uppercase;
+  font-weight:700;
+  color:var(--accent);
+  margin-bottom:6px;
+}
+.callout.warn{border-left-color:var(--warn-rule);background:var(--warn-soft)}
+.callout.warn .tag{color:var(--warn)}
+.callout.stop{border-left-color:var(--stop-rule);background:var(--stop-soft)}
+.callout.stop .tag{color:var(--stop)}
+
+/* Definicion destacada de un termino */
+.term{
+  margin:0 0 18px;
+  padding-left:16px;
+  border-left:2px solid var(--rule);
+}
+.term b{font-family:var(--sans);font-size:15px}
+
+/* ---------- impresion ---------- */
+@media print{
+  @page{ size:A4; margin:19mm 17mm 19mm; }
+
+  :root{
+    --ink:#000; --ink-soft:#1f2429; --muted:#5a626b;
+    --rule:#b9c0c7; --rule-soft:#dfe3e7;
+    --paper:#fff; --canvas:#fff;
+    --accent:#0b4a50; --accent-soft:#eef4f4;
+    --warn:#6d4100; --warn-soft:#fbf4e6; --warn-rule:#b58434;
+    --stop:#7d2018; --stop-soft:#fbeeec; --stop-rule:#b06055;
+  }
+
+  body{background:#fff;font-size:10.5pt;line-height:1.5}
+  .sheet{display:block;max-width:none;box-shadow:none;min-height:0}
+  nav.toc{display:none}
+
+  /* La portada ocupa su propia hoja. */
+  .cover{
+    padding:0;
+    border:0;
+    background:#fff;
+    break-after:page;
+    display:flex;
+    flex-direction:column;
+    justify-content:center;
+    min-height:225mm;
+  }
+  .cover h1{font-size:40pt}
+  .cover .sub{font-size:14pt}
+  .cover .meta{font-size:9pt}
+
+  /* Indice impreso, propio de esta version. */
+  .print-toc{display:block !important;break-after:page}
+
+  article{padding:0;max-width:none}
+
+  /* Cada seccion arranca en hoja nueva: el manual se consulta salteado,
+     no se lee de corrido, y buscar una seccion tiene que ser abrir una
+     hoja y no rastrear el medio de una. */
+  h2{break-before:page;margin-top:0;padding-top:0;border-top:0;font-size:10pt}
+  h2:first-of-type{break-before:avoid}
+  h2 + .h2title{font-size:22pt}
+  h3{font-size:13pt;margin-top:20px}
+
+  h2,h3,.h2title{break-after:avoid}
+  table,.callout,.term,figure{break-inside:avoid}
+  tr{break-inside:avoid}
+  p{orphans:3;widows:3}
+
+  a{color:inherit;text-decoration:none}
+  code{background:#f0f2f4}
+}
+
+.print-toc{display:none}
+.print-toc h3{margin-top:0}
+.print-toc ol{list-style:none;padding:0;font-family:var(--sans);font-size:11pt}
+.print-toc li{
+  display:flex;
+  gap:12px;
+  padding:7px 0;
+  border-bottom:1px solid var(--rule-soft);
+}
+.print-toc .n{color:var(--muted);min-width:2em;font-variant-numeric:tabular-nums}
+</style>
+</head>
+<body>
+
+<div class="sheet">
+
+  <header class="cover">
+    <p class="eyebrow">Manual de usuario</p>
+    <h1>BioSoft</h1>
+    <p class="sub">Sistema de exposición controlada a campos electromagnéticos
+      de frecuencia extremadamente baja para experimentación con animales de
+      laboratorio.</p>
+    <div class="meta">
+      <span><b>Destinatario</b> · operador del equipo</span>
+      <span><b>Estado</b> · equipo en desarrollo</span>
+      <span><b>Documento</b> · docs/manual-de-usuario.md</span>
+    </div>
+  </header>
+
+  <nav class="toc">
+    <h2>Contenido</h2>
+    <ol>
+      <li><a href="#s1"><span class="n">1</span> Qué hace el equipo</a></li>
+      <li><a href="#s2"><span class="n">2</span> Partes del equipo</a></li>
+      <li><a href="#s3"><span class="n">3</span> Antes de encender</a></li>
+      <li><a href="#s4"><span class="n">4</span> Encendido y pantallas</a></li>
+      <li><a href="#s5"><span class="n">5</span> Configurar un experimento</a></li>
+      <li><a href="#s6"><span class="n">6</span> Iniciar un experimento</a></li>
+      <li><a href="#s7"><span class="n">7</span> Durante el experimento</a></li>
+      <li><a href="#s8"><span class="n">8</span> Cómo termina</a></li>
+      <li><a href="#s9"><span class="n">9</span> Parada de emergencia</a></li>
+      <li><a href="#s10"><span class="n">10</span> Monitoreo remoto</a></li>
+      <li><a href="#s11"><span class="n">11</span> La tarjeta SD</a></li>
+      <li><a href="#s12" class="flag"><span class="n">12</span> Lo que todavía no está</a></li>
+      <li><a href="#s13"><span class="n">13</span> Qué hacer si…</a></li>
+      <li><a href="#s14"><span class="n">14</span> Buenas prácticas</a></li>
+    </ol>
+  </nav>
+
+  <article>
+
+    <section class="print-toc">
+      <h3>Contenido</h3>
+      <ol>
+        <li><span class="n">1</span> Qué hace el equipo</li>
+        <li><span class="n">2</span> Partes del equipo</li>
+        <li><span class="n">3</span> Antes de encender</li>
+        <li><span class="n">4</span> Encendido y pantallas</li>
+        <li><span class="n">5</span> Configurar un experimento</li>
+        <li><span class="n">6</span> Iniciar un experimento</li>
+        <li><span class="n">7</span> Durante el experimento</li>
+        <li><span class="n">8</span> Cómo termina un experimento</li>
+        <li><span class="n">9</span> Parada de emergencia</li>
+        <li><span class="n">10</span> Monitoreo remoto</li>
+        <li><span class="n">11</span> La tarjeta SD</li>
+        <li><span class="n">12</span> Lo que todavía no está</li>
+        <li><span class="n">13</span> Qué hacer si…</li>
+        <li><span class="n">14</span> Buenas prácticas</li>
+      </ol>
+    </section>
+
+    <p>Guía para quien opera el equipo: cómo configurar, correr y supervisar una
+      exposición, qué significa cada cosa que muestra la pantalla, y qué hacer
+      cuando algo no sale como se espera.</p>
+
+    <p>No hace falta saber programar para usar el equipo. Sí hace falta entender
+      qué está midiendo y por qué corta cuando corta, porque de eso depende que
+      un experimento sea válido.</p>
+
+    <div class="callout stop">
+      <span class="tag">Antes de empezar</span>
+      <p><strong>BioSoft está en desarrollo.</strong> La sección 12 lista, sin
+        vueltas, lo que todavía no está calibrado o no está disponible desde la
+        pantalla. Leerla antes de usar el equipo con animales no es opcional.</p>
+    </div>
+
+    <h2 id="s1">Sección 1</h2>
+    <p class="h2title">Qué hace el equipo</p>
+
+    <p>BioSoft expone una muestra de animales de laboratorio a un <strong>campo
+      electromagnético de frecuencia extremadamente baja (ELF)</strong>,
+      controlado y sostenido durante un tiempo definido, mientras vigila que las
+      condiciones se mantengan dentro de lo que el experimento admite.</p>
+
+    <p>Hace tres cosas, y conviene tenerlas separadas en la cabeza:</p>
+
+    <ol>
+      <li><strong>Genera</strong> el campo: una señal senoidal de la frecuencia
+        elegida, con la intensidad pedida, sobre cuatro bobinas.</li>
+      <li><strong>Mide</strong> en vivo: intensidad de campo, temperatura y
+        corriente.</li>
+      <li><strong>Corta</strong> cuando corresponde: porque se cumplió el tiempo,
+        porque detectó una condición peligrosa, o porque el operador lo pidió.</li>
+    </ol>
+
+    <p>El punto 3 es el que justifica el equipo. Un generador de campo lo arma
+      cualquiera; lo que hace falta en un experimento con animales es que
+      <strong>algo decida detener la exposición sin que haya una persona
+      mirando</strong>.</p>
+
+    <h3>Los dos grupos</h3>
+
+    <p>El diseño experimental necesita un grupo tratado y un grupo control. El
+      equipo lo resuelve con dos <strong>modos de experimento</strong>:</p>
+
+    <div class="term"><b>Campo X</b><br>
+      Las cuatro bobinas suman. Es la condición de exposición.</div>
+
+    <div class="term"><b>Campo nulo</b><br>
+      Dos bobinas reciben la señal invertida 180°, así que el campo se cancela.
+      Los animales del grupo control quedan sometidos a exactamente el mismo
+      ruido, vibración y temperatura del equipo funcionando, pero
+      <strong>sin campo</strong>.</div>
+
+    <p>El campo nulo es lo que hace comparable al grupo control. Un control
+      «apagando el equipo» no serviría: mediría el efecto de estar en una caja
+      distinta, no el del campo.</p>
+
+    <h2 id="s2">Sección 2</h2>
+    <p class="h2title">Partes del equipo</p>
+
+    <div class="tablewrap"><table>
+      <thead><tr><th>Parte</th><th>Qué hace</th></tr></thead>
+      <tbody>
+        <tr><td>Pantalla táctil</td><td>Todo lo que ve y toca el operador. Además publica la telemetría remota.</td></tr>
+        <tr><td>Placa de control</td><td>Excita las bobinas, lee los sensores y decide cuándo cortar.</td></tr>
+        <tr><td>Bobinas (hasta 4)</td><td>Generan el campo.</td></tr>
+        <tr><td>Sensores</td><td>Campo magnético (1), temperatura (1) y corriente (hasta 4).</td></tr>
+        <tr><td>Pulsador de emergencia</td><td>Corte físico inmediato.</td></tr>
+        <tr><td>Tarjeta SD</td><td>Configuración del equipo (ver sección 11).</td></tr>
+      </tbody>
+    </table></div>
+
+    <p>Las dos placas se hablan por un cable serie. <strong>La que decide sobre
+      la seguridad es la placa de control, no la pantalla</strong>: si la
+      pantalla se cuelga o se desconecta, la placa de control sigue vigilando y
+      sigue pudiendo cortar. La pantalla refleja y retransmite; no decide.</p>
+
+    <h2 id="s3">Sección 3</h2>
+    <p class="h2title">Antes de encender</p>
+
+    <ol>
+      <li>Bobinas conectadas y montadas en su posición.</li>
+      <li>Sensor de campo en su posición <strong>registrada</strong> — si se
+        movió desde la última calibración, los valores de intensidad no son
+        confiables.</li>
+      <li>Sensor de temperatura en contacto con lo que se quiere vigilar.</li>
+      <li>Tarjeta SD colocada, si se van a usar parámetros propios.</li>
+      <li>Muestra ubicada.</li>
+      <li><strong>Modo de experimento correcto</strong> para la tanda que se va a
+        correr (ver sección 12: hoy esto se define en la configuración del
+        equipo, no en la pantalla).</li>
+    </ol>
+
+    <h2 id="s4">Sección 4</h2>
+    <p class="h2title">Encendido y pantallas</p>
+
+    <p>Al energizar aparece la <strong>pantalla de inicio</strong> unos segundos
+      mientras el equipo arranca y establece contacto con la placa de control.
+      Después pasa sola a la pantalla <strong>Principal</strong>.</p>
+
+    <div class="tablewrap"><table>
+      <thead><tr><th>Pantalla</th><th>Cuándo aparece</th></tr></thead>
+      <tbody>
+        <tr><td>Inicio</td><td>Al encender, y si se pierde el contacto con la placa de control.</td></tr>
+        <tr><td>Principal</td><td>Estado de reposo. Muestra la configuración cargada.</td></tr>
+        <tr><td>Configuración</td><td>Al tocar <em>Configuración</em>.</td></tr>
+        <tr><td>Espera</td><td>Mientras el equipo arranca o detiene un experimento.</td></tr>
+        <tr><td>En curso</td><td>Durante la exposición.</td></tr>
+        <tr><td>Resultado</td><td>Al terminar un experimento, por el motivo que sea.</td></tr>
+      </tbody>
+    </table></div>
+
+    <p>No se navega libremente entre ellas: la pantalla que se ve
+      <strong>refleja el estado real del equipo</strong>. Si el equipo está
+      corriendo, la pantalla es «En curso» y no hay forma de irse a otra sin
+      detener el experimento.</p>
+
+    <h3>Pantalla Principal</h3>
+
+    <p>Muestra los seis parámetros con los que va a correr el próximo
+      experimento, y dos botones: <strong>Iniciar</strong> y
+      <strong>Configuración</strong>.</p>
+
+    <p>Vale la pena mirarla antes de cada tanda: es el resumen de lo que está a
+      punto de pasar.</p>
+
+    <h2 id="s5">Sección 5</h2>
+    <p class="h2title">Configurar un experimento</p>
+
+    <p>En <strong>Configuración</strong> hay seis listas desplegables. Al
+      terminar, <em>Guardar</em> aplica los cambios y vuelve a Principal;
+      <em>Volver</em> sale sin aplicar nada.</p>
+
+    <div class="tablewrap"><table>
+      <thead><tr><th>Parámetro</th><th>Qué define</th></tr></thead>
+      <tbody>
+        <tr><td>Intensidad de campo</td><td>La consigna, en mT. El equipo regula solo para sostenerla.</td></tr>
+        <tr><td>Frecuencia</td><td>La frecuencia de la señal, en Hz.</td></tr>
+        <tr><td>Duración</td><td>Cuánto dura la exposición. Al cumplirse, corta solo.</td></tr>
+        <tr><td>Tolerancia de campo</td><td>Cuánto puede desviarse la intensidad real de la consigna antes de considerarse anormal.</td></tr>
+        <tr><td>Rango de temperatura normal</td><td>La franja esperada. Salirse genera alerta.</td></tr>
+        <tr><td>Rango de temperatura crítica</td><td>La franja límite. Salirse puede cortar el experimento.</td></tr>
+      </tbody>
+    </table></div>
+
+    <h3>Cómo se usan los dos rangos de temperatura</h3>
+
+    <p>No son lo mismo y la diferencia importa:</p>
+
+    <ul>
+      <li>Fuera del rango <strong>normal</strong> pero dentro del
+        <strong>crítico</strong> → el equipo lo anota como alerta y sigue. Es
+        «esto no está como esperábamos».</li>
+      <li>Fuera del rango <strong>crítico</strong> → es «esto es peligroso». Si
+        se repite lo suficiente, corta.</li>
+    </ul>
+
+    <div class="callout">
+      <span class="tag">Por qué no corta enseguida</span>
+      <p>Que una lectura crítica no corte al instante es deliberado: una sola
+        lectura rara puede ser ruido eléctrico, y abortar por eso arruinaría
+        experimentos válidos. El equipo exige que la condición
+        <strong>persista</strong> antes de cortar.</p>
+    </div>
+
+    <h3>La tolerancia de campo</h3>
+
+    <p>Además de definir cuándo la intensidad se considera anormal, de acá sale
+      el límite crítico de campo, aplicando un margen fijo sobre la tolerancia
+      elegida. Una tolerancia de 5 % da una franja normal de ±5 % y una crítica
+      algo más amplia.</p>
+
+    <h2 id="s6">Sección 6</h2>
+    <p class="h2title">Iniciar un experimento</p>
+
+    <p>Desde Principal, botón <strong>Iniciar</strong>.</p>
+
+    <p>La pantalla pasa a <strong>Espera</strong> («Iniciando…») mientras la
+      placa de control recibe los parámetros, arranca el generador, habilita las
+      bobinas y cierra el corte general. Cuando confirma que está corriendo, la
+      pantalla pasa sola a <strong>En curso</strong>.</p>
+
+    <p>Si algo sale mal en el camino, la pantalla de Espera se rinde a los pocos
+      segundos y vuelve a Principal. <strong>Que vuelva a Principal significa que
+      el experimento no arrancó</strong>, no que arrancó y falló.</p>
+
+    <h3>Los primeros 10 segundos</h3>
+
+    <p>Apenas arranca hay una <strong>ventana de asentamiento</strong>: el equipo
+      mide y muestra todo con normalidad, pero durante esos segundos
+      <strong>no puede generar alertas ni cortar</strong>.</p>
+
+    <div class="callout">
+      <span class="tag">Por qué</span>
+      <p>En ese rato el regulador todavía está llevando el campo a la consigna,
+        así que el sistema está legítimamente fuera de rango. Sin esa ventana,
+        todo experimento se abortaría a sí mismo al arrancar.</p>
+    </div>
+
+    <h2 id="s7">Sección 7</h2>
+    <p class="h2title">Durante el experimento</p>
+
+    <p>La pantalla <strong>En curso</strong> tiene un indicador de salud siempre
+      visible y varias pestañas.</p>
+
+    <h3>Indicador de salud</h3>
+
+    <div class="tablewrap"><table>
+      <thead><tr><th>Estado</th><th>Qué significa</th></tr></thead>
+      <tbody>
+        <tr><td>Normal</td><td>Sin alertas activas.</td></tr>
+        <tr><td>Advertencia</td><td>Hay alertas, ninguna crítica. Vale la pena mirar.</td></tr>
+        <tr><td>Crítico</td><td>Hay al menos una alerta crítica. El experimento puede cortar solo.</td></tr>
+      </tbody>
+    </table></div>
+
+    <h3>Pestañas</h3>
+
+    <ul>
+      <li><strong>Objetivos</strong> — los parámetros con los que arrancó. Sirven
+        de referencia contra lo que se está midiendo.</li>
+      <li><strong>Progreso</strong> — porcentaje y tiempo transcurrido.</li>
+      <li><strong>Mediciones</strong> — campo (mT), temperatura (°C) y corriente
+        (A), cada una con el momento de su última actualización. Si dice
+        <strong>«Sin datos»</strong>, ese sensor no está reportando: puede no
+        estar conectado, o estar deshabilitado en la configuración.
+        <strong>No es lo mismo que medir cero.</strong></li>
+      <li><strong>Alertas</strong> — hasta tres alertas, la más reciente arriba.</li>
+    </ul>
+
+    <h3>Cómo leer las alertas</h3>
+
+    <p>Cada alerta trae de qué sensor viene, de qué tipo es y un contador.
+      <strong>El contador es lo importante</strong>: dice cuántas veces se
+      acumuló esa condición y cuántas hacen falta para cortar. Un
+      <code>2/4</code> es un aviso; un <code>3/4</code> es que falta una.</p>
+
+    <p>Si la misma condición se repite en el mismo sensor, la alerta <strong>no
+      se duplica</strong>: se actualiza el contador y sube al tope de la lista.
+      Así que las tres que se ven son tres condiciones distintas, no las últimas
+      tres veces que pasó algo.</p>
+
+    <h3>Detener a mano</h3>
+
+    <p>Botón <strong>Detener</strong>. La pantalla pasa a Espera («Deteniendo…»)
+      y después a Resultado. El experimento queda registrado como detenido por el
+      operador, que a efectos de los datos no es lo mismo que uno completado.</p>
+
+    <h2 id="s8">Sección 8</h2>
+    <p class="h2title">Cómo termina un experimento</p>
+
+    <p>Termina de tres maneras, y la pantalla <strong>Resultado</strong> dice
+      cuál fue:</p>
+
+    <div class="tablewrap"><table>
+      <thead><tr><th>Resultado</th><th>Qué pasó</th></tr></thead>
+      <tbody>
+        <tr><td>Exitoso</td><td>Se cumplió la duración configurada.</td></tr>
+        <tr><td>Falla</td><td>El equipo cortó por una condición peligrosa sostenida.</td></tr>
+        <tr><td>Detenido</td><td>Lo detuvo una persona, desde la pantalla o el pulsador.</td></tr>
+      </tbody>
+    </table></div>
+
+    <p>En <strong>Falla</strong>, el detalle dice qué sensor lo provocó y con qué
+      cuenta —por ejemplo, que la temperatura alcanzó el límite de alertas
+      críticas. Es la información que hay que anotar: dice si el experimento se
+      perdió por el equipo, por la muestra o por el ambiente.</p>
+
+    <p>La pantalla también congela el progreso, el tiempo transcurrido y la salud
+      <strong>en el instante en que terminó</strong>. No siguen corriendo.</p>
+
+    <p>De Resultado se sale solo con <strong>Volver</strong>. El equipo no navega
+      solo desde acá, a propósito: el resultado tiene que poder leerse y anotarse
+      sin apuro.</p>
+
+    <h2 id="s9">Sección 9</h2>
+    <p class="h2title">Parada de emergencia</p>
+
+    <p>El pulsador físico <strong>corta el experimento en curso de
+      inmediato</strong>. Es el camino más corto y no depende de la pantalla.</p>
+
+    <div class="callout warn">
+      <span class="tag">Dos cosas a saber</span>
+      <p><strong>Solo actúa si hay un experimento corriendo.</strong> Apretarlo
+        con el equipo en reposo no hace nada, y es deliberado: evita que quede
+        registrado un resultado de un experimento que nunca existió.</p>
+      <p>Deja el experimento como <strong>Detenido</strong>, igual que el botón
+        de la pantalla.</p>
+    </div>
+
+    <p>El corte general de potencia es un relé, y tiene una protección que ignora
+      cambios de estado a menos de 200 ms uno de otro. En uso normal es
+      invisible.</p>
+
+    <h2 id="s10">Sección 10</h2>
+    <p class="h2title">Monitoreo remoto</p>
+
+    <p>Con WiFi configurado, el equipo publica telemetría a un panel remoto
+      mientras hay un experimento corriendo: campo, temperatura, corriente,
+      salud, progreso y tiempo transcurrido.</p>
+
+    <p>Tres advertencias:</p>
+
+    <ul>
+      <li><strong>Solo publica durante un experimento.</strong> Fuera de una
+        corrida no hay datos, y eso no es una falla.</li>
+      <li><strong>Es de supervisión, no de control.</strong> No se puede iniciar
+        ni detener nada desde el panel remoto. Lo que se ve es un reflejo.</li>
+      <li><strong>Si se cae el WiFi, el experimento sigue.</strong> La
+        conectividad corre aparte y no frena la exposición ni la vigilancia. Se
+        pierden los datos remotos de ese rato, nada más.</li>
+    </ul>
+
+    <h2 id="s11">Sección 11</h2>
+    <p class="h2title">La tarjeta SD</p>
+
+    <p>El equipo lee su archivo de configuración de la tarjeta al
+      <strong>encender</strong>. Ahí viven las opciones que ofrecen las listas de
+      Configuración, cada cuánto se mide, los parámetros del regulador, qué
+      bobinas están habilitadas y con qué corrección, qué vigila el detector y
+      con qué reglas, y qué se publica remotamente.</p>
+
+    <p>Tres reglas que conviene tener claras:</p>
+
+    <ol>
+      <li><strong>Sin tarjeta el equipo funciona.</strong> Arranca con sus
+        valores de fábrica y lo deja anotado. No hay un modo «bloqueado por falta
+        de configuración».</li>
+      <li><strong>Un archivo mal formado se descarta entero</strong>, no a
+        medias. Se vuelve a los valores de fábrica. Nunca queda media
+        configuración aplicada.</li>
+      <li><strong>Se lee solo al encender.</strong> Cambiar el archivo con el
+        equipo prendido no hace nada: hay que reiniciar.</li>
+    </ol>
+
+    <div class="callout">
+      <span class="tag">Cómo editarlo</span>
+      <p>Usar el generador de configuración que viene con el equipo
+        (<code>tools/generador-config.html</code>): se abre con doble clic, no
+        necesita instalar nada y <strong>valida antes de dejar guardar</strong>.
+        Vale la pena aunque uno sepa escribir JSON, porque hay errores que el
+        equipo no puede avisar — por ejemplo, un valor entero escrito con coma
+        decimal se descarta en silencio y, en las listas de la pantalla, queda en
+        cero.</p>
+    </div>
+
+    <h2 id="s12">Sección 12</h2>
+    <p class="h2title">Lo que todavía no está</p>
+
+    <div class="callout stop">
+      <span class="tag">Revisar antes de usar el equipo con animales</span>
+      <p>Esta sección no describe defectos a corregir algún día: describe el
+        estado real del equipo hoy, y condiciona qué experimentos son válidos.</p>
+    </div>
+
+    <ul>
+      <li><strong>El campo no está calibrado.</strong> Los parámetros del
+        regulador y los factores de corrección de cada bobina son valores de
+        arranque, no medidos contra las bobinas reales. <strong>Un factor en 1,0
+        significa «todavía sin medir»</strong>, no «medido y sin desvío». Hasta
+        que se ejecute el protocolo de calibración, la intensidad indicada no
+        está verificada contra el campo real.</li>
+      <li><strong>El modo de experimento no se elige desde la pantalla.</strong>
+        El equipo lo acepta y lo aplica, pero el selector todavía no existe en
+        Configuración: hoy se define en el archivo de la tarjeta. Por defecto es
+        <strong>campo X</strong>, nunca campo nulo — porque un campo nulo por
+        accidente se vería igual que un experimento normal.</li>
+      <li><strong>La inversión de fase depende de hardware que falta.</strong>
+        Hasta que esté montada, el modo campo nulo no cancela nada. Verificarlo
+        antes de confiar en él.</li>
+      <li><strong>La vigilancia de campo viene apagada de fábrica.</strong> El
+        detector vigila la temperatura; el campo se mide y se muestra, pero por
+        defecto no genera alertas ni corta. Se habilita desde el archivo de
+        configuración, y conviene hacerlo recién con el sensor real montado y
+        calibrado.</li>
+      <li><strong>Los umbrales de campo son provisorios.</strong> Los valores con
+        los que se decide qué lectura de campo es anormal están copiados de los
+        de temperatura, sin calibrar contra campo real.</li>
+      <li><strong>La corriente no corta el experimento.</strong> Se mide, se
+        muestra y se publica, pero por diseño no es una condición de corte.</li>
+    </ul>
+
+    <h2 id="s13">Sección 13</h2>
+    <p class="h2title">Qué hacer si…</p>
+
+    <div class="tablewrap"><table class="wide">
+      <thead><tr><th>Síntoma</th><th>Qué significa</th><th>Qué hacer</th></tr></thead>
+      <tbody>
+        <tr><td>Vuelve sola a la pantalla de Inicio</td><td>Se perdió el contacto con la placa de control</td><td>Revisar el cable serie y la alimentación de la placa de control</td></tr>
+        <tr><td><em>Iniciar</em> deja la pantalla en Espera y vuelve a Principal</td><td>El experimento no arrancó</td><td>Revisar el enlace con la placa de control; reintentar</td></tr>
+        <tr><td>Una medición dice «Sin datos»</td><td>Ese sensor no reporta</td><td>Revisar conexión; confirmar que está habilitado en la configuración</td></tr>
+        <tr><td>El campo medido queda muy por debajo de la consigna</td><td>El regulador no llega</td><td>Ver si hay avisos de recorte: puede que una bobina no tenga margen. Requiere revisar el hardware o recalibrar</td></tr>
+        <tr><td>Corta apenas terminan los primeros segundos</td><td>Una condición fuera de rango desde el arranque</td><td>Ver el detalle en la pantalla Resultado: dice qué sensor fue</td></tr>
+        <tr><td>Cambié el archivo de la SD y no pasó nada</td><td>Se lee solo al encender</td><td>Reiniciar la pantalla</td></tr>
+        <tr><td>Cambié la configuración y el panel remoto dejó de mostrar un valor</td><td>Se renombró un campo de telemetría</td><td>El panel remoto espera los nombres originales: revertirlos o actualizar el panel</td></tr>
+        <tr><td>El pulsador de emergencia no hace nada</td><td>No hay experimento corriendo</td><td>Es el comportamiento esperado</td></tr>
+      </tbody>
+    </table></div>
+
+    <h2 id="s14">Sección 14</h2>
+    <p class="h2title">Buenas prácticas</p>
+
+    <ul>
+      <li><strong>Mirar la pantalla Principal antes de arrancar.</strong> Es el
+        último punto donde se ve la configuración completa antes de exponer
+        animales.</li>
+      <li><strong>Anotar el resultado, no solo si terminó.</strong> Un
+        experimento que cortó por falla y uno que se completó no producen los
+        mismos datos, y el detalle de la pantalla Resultado dice cuál fue la
+        causa.</li>
+      <li><strong>No cambiar parámetros entre tandas de la misma serie</strong>
+        sin registrarlo. El equipo no lleva historial: lo único que queda es lo
+        que anote el operador.</li>
+      <li><strong>Verificar el campo nulo antes de cada serie con grupo
+        control.</strong> Un control mal cancelado es un grupo tratado sin que
+        nadie se entere, y es el error más caro que puede cometer este equipo:
+        invalida la comparación entera sin dar ningún síntoma.</li>
+    </ul>
+
+  </article>
+</div>
+
+</body>
+</html>

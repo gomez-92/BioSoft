@@ -59,6 +59,21 @@ its own host check, which needs nothing installed but node:
 node tools/test-generador.js
 ```
 
+The user manual (`docs/manual-de-usuario.html`) is hand-authored HTML, and it is
+the **single source** — there is no Markdown copy on purpose, since two
+hand-maintained copies of the same manual drift the way the two `seriallink.hpp`
+already did. The PDF beside it is generated from that file and is not edited by
+hand:
+
+```
+chrome --headless=new --disable-gpu --no-sandbox --user-data-dir=<tmp>   --print-to-pdf=docs/manual-de-usuario.pdf docs/manual-de-usuario.html
+```
+
+Its print layout lives in the `@media print` block at the end of the file:
+cover on its own sheet, a printed table of contents the screen version hides,
+and `break-before: page` on every section, because the manual is consulted by
+jumping to a section rather than read start to finish.
+
 This uses PlatformIO's `native` platform (host gcc/g++, not the AVR
 toolchain) with the Unity test framework and the `ArduinoFake` library to
 mock `Arduino.h`/`Serial`. See `mega2560/test/test_detector/` for the first
