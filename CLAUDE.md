@@ -530,6 +530,17 @@ and `StateListener` (own app state, from `SystemData`).
   seeded with the compiled defaults and overwritten by `ConfigLoader`. Option
   `label`s are owned `char` buffers rather than `const char*` because the JSON
   strings die with the `JsonDocument` as soon as parsing ends.
+  **`optionsFieldMode` is the one exception** — the experiment mode menu
+  (campo X / campo nulo, feeding `start`'s `mode` param) is a fixed 2-entry
+  table that the SD file cannot touch. Those two are an experimental condition
+  fixed by the design, not numbers an operator calibrates; letting the file
+  edit the list would allow deleting "Campo nulo" and making the control group
+  unreachable with nothing to show for it. Being compile-fixed is also why its
+  `value` is a plain `const char*` while every other menu owns its strings.
+  Its dropdown does not exist yet — the widget is pending in SquareLine (Trello
+  card 15), and `ConfigurationController::init()` carries a marker comment
+  listing the four lines that wire it once the widget lands. Until then
+  `fieldModeOption` stays 0 and `start` always travels with `mode: "x"`.
 - `buildDropdown()` (`screencontroller.hpp`) now takes `ConfigurationOptions::countXxx`
   instead of a hardcoded literal per call site. That literal had already bitten
   once — the CEM tolerance list went from `{1%, 5%, 10%}` to `{5%, 10%}` and the
