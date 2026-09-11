@@ -24,6 +24,15 @@
 // el interruptor maestro).
 constexpr bool DEBUG_MYSYSTEM = true;
 
+// Banco sin Mega2560: al vencer el splash, si el serial todavia no esta
+// conectado, se pasa a Principal igual (forzando Ready) en vez de quedarse
+// clavado esperando el primer state_data del Mega. Sirve para probar la HMI
+// sola -- p.ej. verificar que los menus cargados desde la SD llegaron bien a
+// la pantalla de Configuracion -- sin la otra placa enchufada. Con el Mega
+// conectado no cambia nada: el flujo normal (state_data -> _processState)
+// sigue mandando. Dejar en false para el firmware de produccion.
+constexpr bool BENCH_SIN_MEGA = false;
+
 
 
 class MySystem :
@@ -942,6 +951,10 @@ inline void MySystem::onScreenEvent(ScreenEvent e) {
 
   if(e.type == ScreenType::SPLASH && e.name == EventName::Timeout) {
     _data.setInitialized(true);
+    if(BENCH_SIN_MEGA && !_serial.isConnected()) {
+      DEBUG_PRINTLN(DEBUG_MYSYSTEM, "BENCH_SIN_MEGA: sin Mega, paso a Principal sin esperar state_data");
+      _processState(StateData::Ready, true);
+    }
   }
   else if(e.type == ScreenType::PRINCIPAL && e.name == EventName::GoToConfig) {
     _screenManager.show(ScreenType::CONFIG);

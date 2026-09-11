@@ -554,6 +554,39 @@ and `StateListener` (own app state, from `SystemData`).
   frame per logical unit, each under `MAX_JSON_SIZE`, sent from
   `onSerialConnected` — since the full config does not fit in one 256-byte frame
   and widening that limit would double buffers inside the Mega's 8 KB of RAM.
+- **The HMI board comes in two incompatible revisions, and `display.hpp` has
+  to be told which one** (`DisplayDriver::TOUCH_KIND`). The original
+  ESP32-2432S028R (one micro-USB) has an ILI9341 panel and a resistive
+  XPT2046 on its own VSPI bus (25/32/39, CS 33, IRQ 36). The replacement
+  bought in 2026-09 is a Guition **JC2432W328C** (micro-USB + USB-C, model
+  printed on the back): ST7789 panel and a **capacitive CST816S over I2C**
+  (SDA 33, SCL 32, RST 25, INT 21, address 0x15) sitting on the same GPIOs
+  the R used for the XPT2046. Two symptoms give it away with the R config:
+  colours inverted (white→black, blue→orange — fixed by `TFT_INVERSION_ON`
+  in `platformio.ini`, which the R must *not* have) and a permanent "touch"
+  in one corner, because the XPT2046 library reads a floating MISO
+  (`raw=(-4096,-4096)` / `(4095,4095)` in the `[TOUCH]` trace). The CST816S
+  driver is hand-written in `display.hpp` (5 registers over `Wire`, no
+  library) and disables the chip's auto-sleep, since LVGL polls it instead
+  of using INT. Switching boards means flipping `TOUCH_KIND` *and* the
+  inversion flag together.
+- **MQTT/TLS is currently broken and known**: the broker is an EMQX Cloud
+  *serverless* instance (`*.emqxsl.com:8883`, host in `secrets.h`), whose
+  certificates are issued by Let's Encrypt (ISRG Root X1), but
+  `SoftEsp32.ino` embeds *DigiCert Global Root G2* as `ROOT_CA_CERT`, so every
+  connect fails with `-9984 X509 - Certificate verification failed` every
+  ~10 s in the monitor. On top of that the firmware never syncs NTP
+  (`configTime()` is not called anywhere), so even with the right CA mbedTLS
+  may reject the cert as not yet valid with the clock at 1970. Both need
+  fixing together: replace the CA (download `emqxsl-ca.crt` from the EMQX
+  console rather than trusting memory) and sync time in `onWiFiConnected`
+  before the first broker attempt. Those errors are noise for bench work on
+  the SD config or the screens — nothing else depends on the broker.
+- `MySystem`'s `BENCH_SIN_MEGA` flag (`mysystem.hpp`) lets the HMI leave the
+  splash and reach Principal without a Mega connected (on splash timeout, if
+  `!_serial.isConnected()`, it forces `Ready`). Bench-only: with it on and no
+  Mega, Iniciar would sit retrying `start` until the Busy timeout. Set it to
+  `false` for the production build.
 - `ConfigLoader` (`configloader.hpp`) reads that file at boot and applies it.
   It runs in `setup()` **before** `MySystem` registers its tasks and before the
   Configuración screen builds its dropdowns, because it overwrites what both of
