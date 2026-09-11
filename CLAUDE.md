@@ -74,6 +74,26 @@ cover on its own sheet, a printed table of contents the screen version hides,
 and `break-before: page` on every section, because the manual is consulted by
 jumping to a section rather than read start to finish.
 
+`python tools/manual-a-word.py` exports the same manual to
+`docs/manual-de-usuario.docx`. It writes the OOXML by hand rather than driving
+Word: automating Word over COM returned `RPC_E_CALL_REJECTED` persistently when
+saving an opened HTML — the Protected View signature — and it tied the export to
+having Word installed. Two things it has to fix that the HTML cannot express:
+the manual's `<h2>` is the small "Sección N" label while the real title is a
+`<p class="h2title">`, which is right on screen but would leave Word's navigation
+pane and automatic TOC listing fourteen entries called "Sección N"; and Word maps
+its built-in styles **by `w:styleId`**, so the headings must be `Heading1`/
+`Heading2`, not custom ids carrying the right `w:name` — with custom ids they
+render fine and silently carry no outline level, which is exactly the bug that
+makes the navigation pane empty. Child order inside `w:pPr` is schema-fixed too
+(`keepNext` before `pageBreakBefore`); out of order, Word drops what follows,
+`outlineLvl` included.
+
+**The `.docx` is a one-way export, not a synchronized copy.** Re-running the
+script overwrites it. If the manual is ever edited in Word, that file becomes
+the authority and the changes have to come back to the HTML by hand — the same
+drift hazard as the two `seriallink.hpp`.
+
 This uses PlatformIO's `native` platform (host gcc/g++, not the AVR
 toolchain) with the Unity test framework and the `ArduinoFake` library to
 mock `Arduino.h`/`Serial`. See `mega2560/test/test_detector/` for the first

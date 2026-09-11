@@ -15,3 +15,6 @@ esp32/include/secrets.h
 # Documentacion de tesis / inventario de Mario (informes .docx, borradores) --
 # se mantiene fuera del repo de codigo a proposito.
 BioSoft/
+
+# Archivos de bloqueo que Word deja al abrir un documento
+~$*
