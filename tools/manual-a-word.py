@@ -363,13 +363,27 @@ DOC_RELS = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 
 def main():
     cuerpo = construir_cuerpo()
+
+    # Fecha fija en cada entrada del ZIP. writestr() con un nombre suelto
+    # estampa la hora actual, asi que dos corridas seguidas del mismo contenido
+    # dan archivos distintos byte a byte: el .docx esta versionado, y un binario
+    # que aparece modificado cada vez que alguien corre el script ensucia el
+    # diff y esconde los cambios que si importan.
+    fecha = (1980, 1, 1, 0, 0, 0)
+
+    def escribir(z, nombre, contenido):
+        info = zipfile.ZipInfo(nombre, date_time=fecha)
+        info.compress_type = zipfile.ZIP_DEFLATED
+        info.external_attr = 0o600 << 16
+        z.writestr(info, contenido)
+
     with zipfile.ZipFile(DESTINO, "w", zipfile.ZIP_DEFLATED) as z:
-        z.writestr("[Content_Types].xml", CONTENT_TYPES)
-        z.writestr("_rels/.rels", RELS)
-        z.writestr("word/_rels/document.xml.rels", DOC_RELS)
-        z.writestr("word/document.xml", document_xml(cuerpo))
-        z.writestr("word/styles.xml", styles_xml())
-        z.writestr("word/numbering.xml", numbering_xml())
+        escribir(z, "[Content_Types].xml", CONTENT_TYPES)
+        escribir(z, "_rels/.rels", RELS)
+        escribir(z, "word/_rels/document.xml.rels", DOC_RELS)
+        escribir(z, "word/document.xml", document_xml(cuerpo))
+        escribir(z, "word/styles.xml", styles_xml())
+        escribir(z, "word/numbering.xml", numbering_xml())
     print("generado:", DESTINO, "(%.0f KB)" % (DESTINO.stat().st_size / 1024))
 
 
