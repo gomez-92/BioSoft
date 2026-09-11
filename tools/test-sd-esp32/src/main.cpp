@@ -308,6 +308,42 @@ static void limpieza() {
   check("no quedan archivos de prueba en la tarjeta", limpio);
 }
 
+// ------------------------------------------------- config.json de la SD
+
+// Muestra por el monitor el archivo que el firmware real va a leer al
+// arrancar, tal como lo ve ConfigLoader: mismo path y mismo buffer de
+// 8 KB. Es la forma de verificar que un config.json copiado a la tarjeta
+// (desde la PC, o como sea) llego entero, sin lector de SD.
+// No es una prueba: no suma ni resta al RESULTADO.
+static const char* PathConfig = "/biosoft/config.json";
+
+static void mostrarConfig() {
+  titulo("Archivo de configuracion del firmware");
+
+  if (!almacenamiento.exists(PathConfig)) {
+    Serial.print(PathConfig);
+    Serial.println(F(" no esta en la tarjeta."));
+    Serial.println(F("El firmware arrancaria con los defaults compilados."));
+    return;
+  }
+
+  size_t largo = 0;
+  if (!almacenamiento.readFile(PathConfig, bufferGrandeLectura, sizeof(bufferGrandeLectura), &largo)) {
+    Serial.print(PathConfig);
+    Serial.println(F(" existe pero no se pudo leer entero: supera los"));
+    Serial.println(F("8 KB del buffer de ConfigLoader. El firmware lo descartaria."));
+    return;
+  }
+
+  Serial.print(PathConfig);
+  Serial.print(F(": "));
+  Serial.print(largo);
+  Serial.println(F(" bytes (entra en el buffer del firmware)"));
+  Serial.println(F("--- inicio ---"));
+  Serial.println(bufferGrandeLectura);
+  Serial.println(F("--- fin ---"));
+}
+
 static void resumen() {
   Serial.println();
   Serial.println(F("========================================"));
@@ -356,6 +392,8 @@ static void correrTodo() {
   pruebaArchivoVacio();
   pruebaArchivoGrande();
   limpieza();
+
+  mostrarConfig();
 
   resumen();
 }

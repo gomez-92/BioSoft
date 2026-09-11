@@ -48,6 +48,13 @@ siguiente compilación, sin tocar nada acá.
 | Archivo vacío | Un archivo de 0 bytes se lee OK, con longitud 0 |
 | Archivo grande | 8192 bytes (el tamaño del buffer de config del firmware) ida y vuelta, byte a byte, con tiempos de escritura y lectura |
 
+Después de las pruebas, y fuera del conteo, el banco **muestra
+`/biosoft/config.json`** si está en la tarjeta: tamaño, si entra en los 8 KB
+del buffer de `ConfigLoader`, y el contenido completo. Es la forma de
+verificar que un archivo copiado a la SD llegó entero sin tener lector de
+SD en la PC — lo que ve el banco es exactamente lo que va a leer el
+firmware al arrancar.
+
 ### Las dos pruebas que más valen
 
 **La reescritura.** `sdstorage.hpp` tiene anotado que *asume* que
