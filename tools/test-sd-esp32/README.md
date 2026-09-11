@@ -55,6 +55,15 @@ verificar que un archivo copiado a la SD llegó entero sin tener lector de
 SD en la PC — lo que ve el banco es exactamente lo que va a leer el
 firmware al arrancar.
 
+Si el archivo **no** aparece, el banco lista `/biosoft` (o la raíz, si esa
+carpeta no existe) con el nombre exacto y el tamaño de cada entrada. Casi
+siempre la causa es el nombre: Windows oculta las extensiones, así que un
+archivo que en el Explorador se ve como `config` puede ser en la tarjeta
+`config.json.json` o `config.txt`. El listado lo muestra tal cual está
+grabado; el firmware busca exactamente `/biosoft/config.json`. Para ver las
+extensiones en Windows: Explorador → Vista → *Extensiones de nombre de
+archivo*.
+
 ### Las dos pruebas que más valen
 
 **La reescritura.** `sdstorage.hpp` tiene anotado que *asume* que

@@ -531,7 +531,12 @@ and `StateListener` (own app state, from `SystemData`).
   `SPIClass(VSPI)` there. The first version assumed 14/12/13 on HSPI and
   failed on-device with `sdSelectCard(): Select Failed` (the card never
   answers, before any mount is attempted); `tools/test-sd-esp32` is the
-  bench that caught it — 39/39 once the pins were fixed. `begin()` opens the SPI bus — the constructor only stores
+  bench that caught it — 39/39 once the pins were fixed. After the tests
+  that bench also dumps `/biosoft/config.json` as `ConfigLoader` would read
+  it (same path, same 8 KB buffer), and lists `/biosoft` with exact names
+  when the file is missing — the usual cause being a Windows-hidden
+  extension (`config.json.json`, `config.txt`), which nothing else would
+  reveal. It is the way to check a card without an SD reader on the PC. `begin()` opens the SPI bus — the constructor only stores
   pins, so this global's constructor touches no hardware.
   **`readFile()` returns false when the content does not fit the buffer**, and
   that is the whole point: it used to truncate silently and return true, which

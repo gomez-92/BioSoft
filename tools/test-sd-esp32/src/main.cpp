@@ -317,6 +317,44 @@ static void limpieza() {
 // No es una prueba: no suma ni resta al RESULTADO.
 static const char* PathConfig = "/biosoft/config.json";
 
+// Lista un directorio con el nombre EXACTO de cada entrada. El caso tipico
+// que resuelve: Windows oculta las extensiones, y un "config" que se ve en
+// el explorador puede ser config.json.json o config.txt en la tarjeta.
+// SdStorage no expone listado (es agnostico), asi que se usa SD directo.
+static void listarDirectorio(const char* path) {
+  Serial.print(F("Contenido de "));
+  Serial.print(path);
+  Serial.println(F(":"));
+
+  File dir = SD.open(path);
+  if (!dir) {
+    Serial.println(F("  (el directorio no existe -- ojo con mayusculas: es 'biosoft')"));
+    listarDirectorio("/");
+    return;
+  }
+  if (!dir.isDirectory()) {
+    Serial.println(F("  (no es un directorio, es un archivo)"));
+    dir.close();
+    return;
+  }
+
+  bool vacio = true;
+  for (File entrada = dir.openNextFile(); entrada; entrada = dir.openNextFile()) {
+    vacio = false;
+    Serial.print(entrada.isDirectory() ? F("  [DIR]  ") : F("  [ARCH] "));
+    Serial.print(entrada.name());
+    if (!entrada.isDirectory()) {
+      Serial.print(F("  ("));
+      Serial.print(entrada.size());
+      Serial.print(F(" bytes)"));
+    }
+    Serial.println();
+    entrada.close();
+  }
+  if (vacio) Serial.println(F("  (vacio)"));
+  dir.close();
+}
+
 static void mostrarConfig() {
   titulo("Archivo de configuracion del firmware");
 
@@ -324,6 +362,7 @@ static void mostrarConfig() {
     Serial.print(PathConfig);
     Serial.println(F(" no esta en la tarjeta."));
     Serial.println(F("El firmware arrancaria con los defaults compilados."));
+    listarDirectorio("/biosoft");
     return;
   }
 
