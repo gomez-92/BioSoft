@@ -525,8 +525,13 @@ and `StateListener` (own app state, from `SystemData`).
   frequency, duration, tolerance, temperature ranges) before sending it to the Mega.
 - `SdStorage` (`sdstorage.hpp`) is a generic SD-card file read/write module
   (agnostic of content, per its own contract) for the ESP32-2432S028 (CYD)
-  board's onboard SD slot — shares the TFT's SPI bus (pins 12/13/14) with its
-  own CS on pin 5. `begin()` opens the SPI bus — the constructor only stores
+  board's onboard SD slot. **It does not share the TFT's SPI bus**: the TFT
+  is on HSPI (12/13/14), the SD slot is wired to VSPI (SCK=18, MISO=19,
+  MOSI=23) with its own CS on pin 5, and `SdStorage` opens its own
+  `SPIClass(VSPI)` there. The first version assumed 14/12/13 on HSPI and
+  failed on-device with `sdSelectCard(): Select Failed` (the card never
+  answers, before any mount is attempted); `tools/test-sd-esp32` is the
+  bench that caught it — 39/39 once the pins were fixed. `begin()` opens the SPI bus — the constructor only stores
   pins, so this global's constructor touches no hardware.
   **`readFile()` returns false when the content does not fit the buffer**, and
   that is the whole point: it used to truncate silently and return true, which

@@ -13,14 +13,20 @@ constexpr bool DEBUG_SDSTORAGE = true;
 // operaciones basicas de archivo; quien decide QUE guardar y CUANDO es
 // responsabilidad de quien lo usa (Engine/MySystem), no de este modulo.
 //
-// La SD en la ESP32-2432S028 (CYD) comparte el bus SPI fisico con el TFT
-// (MISO=12, MOSI=13, SCLK=14 -- ver platformio.ini/display.hpp) pero tiene
-// su propio Chip Select (GPIO 5). Por eso este modulo abre su propia
-// SPIClass(HSPI) en esos mismos pines en vez de reusar la instancia
-// interna de TFT_eSPI -- las mantiene desacopladas.
+// La SD en la ESP32-2432S028 (CYD) NO comparte el bus SPI con el TFT: el
+// TFT va por HSPI (MISO=12, MOSI=13, SCLK=14 -- ver platformio.ini) y el
+// slot SD esta cableado a VSPI (SCLK=18, MISO=19, MOSI=23) con CS en
+// GPIO 5. Por eso este modulo abre su propia SPIClass(VSPI) en esos pines,
+// independiente de la instancia interna de TFT_eSPI.
+//
+// Antes se asumia que la SD colgaba del bus del TFT (14/12/13, HSPI). Con
+// esos pines la tarjeta nunca contesta y el core reporta
+// "sdSelectCard(): Select Failed" antes de intentar montar -- verificado
+// en placa con tools/test-sd-esp32. Ademas, una segunda SPIClass(HSPI)
+// pisaria la configuracion del periferico que TFT_eSPI ya usa.
 class SdStorage {
   public:
-    explicit SdStorage(uint8_t csPin = 5, uint8_t sckPin = 14, uint8_t misoPin = 12, uint8_t mosiPin = 13);
+    explicit SdStorage(uint8_t csPin = 5, uint8_t sckPin = 18, uint8_t misoPin = 19, uint8_t mosiPin = 23);
 
     bool begin();
     bool isReady() const;
@@ -60,7 +66,7 @@ class SdStorage {
 // El bus SPI se abre en begin(), mismo criterio que PwmDriver y
 // CoilExcitation en el Mega.
 inline SdStorage::SdStorage(uint8_t csPin, uint8_t sckPin, uint8_t misoPin, uint8_t mosiPin)
-  : _csPin(csPin), _sckPin(sckPin), _misoPin(misoPin), _mosiPin(mosiPin), _spi(HSPI), _ready(false) {
+  : _csPin(csPin), _sckPin(sckPin), _misoPin(misoPin), _mosiPin(mosiPin), _spi(VSPI), _ready(false) {
 }
 
 inline bool SdStorage::begin() {
