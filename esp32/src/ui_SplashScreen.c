@@ -15,15 +15,13 @@ void ui_SplashScreen_screen_init(void)
 {
     ui_SplashScreen = lv_obj_create(NULL);
     lv_obj_remove_flag(ui_SplashScreen, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
-    lv_obj_set_flex_flow(ui_SplashScreen, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(ui_SplashScreen, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_bg_color(ui_SplashScreen, lv_color_hex(0xF2F2F3), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(ui_SplashScreen, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_Image1 = lv_image_create(ui_SplashScreen);
-    lv_image_set_src(ui_Image1, &ui_img_splash_png);
-    lv_obj_set_width(ui_Image1, lv_pct(100));
-    lv_obj_set_height(ui_Image1, lv_pct(100));
+    lv_image_set_src(ui_Image1, &ui_img_fiuner320_png);
+    lv_obj_set_width(ui_Image1, LV_SIZE_CONTENT);   /// 100
+    lv_obj_set_height(ui_Image1, LV_SIZE_CONTENT);    /// 100
     lv_obj_set_align(ui_Image1, LV_ALIGN_CENTER);
     lv_obj_add_flag(ui_Image1, LV_OBJ_FLAG_ADV_HITTEST);     /// Flags
     lv_obj_remove_flag(ui_Image1, LV_OBJ_FLAG_SCROLLABLE);      /// Flags

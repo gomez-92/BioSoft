@@ -161,6 +161,10 @@ inline void MySystem::begin() {
   // pasa nada: quedan los defaults compilados.
   SelectionStore::load(_sdStorage, _data.configuration);
 
+  // Se lee una sola vez porque es lo unico que se puede saber: la libreria
+  // SD no notifica insercion ni extraccion (ver CommunicationData).
+  _data.communication.sdOk = _sdStorage.isReady();
+
   // Los labels de Principal se calculan una vez en el constructor de
   // SystemData, que corre en la inicializacion estatica -- antes de
   // setup() y por lo tanto antes de ConfigLoader::load(). Sin esta

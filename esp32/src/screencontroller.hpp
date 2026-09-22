@@ -43,6 +43,50 @@ inline void buildDropdown(lv_obj_t* dropdown, const T* options, int count) {
   lv_dropdown_set_options(dropdown, items.c_str());
 }
 
+// Cada indicador son DOS iconos superpuestos en el mismo lugar, uno para
+// cada estado: se muestra el que corresponde y se oculta el otro. No hay un
+// tercer estado "no se sabe" -- el export no tiene icono para eso, y mientras
+// la placa esta encendida los cuatro valores siempre estan definidos.
+inline void applyStatusIcon(lv_obj_t* okIcon, lv_obj_t* failIcon, bool ok) {
+  if (ok) {
+    lv_obj_remove_flag(okIcon, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(failIcon, LV_OBJ_FLAG_HIDDEN);
+  }
+  else {
+    lv_obj_add_flag(okIcon, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_remove_flag(failIcon, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
+// Los cuatro valores tal como se aplicaron la ultima vez, para no tocar ocho
+// banderas de visibilidad en cada tick de 50 ms. `applied` arranca en false
+// para que la primera pasada escriba si o si: el export deja los cuatro
+// iconos "Ok" ocultos, o sea los cuatro indicadores en rojo, y sin esa
+// primera pasada la pantalla mentiria hasta el primer cambio de estado.
+struct StatusIconsCache {
+  bool applied = false;
+  bool serialOk = false;
+  bool wifiOk = false;
+  bool brokerOk = false;
+  bool sdOk = false;
+
+  bool matches(const CommunicationData& data) const {
+    return applied
+        && serialOk == data.serialOk
+        && wifiOk == data.wifiOk
+        && brokerOk == data.brokerOk
+        && sdOk == data.sdOk;
+  }
+
+  void remember(const CommunicationData& data) {
+    applied = true;
+    serialOk = data.serialOk;
+    wifiOk = data.wifiOk;
+    brokerOk = data.brokerOk;
+    sdOk = data.sdOk;
+  }
+};
+
 /* ============================================================
  *  BASE CONTROLLER
  * ============================================================ */
@@ -133,6 +177,8 @@ class PrincipalController : public BaseScreenController {
     void goToRunning();
   private:
     SystemData& _data;
+    StatusIconsCache _statusIcons;
+    void _updateStatusIcons();
 };
 
 inline PrincipalController::PrincipalController(SystemData& data) : BaseScreenController(ui_PrincipalScreen, ScreenType::PRINCIPAL, "principal"), _data(data) {}
@@ -157,9 +203,26 @@ inline void PrincipalController::show() {
   // el grupo (tratado/control) y los chips de componentes del diseno
   // anterior ya no tienen widget.
   lv_label_set_text(ui_PrincipalModoValor, _data.principal.fieldModeValue);
+
+  _updateStatusIcons();
 }
 
-inline void PrincipalController::update() {}
+// La configuracion de esta pantalla solo cambia en Configuraciones, que
+// vuelve pasando por show(); los indicadores de conexion, en cambio, cambian
+// MIENTRAS la pantalla esta a la vista. Por eso update() dejo de estar vacio.
+inline void PrincipalController::update() {
+  _updateStatusIcons();
+}
+
+inline void PrincipalController::_updateStatusIcons() {
+  if (_statusIcons.matches(_data.communication)) return;
+  _statusIcons.remember(_data.communication);
+
+  applyStatusIcon(ui_PrincipalMegaOk, ui_PrincipalMegaNo, _data.communication.serialOk);
+  applyStatusIcon(ui_PrincipalWifiOk, ui_PrincipalWifiNo, _data.communication.wifiOk);
+  applyStatusIcon(ui_PrincipalBrokerOk, ui_PrincipalBrokerNo, _data.communication.brokerOk);
+  applyStatusIcon(ui_PrincipalSdOk, ui_PrincipalSdNo, _data.communication.sdOk);
+}
 
 inline void PrincipalController::goToConfig() {
   if(_listener == nullptr) return;
@@ -526,6 +589,7 @@ class RunningController : public BaseScreenController {
   private:
     SystemData& _data;
     unsigned long _lastProgressUpdate = 0;
+    StatusIconsCache _statusIcons;
 
     // Cache de lo ya escrito en los dos labels de medicion, para no
     // reescribirlos (y repintarlos) en cada tick de 50 ms. Es miembro y no
@@ -548,6 +612,7 @@ class RunningController : public BaseScreenController {
     void _updateAlertsData();
     void _updateHealthData();
     void _applyAlertDots(const char* source, lv_obj_t* const dots[MAX_ALERT_DOTS]);
+    void _updateStatusIcons();
     uint8_t _resolveVisibleCoils() const;
     void _applyCoilVisibility();
 };
@@ -602,6 +667,21 @@ inline void RunningController::show() {
   _updateAlertsData();
   // estado de salud
   _updateHealthData();
+  // conexiones (serie con el Mega, WiFi, broker, SD)
+  _updateStatusIcons();
+}
+
+// Mismos cuatro indicadores que Principal y Resultado, con los widgets de
+// esta pantalla. Se refrescan en cada tick porque la conexion puede caerse
+// en medio del experimento, que es justo cuando mas importa verlo.
+inline void RunningController::_updateStatusIcons() {
+  if (_statusIcons.matches(_data.communication)) return;
+  _statusIcons.remember(_data.communication);
+
+  applyStatusIcon(ui_EnCursoMegaOk, ui_EnCursoMegaNo, _data.communication.serialOk);
+  applyStatusIcon(ui_EnCursoWifiOk, ui_EnCursoWifiNo, _data.communication.wifiOk);
+  applyStatusIcon(ui_EnCursoBrokerOk, ui_EnCursoBrokerNo, _data.communication.brokerOk);
+  applyStatusIcon(ui_EnCursoSdOk, ui_EnCursoSdNo, _data.communication.sdOk);
 }
 
 // Mismos valores sueltos que muestra Principal (numero grande + unidad chica
@@ -809,6 +889,7 @@ inline void RunningController::update() {
   _updateMeasuresData();
   _updateAlertsData();
   _updateHealthData();
+  _updateStatusIcons();
 
   // El progreso (%, restante) y las corrientes no necesitan refrescarse en
   // cada tick de pantalla (50ms) -- un experimento se mide en minutos, no en
@@ -848,6 +929,8 @@ class ResultadoController : public BaseScreenController {
 
   private:
     SystemData& _data;
+    StatusIconsCache _statusIcons;
+    void _updateStatusIcons();
     void _applyResult();
     void _applyPanel(lv_obj_t* panel, bool visible, lv_obj_t* modeLabel, lv_obj_t* detailLabel, const char* detail);
     void _buildAlertsClause(char* out, size_t size) const;
@@ -889,6 +972,21 @@ inline void ResultadoController::onRepetir() {
 inline void ResultadoController::show() {
   BaseScreenController::show();
   _applyResult();
+  _updateStatusIcons();
+}
+
+// Resultado muestra un snapshot congelado del experimento, pero los
+// indicadores de conexion NO son parte de ese snapshot: son el estado de
+// ahora. Si el Mega se desconecta mientras el operador lee el resultado,
+// tiene que verse.
+inline void ResultadoController::_updateStatusIcons() {
+  if (_statusIcons.matches(_data.communication)) return;
+  _statusIcons.remember(_data.communication);
+
+  applyStatusIcon(ui_ResultadoMegaOk, ui_ResultadoMegaNo, _data.communication.serialOk);
+  applyStatusIcon(ui_ResultadoWifiOk, ui_ResultadoWifiNo, _data.communication.wifiOk);
+  applyStatusIcon(ui_ResultadoBrokerOk, ui_ResultadoBrokerNo, _data.communication.brokerOk);
+  applyStatusIcon(ui_ResultadoSdOk, ui_ResultadoSdNo, _data.communication.sdOk);
 }
 
 // "sin alertas activas" / "1 alerta activa" / "N alertas activas". Sale del
@@ -1005,7 +1103,9 @@ inline void ResultadoController::_applyResult() {
   lv_label_set_text(ui_ResultadoCampoMedioUnidadValor, text);
 }
 
-inline void ResultadoController::update() {}
+inline void ResultadoController::update() {
+  _updateStatusIcons();
+}
 
 static void btnResultadoVolverClick(lv_event_t * e) {
   ResultadoController * self = (ResultadoController *) lv_event_get_user_data(e);

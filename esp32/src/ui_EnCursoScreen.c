@@ -8,6 +8,15 @@
 lv_obj_t * ui_EnCursoScreen = NULL;
 lv_obj_t * ui_EnCursoHeader = NULL;
 lv_obj_t * ui_EnCursoHeaderTitle = NULL;
+lv_obj_t * ui_EnCursoHeaderBarraEstado = NULL;
+lv_obj_t * ui_EnCursoMegaOk = NULL;
+lv_obj_t * ui_EnCursoMegaNo = NULL;
+lv_obj_t * ui_EnCursoSdOk = NULL;
+lv_obj_t * ui_EnCursoSdNo = NULL;
+lv_obj_t * ui_EnCursoWifiOk = NULL;
+lv_obj_t * ui_EnCursoWifiNo = NULL;
+lv_obj_t * ui_EnCursoBrokerOk = NULL;
+lv_obj_t * ui_EnCursoBrokerNo = NULL;
 lv_obj_t * ui_EnCursoHeaderEstado = NULL;
 lv_obj_t * ui_EnCursoHeaderEstadoNormal = NULL;
 lv_obj_t * ui_EnCursoHeaderEstadoAdvertencia = NULL;
@@ -159,6 +168,79 @@ void ui_EnCursoScreen_screen_init(void)
     lv_obj_set_style_text_color(ui_EnCursoHeaderTitle, lv_color_hex(0x7FC0FF), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_opa(ui_EnCursoHeaderTitle, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_font(ui_EnCursoHeaderTitle, &lv_font_montserrat_20, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    ui_EnCursoHeaderBarraEstado = lv_obj_create(ui_EnCursoHeader);
+    lv_obj_remove_style_all(ui_EnCursoHeaderBarraEstado);
+    lv_obj_set_width(ui_EnCursoHeaderBarraEstado, 130);
+    lv_obj_set_height(ui_EnCursoHeaderBarraEstado, lv_pct(100));
+    lv_obj_set_align(ui_EnCursoHeaderBarraEstado, LV_ALIGN_CENTER);
+    lv_obj_set_flex_flow(ui_EnCursoHeaderBarraEstado, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(ui_EnCursoHeaderBarraEstado, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_remove_flag(ui_EnCursoHeaderBarraEstado, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);      /// Flags
+
+    ui_EnCursoMegaOk = lv_image_create(ui_EnCursoHeaderBarraEstado);
+    lv_image_set_src(ui_EnCursoMegaOk, &ui_img_link_activo_png);
+    lv_obj_set_width(ui_EnCursoMegaOk, LV_SIZE_CONTENT);   /// 1
+    lv_obj_set_height(ui_EnCursoMegaOk, LV_SIZE_CONTENT);    /// 1
+    lv_obj_set_align(ui_EnCursoMegaOk, LV_ALIGN_CENTER);
+    lv_obj_add_flag(ui_EnCursoMegaOk, LV_OBJ_FLAG_HIDDEN | LV_OBJ_FLAG_CLICKABLE);     /// Flags
+    lv_obj_remove_flag(ui_EnCursoMegaOk, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
+
+    ui_EnCursoMegaNo = lv_image_create(ui_EnCursoHeaderBarraEstado);
+    lv_image_set_src(ui_EnCursoMegaNo, &ui_img_link_fallo_png);
+    lv_obj_set_width(ui_EnCursoMegaNo, LV_SIZE_CONTENT);   /// 1
+    lv_obj_set_height(ui_EnCursoMegaNo, LV_SIZE_CONTENT);    /// 1
+    lv_obj_set_align(ui_EnCursoMegaNo, LV_ALIGN_CENTER);
+    lv_obj_add_flag(ui_EnCursoMegaNo, LV_OBJ_FLAG_CLICKABLE);     /// Flags
+    lv_obj_remove_flag(ui_EnCursoMegaNo, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
+
+    ui_EnCursoSdOk = lv_image_create(ui_EnCursoHeaderBarraEstado);
+    lv_image_set_src(ui_EnCursoSdOk, &ui_img_sd_activo_png);
+    lv_obj_set_width(ui_EnCursoSdOk, LV_SIZE_CONTENT);   /// 1
+    lv_obj_set_height(ui_EnCursoSdOk, LV_SIZE_CONTENT);    /// 1
+    lv_obj_set_align(ui_EnCursoSdOk, LV_ALIGN_CENTER);
+    lv_obj_add_flag(ui_EnCursoSdOk, LV_OBJ_FLAG_HIDDEN | LV_OBJ_FLAG_CLICKABLE);     /// Flags
+    lv_obj_remove_flag(ui_EnCursoSdOk, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
+
+    ui_EnCursoSdNo = lv_image_create(ui_EnCursoHeaderBarraEstado);
+    lv_image_set_src(ui_EnCursoSdNo, &ui_img_sd_fallo_png);
+    lv_obj_set_width(ui_EnCursoSdNo, LV_SIZE_CONTENT);   /// 1
+    lv_obj_set_height(ui_EnCursoSdNo, LV_SIZE_CONTENT);    /// 1
+    lv_obj_set_align(ui_EnCursoSdNo, LV_ALIGN_CENTER);
+    lv_obj_add_flag(ui_EnCursoSdNo, LV_OBJ_FLAG_CLICKABLE);     /// Flags
+    lv_obj_remove_flag(ui_EnCursoSdNo, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
+
+    ui_EnCursoWifiOk = lv_image_create(ui_EnCursoHeaderBarraEstado);
+    lv_image_set_src(ui_EnCursoWifiOk, &ui_img_wifi_activo_png);
+    lv_obj_set_width(ui_EnCursoWifiOk, LV_SIZE_CONTENT);   /// 1
+    lv_obj_set_height(ui_EnCursoWifiOk, LV_SIZE_CONTENT);    /// 1
+    lv_obj_set_align(ui_EnCursoWifiOk, LV_ALIGN_CENTER);
+    lv_obj_add_flag(ui_EnCursoWifiOk, LV_OBJ_FLAG_HIDDEN | LV_OBJ_FLAG_CLICKABLE);     /// Flags
+    lv_obj_remove_flag(ui_EnCursoWifiOk, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
+
+    ui_EnCursoWifiNo = lv_image_create(ui_EnCursoHeaderBarraEstado);
+    lv_image_set_src(ui_EnCursoWifiNo, &ui_img_wifi_fallo_png);
+    lv_obj_set_width(ui_EnCursoWifiNo, LV_SIZE_CONTENT);   /// 1
+    lv_obj_set_height(ui_EnCursoWifiNo, LV_SIZE_CONTENT);    /// 1
+    lv_obj_set_align(ui_EnCursoWifiNo, LV_ALIGN_CENTER);
+    lv_obj_add_flag(ui_EnCursoWifiNo, LV_OBJ_FLAG_CLICKABLE);     /// Flags
+    lv_obj_remove_flag(ui_EnCursoWifiNo, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
+
+    ui_EnCursoBrokerOk = lv_image_create(ui_EnCursoHeaderBarraEstado);
+    lv_image_set_src(ui_EnCursoBrokerOk, &ui_img_telemetry_activo_png);
+    lv_obj_set_width(ui_EnCursoBrokerOk, LV_SIZE_CONTENT);   /// 1
+    lv_obj_set_height(ui_EnCursoBrokerOk, LV_SIZE_CONTENT);    /// 1
+    lv_obj_set_align(ui_EnCursoBrokerOk, LV_ALIGN_CENTER);
+    lv_obj_add_flag(ui_EnCursoBrokerOk, LV_OBJ_FLAG_HIDDEN | LV_OBJ_FLAG_CLICKABLE);     /// Flags
+    lv_obj_remove_flag(ui_EnCursoBrokerOk, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
+
+    ui_EnCursoBrokerNo = lv_image_create(ui_EnCursoHeaderBarraEstado);
+    lv_image_set_src(ui_EnCursoBrokerNo, &ui_img_telemetry_fallo_png);
+    lv_obj_set_width(ui_EnCursoBrokerNo, LV_SIZE_CONTENT);   /// 1
+    lv_obj_set_height(ui_EnCursoBrokerNo, LV_SIZE_CONTENT);    /// 1
+    lv_obj_set_align(ui_EnCursoBrokerNo, LV_ALIGN_CENTER);
+    lv_obj_add_flag(ui_EnCursoBrokerNo, LV_OBJ_FLAG_CLICKABLE);     /// Flags
+    lv_obj_remove_flag(ui_EnCursoBrokerNo, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
 
     ui_EnCursoHeaderEstado = lv_obj_create(ui_EnCursoHeader);
     lv_obj_remove_style_all(ui_EnCursoHeaderEstado);
@@ -1552,6 +1634,15 @@ void ui_EnCursoScreen_screen_destroy(void)
     ui_EnCursoScreen = NULL;
     ui_EnCursoHeader = NULL;
     ui_EnCursoHeaderTitle = NULL;
+    ui_EnCursoHeaderBarraEstado = NULL;
+    ui_EnCursoMegaOk = NULL;
+    ui_EnCursoMegaNo = NULL;
+    ui_EnCursoSdOk = NULL;
+    ui_EnCursoSdNo = NULL;
+    ui_EnCursoWifiOk = NULL;
+    ui_EnCursoWifiNo = NULL;
+    ui_EnCursoBrokerOk = NULL;
+    ui_EnCursoBrokerNo = NULL;
     ui_EnCursoHeaderEstado = NULL;
     ui_EnCursoHeaderEstadoNormal = NULL;
     ui_EnCursoHeaderEstadoAdvertencia = NULL;

@@ -181,38 +181,28 @@ struct BusyData {
   const char* messageProcess = "Procesando...";
 };
 
-// PENDIENTE (decision de diseno, no hay bug que arreglar): estos tres flags
-// se mantienen al dia y NO los lee ninguna pantalla. Hoy no hay forma de
-// saber desde la HMI si el Mega esta conectado, si hay WiFi o si el broker
-// respondio; el rediseno UiFinalParte1/2 no dejo widget para eso (los chips
-// de "componentes" del diseno viejo desaparecieron).
+// Los cuatro indicadores de estado que muestran los headers de Principal y
+// Resultado (ui_*MegaOk/No, *WifiOk/No, *BrokerOk/No, *SdOk/No). Quien
+// mantiene cada uno:
+//  - serialOk <- MySystem::onSerialConnected/onSerialDisconnected
+//  - wifiOk   <- MySystem::onWiFiConnected/onWiFiDisconnected
+//  - brokerOk <- MySystem::onBrokerConnected/onBrokerDisconnected
+//  - sdOk     <- MySystem::begin(), una sola vez
 //
-// Quien esta al dia y quien no:
-//  - serialOk  <- MySystem::onSerialConnected/onSerialDisconnected
-//  - wifiOk    <- MySystem::onWiFiConnected/onWiFiDisconnected
-//  - brokerOk  <- MySystem::onBrokerConnected/onBrokerDisconnected
-//  - la SD NO tiene flag: la verdad esta en SdStorage::isReady(), que solo
-//    refleja el montaje del arranque (no hay deteccion de insercion en
-//    caliente). Para mostrarla habria que agregar un `sdOk` aca y llenarlo
-//    en MySystem::begin().
+// sdOk es el unico que NO se actualiza solo: SdStorage::isReady() refleja el
+// montaje del arranque y la libreria SD no avisa insercion ni extraccion en
+// caliente. Sacar la tarjeta con la placa encendida deja el indicador en
+// verde; para detectarlo habria que sondear el bus, que es justamente lo que
+// no se quiso meter en el lazo de la UI.
 //
-// Donde mostrarlos, cuando se decida: los dos headers que ya existen son
-// los candidatos naturales -- el de Principal (junto a ui_PrincipalTitle) y
-// el de En curso (donde viven los chips de salud
-// ui_EnCursoHeaderEstadoNormal/Advertencia/Critico, mismo patron de
-// visibilidad excluyente). Configuraciones y Resultado no lo necesitan.
-//
-// Dos cosas a tener en cuenta al implementarlo:
-//  - PrincipalController::update() hoy esta vacio a proposito: Principal
-//    solo se refresca en show(). Un indicador de conexion cambia MIENTRAS
-//    la pantalla esta a la vista, asi que habria que llenarlo.
-//  - Con BENCH_SIN_RED en true (SoftEsp32.ino) no se levantan ni WiFi ni
-//    broker, asi que esos dos indicadores quedarian permanentemente en
-//    rojo. Es lo correcto, pero conviene no leerlo como una falla.
+// Con BENCH_SIN_RED en true no se levantan WiFi ni broker, asi que esos dos
+// quedan permanentemente en rojo. Es correcto -- estan efectivamente
+// desconectados -- pero conviene no leerlo como una falla de la placa.
 struct CommunicationData {
   bool serialOk = false;
   bool wifiOk = false;
   bool brokerOk = false;
+  bool sdOk = false;
 };
 
 class StateListener {
