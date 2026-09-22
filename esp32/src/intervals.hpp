@@ -25,4 +25,13 @@ namespace Intervals {
   // Reintento del envio fragmentado de config_intervals/config_control/
   // config_coil al Mega (ver mysystem.hpp::_sendMegaConfig()).
   inline unsigned long ReSendConfig          = 4000;
+
+  // Timeouts de pantalla, no periodos de tarea: cuanto se queda el splash
+  // antes de emitir su Timeout, y cuanto espera Busy la confirmacion del
+  // Mega antes de rendirse y volver a Principal. Configurables por SD como
+  // el resto, pero con piso de 1000 ms (ConfigLoader::applyScreenTimeout).
+  // busyTimeout ademas tiene que superar a intervals.mega.sendState: es la
+  // cadencia con la que llega el state_data que esta pantalla espera.
+  inline unsigned long SplashTimeout         = 4000;
+  inline unsigned long BusyTimeout           = 6000;
 };

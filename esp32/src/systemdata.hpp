@@ -8,12 +8,23 @@ constexpr bool DEBUG_SYSTEMDATA = true;
 
 
 struct PrincipalData {
-    char targetFieldIntensity[20];
-    char targetFieldFrequency[20];
-    char targetDuration[20];
-    char fieldIntensityTolerance[20];
-    char normalTemperatureRange[20];
-    char criticalTemperatureRange[20];
+    // Valores sueltos, sin unidad: Principal y En curso muestran el numero
+    // grande y la unidad chica en widgets separados.
+    // Se formatean desde los valores numericos de la opcion (intensity,
+    // freq, duration...) y NO parseando el label: con los menus viniendo
+    // de la SD el label es texto libre del operador.
+    char intensityValue[12];
+    char frequencyValue[12];
+    char durationHours[4];
+    char durationMinutes[4];
+    char toleranceValue[8];
+    char normalTemperatureValue[12];
+    char criticalTemperatureValue[12];
+
+    // Modo de exposicion ("CAMPO X" / "CAMPO NULO") y el grupo experimental
+    // que implica ("GRUPO TRATADO" / "GRUPO CONTROL").
+    char fieldModeValue[16];
+    char fieldModeGroup[16];
 };
 
 struct ConfigurationData {
@@ -28,11 +39,9 @@ struct ConfigurationData {
   // 0 = campo X. El default es X y no campo nulo a proposito, igual que en
   // el Mega: un campo nulo silencioso se ve exactamente igual que un
   // experimento normal, y contaminaria el grupo control sin sintoma.
-  //
-  // Todavia no hay dropdown que lo cambie -- el widget de la pantalla
-  // Configuracion esta pendiente de SquareLine (ver tarjeta 15 de Trello).
-  // Hasta que exista, este valor queda siempre en 0 y `start` viaja con
-  // mode="x", que es el comportamiento actual del sistema.
+  // Lo cambia el dropdown ui_ConfiguracionModoOpciones de la
+  // pantalla Configuracion (ConfigurationController) y viaja como `mode`
+  // en `start` (MySystem::_sendStart).
   uint8_t fieldModeOption = 0;
 };
 
@@ -55,15 +64,61 @@ struct ResultData {
   char health[20] = "";
   float progressPercent = 0.0f;
   char elapsed[9] = "00:00:00";
+  // Lo mismo que `elapsed` pero en segundos: la pantalla Resultado nueva
+  // muestra horas y minutos en widgets separados, y es mas simple partir
+  // un numero que parsear el "hh:mm:ss".
+  unsigned long elapsedSeconds = 0;
+  // Modo de exposicion con el que corrio el experimento (label de
+  // PrincipalData::fieldModeValue). Se congela aca, no se lee de
+  // configuration: el operador puede cambiar el modo despues.
+  char fieldMode[16] = "";
+  // Promedio del campo medido durante el experimento (mT), calculado en
+  // el ESP32 a partir de cada cem_data recibido -- el Mega no lo manda.
+  float meanMagneticField = 0.0f;
+  bool hasMeanMagneticField = false;
+  // Alertas distintas activas al momento del corte (0..MAX_ALERTS).
+  uint8_t alertCount = 0;
+
+  // Datos crudos del corte, tal como los manda el Mega en result_data (ver
+  // RuntimeState::ResultData alla). La pantalla redacta su texto con esto y
+  // no parseando `description`.
+  //
+  // Con reason == "critical": fuente, tipo de regla y cuenta alcanzada.
+  char source[16] = "";
+  char type[12] = "";
+  uint16_t count = 0;
+  uint16_t limit = 0;
+  // Con reason == "stopped": si vino del pulsador fisico de emergencia.
+  bool fromEmergency = false;
 };
+
+// Bobinas que muestra la pantalla En curso, una fila por cada una. Es el
+// maximo fisico del gabinete (ver CoilChannels en el Mega); la corriente
+// de la bobina N llega como "SCT013-N" en current_data.
+#define MAX_COILS 4
 
 struct MeasuresData {
   float measureMagneticField = 0.0f;
   float measureTemperature = 0.0f;
-  float measureCurrent = 0.0f;
+  // coilCurrent[0] es SCT013-1, y es tambien la corriente que se publica
+  // por MQTT (Topics::Current): una sola, porque el Decoder de Datacake
+  // espera un campo, no cuatro.
+  float coilCurrent[MAX_COILS] = {0.0f, 0.0f, 0.0f, 0.0f};
+  // Duty REALMENTE aplicado a cada bobina, en por ciento (0..100). Llega en
+  // el mismo frame coil_data que la corriente; es el duty comun por el
+  // factor de calibracion de esa bobina, no la consigna del FieldController.
+  float coilDuty[MAX_COILS] = {0.0f, 0.0f, 0.0f, 0.0f};
   unsigned long latestMagneticFieldUpdate = 0;
   unsigned long latestTemperatureUpdate = 0;
-  unsigned long latestCurrentUpdate = 0;
+  // Un solo sello por bobina: duty y corriente viajan juntos en coil_data.
+  // Distinto de 0 significa "esta bobina existe del otro lado y reporto",
+  // que es como En curso decide cuantas filas dibujar cuando no hay seccion
+  // coils en la SD.
+  unsigned long latestCoilUpdate[MAX_COILS] = {0, 0, 0, 0};
+  // Acumulador para el campo medio del experimento (ResultData). Se
+  // reinicia al entrar a Running y suma una muestra por cem_data.
+  double magneticFieldSum = 0.0;
+  unsigned long magneticFieldSamples = 0;
 };
 
 #define MAX_ALERTS 3
@@ -79,6 +134,32 @@ struct AlertData {
 
 struct AlertsData {
   AlertData items[MAX_ALERTS];
+};
+
+// Cuantos eventos por fuente recuerda AlertHistory: son los 4 paneles que
+// tiene cada medicion en la pantalla En curso.
+#define MAX_ALERT_DOTS 4
+// Fuentes con historial: CEM1 y TEMP1, las unicas que el Detector vigila
+// (ver el .ino del Mega). SCT013-1 se mide y se muestra pero no es fuente.
+#define MAX_ALERT_SOURCES 2
+
+// Los ULTIMOS eventos de una fuente, del mas viejo al mas nuevo.
+//
+// Es un registro aparte de AlertsData y no un reemplazo: AlertsData dedupe
+// por fuente+tipo (una entrada por tipo, con el contador acumulado) y es lo
+// que alimenta la salud y la pantalla Resultado. Esto de aca NO deduplica:
+// cada flag_data es un evento y ocupa su propio panel, porque lo que los 4
+// paneles muestran es la secuencia reciente, no el estado agregado.
+struct AlertHistory {
+  char source[16] = "";
+  // types[0] es el mas antiguo de los que se muestran (panel de la
+  // izquierda) y types[count-1] el mas reciente (derecha).
+  char types[MAX_ALERT_DOTS][16] = {};
+  uint8_t count = 0;
+};
+
+struct AlertsHistoryData {
+  AlertHistory sources[MAX_ALERT_SOURCES];
 };
 
 namespace StateData {
@@ -100,6 +181,34 @@ struct BusyData {
   const char* messageProcess = "Procesando...";
 };
 
+// PENDIENTE (decision de diseno, no hay bug que arreglar): estos tres flags
+// se mantienen al dia y NO los lee ninguna pantalla. Hoy no hay forma de
+// saber desde la HMI si el Mega esta conectado, si hay WiFi o si el broker
+// respondio; el rediseno UiFinalParte1/2 no dejo widget para eso (los chips
+// de "componentes" del diseno viejo desaparecieron).
+//
+// Quien esta al dia y quien no:
+//  - serialOk  <- MySystem::onSerialConnected/onSerialDisconnected
+//  - wifiOk    <- MySystem::onWiFiConnected/onWiFiDisconnected
+//  - brokerOk  <- MySystem::onBrokerConnected/onBrokerDisconnected
+//  - la SD NO tiene flag: la verdad esta en SdStorage::isReady(), que solo
+//    refleja el montaje del arranque (no hay deteccion de insercion en
+//    caliente). Para mostrarla habria que agregar un `sdOk` aca y llenarlo
+//    en MySystem::begin().
+//
+// Donde mostrarlos, cuando se decida: los dos headers que ya existen son
+// los candidatos naturales -- el de Principal (junto a ui_PrincipalTitle) y
+// el de En curso (donde viven los chips de salud
+// ui_EnCursoHeaderEstadoNormal/Advertencia/Critico, mismo patron de
+// visibilidad excluyente). Configuraciones y Resultado no lo necesitan.
+//
+// Dos cosas a tener en cuenta al implementarlo:
+//  - PrincipalController::update() hoy esta vacio a proposito: Principal
+//    solo se refresca en show(). Un indicador de conexion cambia MIENTRAS
+//    la pantalla esta a la vista, asi que habria que llenarlo.
+//  - Con BENCH_SIN_RED en true (SoftEsp32.ino) no se levantan ni WiFi ni
+//    broker, asi que esos dos indicadores quedarian permanentemente en
+//    rojo. Es lo correcto, pero conviene no leerlo como una falla.
 struct CommunicationData {
   bool serialOk = false;
   bool wifiOk = false;
@@ -120,6 +229,7 @@ class SystemData {
     ConfigurationData configuration;
     MeasuresData measures;
     AlertsData alerts;
+  AlertsHistoryData alertsHistory;
     ProgressData progress;
     ResultData result;
     BusyData busy;
@@ -134,8 +244,18 @@ class SystemData {
     void pushAlert(const char* type, const char* source, int count, int limit);
     const char* evaluateHealth() const;
     const char* latestUpdateStr(unsigned long latestUpdate);
+    // Historial por fuente para los 4 paneles de alerta de En curso.
+    void pushAlertEvent(const char* source, const char* type);
+    const AlertHistory* alertHistory(const char* source) const;
+    void clearAlertHistory();
+
     const char* elapsedTime();
+    unsigned long elapsedSeconds();
+    unsigned long remainingSeconds();
     float progressPercent();
+    void addMagneticFieldSample(float value);
+    float meanMagneticField() const;
+    uint8_t activeAlertCount() const;
     const char* getState();
     void setState(const char* newState);
     void setStateListener(StateListener* listener);
@@ -152,48 +272,73 @@ inline SystemData::SystemData() : _listener(nullptr) {
   updatePrincipalConfigurationLabels();
 }
 
+// Agrega un evento al historial de `source`, creando la entrada la primera
+// vez. Con los 4 lugares ocupados corre todo a la izquierda y descarta el
+// mas viejo: lo que se muestra son siempre los ULTIMOS 4.
+inline void SystemData::pushAlertEvent(const char* source, const char* type) {
+  AlertHistory* entry = nullptr;
+
+  for (int i = 0; i < MAX_ALERT_SOURCES; i++) {
+    AlertHistory& candidate = alertsHistory.sources[i];
+    if (strcmp(candidate.source, source) == 0) { entry = &candidate; break; }
+    if (candidate.source[0] == '\0') {
+      snprintf(candidate.source, sizeof(candidate.source), "%s", source);
+      entry = &candidate;
+      break;
+    }
+  }
+
+  // Mas fuentes distintas que lugares: se ignora en vez de pisar el
+  // historial de otra. Hoy no puede pasar (el Detector vigila 2), y si
+  // alguna vez vigila mas, esto es lo que hay que agrandar.
+  if (entry == nullptr) return;
+
+  if (entry->count < MAX_ALERT_DOTS) {
+    snprintf(entry->types[entry->count], sizeof(entry->types[0]), "%s", type);
+    entry->count++;
+    return;
+  }
+
+  for (int i = 0; i < MAX_ALERT_DOTS - 1; i++) {
+    snprintf(entry->types[i], sizeof(entry->types[0]), "%s", entry->types[i + 1]);
+  }
+  snprintf(entry->types[MAX_ALERT_DOTS - 1], sizeof(entry->types[0]), "%s", type);
+}
+
+inline const AlertHistory* SystemData::alertHistory(const char* source) const {
+  for (int i = 0; i < MAX_ALERT_SOURCES; i++) {
+    const AlertHistory& candidate = alertsHistory.sources[i];
+    if (strcmp(candidate.source, source) == 0) return &candidate;
+  }
+  return nullptr;
+}
+
+inline void SystemData::clearAlertHistory() {
+  alertsHistory = AlertsHistoryData();
+}
+
 inline void SystemData::updatePrincipalConfigurationLabels() {
-  snprintf(
-      principal.targetFieldIntensity,
-      sizeof(principal.targetFieldIntensity),
-      "%s",
-      ConfigurationOptions::optionsFieldIntensity[configuration.targetFieldIntensityOption].label
-  );
+  const auto& intensity = ConfigurationOptions::optionsFieldIntensity[configuration.targetFieldIntensityOption];
+  const auto& frequency = ConfigurationOptions::optionsFrequency[configuration.targetFieldFrequencyOption];
+  const auto& duration = ConfigurationOptions::optionsDuration[configuration.targetDurationOption];
+  const auto& tolerance = ConfigurationOptions::optionsTolFieldIntensity[configuration.fieldIntensityToleranceOption];
+  const auto& normalTemp = ConfigurationOptions::optionsRangeNormalTemperature[configuration.normalTemperatureRangeOption];
+  const auto& criticalTemp = ConfigurationOptions::optionsRangeCriticalTemperature[configuration.criticalTemperatureRangeOption];
 
-  snprintf(
-      principal.targetFieldFrequency,
-      sizeof(principal.targetFieldFrequency),
-      "%s",
-      ConfigurationOptions::optionsFrequency[configuration.targetFieldFrequencyOption].label
-  );
+  snprintf(principal.intensityValue, sizeof(principal.intensityValue), "%.1f", intensity.intensity);
+  snprintf(principal.frequencyValue, sizeof(principal.frequencyValue), "%d", frequency.freq);
+  unsigned long totalMinutes = duration.duration / 60000UL;
+  snprintf(principal.durationHours, sizeof(principal.durationHours), "%lu", totalMinutes / 60);
+  snprintf(principal.durationMinutes, sizeof(principal.durationMinutes), "%02lu", totalMinutes % 60);
+  snprintf(principal.toleranceValue, sizeof(principal.toleranceValue), "%d", tolerance.tol);
+  snprintf(principal.normalTemperatureValue, sizeof(principal.normalTemperatureValue), "%.0f~%.0f", normalTemp.tmin, normalTemp.tmax);
+  snprintf(principal.criticalTemperatureValue, sizeof(principal.criticalTemperatureValue), "%.0f~%.0f", criticalTemp.tmin, criticalTemp.tmax);
 
-  snprintf(
-      principal.targetDuration,
-      sizeof(principal.targetDuration),
-      "%s",
-      ConfigurationOptions::optionsDuration[configuration.targetDurationOption].label
-  );
-
-  snprintf(
-      principal.fieldIntensityTolerance,
-      sizeof(principal.fieldIntensityTolerance),
-      "%s",
-      ConfigurationOptions::optionsTolFieldIntensity[configuration.fieldIntensityToleranceOption].label
-  );
-
-  snprintf(
-      principal.normalTemperatureRange,
-      sizeof(principal.normalTemperatureRange),
-      "%s",
-      ConfigurationOptions::optionsRangeNormalTemperature[configuration.normalTemperatureRangeOption].label
-  );
-
-  snprintf(
-      principal.criticalTemperatureRange,
-      sizeof(principal.criticalTemperatureRange),
-      "%s",
-      ConfigurationOptions::optionsRangeCriticalTemperature[configuration.criticalTemperatureRangeOption].label
-  );
+  // El modo es una tabla fija de 2 entradas (ver configurationoptions.hpp):
+  // indice 0 = campo X = animales tratados, 1 = campo nulo = grupo control.
+  bool isNullField = configuration.fieldModeOption == 1;
+  snprintf(principal.fieldModeValue, sizeof(principal.fieldModeValue), "%s", isNullField ? "CAMPO NULO" : "CAMPO X");
+  snprintf(principal.fieldModeGroup, sizeof(principal.fieldModeGroup), "%s", isNullField ? "GRUPO CONTROL" : "GRUPO TRATADO");
 }
 
 // Mantiene las ultimas MAX_ALERTS alertas distintas (por source+type), mas
@@ -272,12 +417,56 @@ inline const char* SystemData::elapsedTime() {
     strcpy(result, "00:00:00");
     return result;
   }
-  unsigned long elapsed = (millis() - progress.startTime) / 1000;
+  // Mismo tope que elapsedSeconds(): las dos formas del tiempo transcurrido
+  // (segundos para la pantalla, "hh:mm:ss" para Resultado y la telemetria)
+  // tienen que contar lo mismo.
+  unsigned long elapsed = elapsedSeconds();
   uint32_t hours   = elapsed / 3600;
   uint32_t minutes = (elapsed % 3600) / 60;
   uint32_t seconds = elapsed % 60;
   snprintf(result, sizeof(result), "%02lu:%02lu:%02lu", hours, minutes, seconds);
   return result;
+}
+
+// Acotado a la duracion configurada, igual que progressPercent() se acota a
+// 100: pasado ese punto el experimento ya termino aunque el Mega todavia no
+// haya avisado, y un contador que sigue corriendo al lado de un 100% de
+// progreso se lee como que falta algo.
+inline unsigned long SystemData::elapsedSeconds() {
+  if (progress.startTime == 0) return 0;
+  unsigned long elapsedMs = millis() - progress.startTime;
+  if (progress.duration > 0 && elapsedMs >= progress.duration) {
+    return progress.duration / 1000;
+  }
+  return elapsedMs / 1000;
+}
+
+// Lo que falta para que el Mega dispare Tasks::Finish, en segundos. Vale 0
+// tanto sin experimento como una vez vencida la duracion (el Mega puede
+// tardar un ciclo de timer en cortar): no cuenta hacia negativo.
+inline unsigned long SystemData::remainingSeconds() {
+  if (progress.startTime == 0 || progress.duration == 0) return 0;
+  unsigned long elapsedMs = millis() - progress.startTime;
+  if (elapsedMs >= progress.duration) return 0;
+  return (progress.duration - elapsedMs) / 1000;
+}
+
+inline void SystemData::addMagneticFieldSample(float value) {
+  measures.magneticFieldSum += value;
+  measures.magneticFieldSamples++;
+}
+
+inline float SystemData::meanMagneticField() const {
+  if (measures.magneticFieldSamples == 0) return 0.0f;
+  return (float)(measures.magneticFieldSum / measures.magneticFieldSamples);
+}
+
+inline uint8_t SystemData::activeAlertCount() const {
+  uint8_t count = 0;
+  for (int i = 0; i < MAX_ALERTS; i++) {
+    if (alerts.items[i].active) count++;
+  }
+  return count;
 }
 
 inline float SystemData::progressPercent() {

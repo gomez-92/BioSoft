@@ -88,6 +88,16 @@ render fine and silently carry no outline level, which is exactly the bug that
 makes the navigation pane empty. Child order inside `w:pPr` is schema-fixed too
 (`keepNext` before `pageBreakBefore`); out of order, Word drops what follows,
 `outlineLvl` included.
+The wiring diagrams (sections 3–4, added 2026-09-11) are `<pre
+class="diagram">` blocks of box-drawing text, chosen over SVG precisely so
+the same figure survives HTML, PDF and the Word export. The exporter turns
+each into one `Diagrama`-styled paragraph (Consolas 7pt, `<w:br/>` per line,
+spaces preserved — `_Inline` collapses whitespace and would wreck the
+alignment). Its block regex matches `<pre` *before* `<p`, and the `<p`
+alternative is `<p(\s[^>]*|)>`: with the old `<p[^>]*>`, `<pre class=…>`
+matched as a paragraph with attributes `re class=…` and the diagram vanished
+without an error. Keep every diagram ≤ 90 columns — at the print size
+(8.2pt) that is the A4 text width, and Chrome clips the overflow silently.
 
 **The `.docx` is a one-way export, not a synchronized copy.** Re-running the
 script overwrites it. If the manual is ever edited in Word, that file becomes
@@ -125,7 +135,7 @@ STX(1) LEN_LO(1) LEN_HI(1) JSON(LEN bytes) CRC8(1) ETX(1)
 
 Each frame carries a JSON payload with a `command` string (see `commands.hpp` —
 `ping`/`pong`/`start`/`stop`/`reset`/`state_data`/`result_data`/`temp_data`/
-`cem_data`/`current_data`/`ack`) and a `params` object. `SerialLink` owns a small
+`cem_data`/`coil_data`/`ack`) and a `params` object. `SerialLink` owns a small
 TX queue (drained on a fixed interval) and an RX byte-state-machine parser;
 connection liveness is tracked via periodic ping/pong, exposed through
 `isConnected()` and the `CommandListener` `onSerialConnected`/`onSerialDisconnected`
@@ -184,11 +194,11 @@ Key collaborators:
   *optional* `mode` param on `start` ("null" ⇒ `Null`, anything else or absent ⇒
   `X`), so an older ESP32 build keeps working; the default is `X` on purpose,
   since a silently-null experiment would look exactly like a normal one. The
-  ESP32 **does** send it now, always and explicitly, from `_sendStart()`
+  ESP32 sends it always and explicitly, from `_sendStart()`
   (`ConfigurationOptions::optionsFieldMode` → `configuration.fieldModeOption`),
-  but the Configuración dropdown that would let the operator change it is still
-  pending in SquareLine — so the value is fixed at `"x"` until that widget
-  exists. `test_start_fits_with_field_mode` (native) pins that the 9-key `start`
+  chosen by the operator in the Configuración dropdown
+  (`ui_ConfiguracionesModoExposicionOpciones`, wired 2026-09-19).
+  `test_start_fits_with_field_mode` (native) pins that the 9-key `start`
   frame still fits, since a truncated `start` would drop `mode` silently and run
   the control group with real field.
   `ISignalGenerator` is declared here (same pattern as `IMagnetometer` living in
@@ -424,6 +434,17 @@ Key collaborators:
   skew between those two writes is 18° of error, so even a `DEBUG_PRINTLN`
   between them would matter. The analog inverter is exact by construction
   instead, which is the whole argument.
+- The phase-inversion circuit itself (op-amp inverter + 4053 mux from
+  ADR-001) is drawn in **`docs/etapa-de-fase.html`** — a self-contained HTML
+  with an inline SVG schematic, BOM and bench checks, same "opens by
+  double-click, no dependencies" rule as the manual and the generator. It is
+  the **single source** of the schematic: the ADR and `coil-excitation.md`
+  point to it and only summarize the choices (MCP6004 + CD4053B, inversion
+  around a buffered VREF = 2.5 V, R2/R3 the only matched pair). Don't
+  redraw it in Markdown or box-drawing text next to those summaries. The
+  selector polarity drawn there (A = HIGH ⇒ X1 = inverted ⇒ null field)
+  matches the `HIGH` passed to `CoilExcitation` in `SoftMega2560.ino`; if the
+  board ends up wired the other way, that argument is the one thing to flip.
 - **An ADS1115 has only 2 differential pairs** (AIN0-AIN1, AIN2-AIN3), not 4
   channels — `CurrentSensorSct013::readRaw()` reads differentially, and its
   `default` branch returns 0, i.e. a sensor that reads 0 A forever while
@@ -440,6 +461,22 @@ Key collaborators:
   Note `sampleRate` (and gain) are **per module, not per channel** — two
   sensors on one ADS share those registers and the last one configured wins,
   silently. Same shape of trap as PWM frequency being per timer, not per pin.
+- **`coil_data` carries duty *and* current, one entry per registered coil**
+  (`"d1".."d4"` in percent, `"c1".."c4"` in amps, from
+  `Engine::_sendCoilData()`). It replaced `current_data`, which sent only the
+  currents keyed by sensor name (`"SCT013-1"...`): the Running screen needs
+  both magnitudes per coil row, and needs to know how many coils actually
+  exist on the other side. Keys are short because the frame budget is 256
+  bytes and `serializeJson` truncates silently with a valid CRC —
+  `test_coildata_fits_with_four_coils` (native) pins it. Duty is rounded to
+  one decimal and current to two on the Mega, both to bound the frame and
+  because that is the precision the screen shows. The *set of keys present*
+  is itself payload: the ESP32 draws one coil row per coil that reported,
+  when it has no `coils` section from the SD. The duty sent is
+  `CoilChannel::appliedDuty()` — the common duty times that coil's
+  calibration factor, already saturated, and reset to 0 by `disable()` — not
+  the `FieldController` setpoint, so a coil running short is visible on
+  screen.
 - Current (`SCT013-1`) is measured and sent to the ESP32 but is not, and was
   never meant to be, a Detector source — by design the only sources are `TEMP1`
   and `CEM1`. `Engine::onCurrentSensorSample` still calls
@@ -622,10 +659,10 @@ and `StateListener` (own app state, from `SystemData`).
   edit the list would allow deleting "Campo nulo" and making the control group
   unreachable with nothing to show for it. Being compile-fixed is also why its
   `value` is a plain `const char*` while every other menu owns its strings.
-  Its dropdown does not exist yet — the widget is pending in SquareLine (Trello
-  card 15), and `ConfigurationController::init()` carries a marker comment
-  listing the four lines that wire it once the widget lands. Until then
-  `fieldModeOption` stays 0 and `start` always travels with `mode: "x"`.
+  Its dropdown (`ui_ConfiguracionesModoExposicionOpciones`) is wired like the
+  other six in `ConfigurationController`; `buildDropdown` overwrites the
+  `"NORMAL
+NULO"` placeholder the SquareLine export ships with.
 - `buildDropdown()` (`screencontroller.hpp`) now takes `ConfigurationOptions::countXxx`
   instead of a hardcoded literal per call site. That literal had already bitten
   once — the CEM tolerance list went from `{1%, 5%, 10%}` to `{5%, 10%}` and the
@@ -696,7 +733,86 @@ and `StateListener` (own app state, from `SystemData`).
 - The `ui_*.c/.h` files are LVGL-generated screen layouts (SquareLine
   Studio-style output, including `ui_img_*_png.c` embedded image assets) — treat
   them as generated UI code, distinct from the hand-written `*controller`/manager
-  classes that add behavior on top.
+  classes that add behavior on top. Since the 2026-09-19 redesign they are the
+  export of SquareLine projects: `ui_*Screen.c/.h` plus `ui.c`/`ui.h`. As of
+  2026-09-21 five screens (Splash, Principal, Configuraciones, Resultado, and
+  **Esperando**, which replaced Busy) come from the `UiFinalParte1` project
+  and EnCurso from `UiFInalParte2` (sic) — `ui.c`/`ui.h` were hand-merged
+  (Busy → Esperando) since neither export shipped a `ui.c`. When
+  re-exporting, **set SquareLine's LVGL target to 9.1** (`platformio.ini` pins
+  `lvgl@9.1.0`): an 8.3 export compiles almost everywhere thanks to
+  `lv_api_map_v8.h`, but `lv_spinner_create(parent, t, angle)` and the
+  `ui_img_splash_png.c` descriptor (`LV_IMG_CF_TRUE_COLOR`/`always_zero`) do
+  not. The only hand edit left in `ui.c` is the initial screen —
+  the export loads Principal, `ui_init()` loads Splash (it only costs a flash
+  of Principal at boot since `MySystem` shows SPLASH right after); re-set it
+  after re-exporting. The old `Principal2` project (`ui_Running.c` and its 11
+  icons) is gone; the new design has no image assets besides the splash.
+  New exports land in `esp32/refactor/` and get copied over `src/`; every
+  widget the controllers touch is renamed per export (the `UiFinalParte1`
+  ones are prefixed by screen: `ui_PrincipalIntensidadCampoValor`,
+  `ui_ConfiguracionTolIntensidadOpciones`, `ui_ButtonResultadoPrincipal`, ...),
+  so the build is what tells you which references went stale.
+  `ui_ButtonResultadoRepetir` (REPETIR, on Resultado) is **not wired** — the
+  layout has it, no controller handles it yet.
+  The new Principal splits value and unit into separate labels
+  (`ui_PrincipalIntensidadCampoValor` + `...Unidad`, hours/minutes for duration),
+  so `PrincipalData` carries both the composite labels (still read by the old
+  Running) and per-value strings formatted from the option's *numeric* fields
+  — never parsed out of the label, which is free text once it comes from the
+  SD. The "componentes" chips (`BOB 1-2`, `CEM 1`, `TEMP 1`, `SCT 1`) are
+  static export text: the ESP32 has no way to know what the Mega registered.
+  The Running screen is `ui_EnCursoScreen` (`RunningController`): health as
+  three mutually-exclusive chips in the header (`ui_EnCursoHeaderEstadoNormal`/
+  `Advertencia`/`Critico`), an Objetivos tab with the same split value+unit
+  labels as Principal (`ui_EnCursoObjetivos*Valor`, tolerance included), a
+  Mediciones tab with field + temperature plus **4 alert panels per
+  measurement** (`ui_EnCursoMedicionesIntensidadAlertas1-4` /
+  `...TempAlertas1-4`) and a coil table. The alert panels are the **last 4
+  events** of that source, oldest on the left: as many shown as there are
+  events (none at 0, the 4 newest from the fourth on), the rest hidden with
+  `LV_OBJ_FLAG_HIDDEN`, and each one colored by *its own* type — red for
+  `critical`, amber for streak/frequency. That needs a per-source event
+  history, which `AlertsData` cannot give: it dedupes by source+type (one
+  entry per type, carrying the accumulated count) because that is what health
+  and Resultado need. So `SystemData::pushAlertEvent()` keeps a **separate,
+  non-deduping** `AlertsHistoryData` (`MAX_ALERT_DOTS`=4 events for each of
+  `MAX_ALERT_SOURCES`=2 sources), fed from the same `flag_data` handler and
+  cleared on entering Running. Don't merge the two registers.
+  The coil table shows **one row per coil that exists**, not always 4
+  (`RunningController::_resolveVisibleCoils()`): the SD `coils` section wins,
+  counting only the enabled ones, and with no card it falls back to the coils
+  that reported in a `coil_data` frame — recomputed on the 1 s tick and not
+  only in `show()`, since with no SD nothing has reported yet when the screen
+  opens. With neither, no rows: how many coils there are is the Mega's fact,
+  and hardcoding 2 on the ESP32 because that is what `SoftMega2560.ino`
+  usually registers would duplicate it across the cable. Names come from the
+  SD entry when present, else `B1`..`B4` (the export ships row 4 named "B3").
+  Current and duty both come from `coil_data` and **both start at 0** instead
+  of showing dashes — 0 is what the PWM is actually putting out before the
+  loop starts. The bottom bar shows progress % (`ui_Label1`, unnamed in
+  SquareLine) and time **elapsed** (`SystemData::elapsedSeconds()`), as its
+  TRANSCURRIDO title says — the `RefactorPrincipal` layout showed remaining
+  instead. Every measurement on this screen **starts at 0 on entering
+  Running** (`_processState`'s Running branch resets field, temperature,
+  per-coil current and duty, and their timestamps). The two measurement
+  labels used to be guarded by `static float` caches initialised to `0.0f`,
+  which compared equal to the data's own `0.0f` and so left the export's mock
+  values ("1.0" mT, "33.6" C) on screen as if they had been measured; the
+  caches are now members reset to `NAN` in `show()`. The old 3-panel Alertas tab is gone;
+  `AlertsData` survives for health, the dots and Resultado.
+  Resultado now has dedicated widgets (progress %, elapsed h/m, per-reason
+  panel with mode + detail line, and a **mean field** the ESP32 computes by
+  accumulating every `cem_data` while `Running` — `MeasuresData::
+  magneticFieldSum/Samples`, reset on entering Running, frozen into
+  `ResultData` with the other snapshots; shows `--` with zero samples). The
+  health label has no widget in the new layout. Principal shows only the mode
+  ("CAMPO X"/"CAMPO NULO"); the group label and the components chips of the
+  `RefactorPrincipal` layout have no widget anymore. The Configuraciones
+  "N CAMBIOS SIN GUARDAR" banner is gone from the layout too —
+  `ConfigurationController::_pendingChanges()` still counts staging vs
+  `_data.configuration`, but only logs it, so leaving via Volver discards
+  edits silently on screen.
 - `RunningController` (`screencontroller.hpp`)'s Alertas tab shows up to 3 flags
   in `SystemData::alerts` (`AlertsData`, `systemdata.hpp`), filled by
   `MySystem::onCommand` on every `flag_data` via `SystemData::pushAlert(type,
@@ -737,12 +853,29 @@ and `StateListener` (own app state, from `SystemData`).
   they're snapshotted into `_data.result` at the moment `result_data` arrives
   (frozen — they must stop advancing once the experiment is over, unlike the
   Running screen where the same getters are read live every tick).
-  `ResultadoController::_applyResult()` shows exactly one of
-  `ui_ResultadoExitoso`/`Falla`/`Detenido` based on `reason`
-  (`"completed"`/`"critical"`/`"stopped"`), and folds the snapshotted
-  progress/elapsed/health into `ui_ResultadoDetalleText` alongside the Mega's
-  `description` — the SquareLine layout only has that one free-text field, no
-  dedicated widgets for those three values. Because `state_data: ready` is only
+  `ResultadoController::_applyResult()` shows exactly one of the three panels
+  based on `reason` (`"completed"`/`"critical"`/`"stopped"`) and **writes the
+  detail line itself** from structured fields, not from the Mega's prose.
+  `result_data` therefore carries, besides `reason`/`description`, the raw
+  facts of the cut: `source`/`type`/`count`/`limit` when critical, and
+  `emerg` (physical e-stop vs on-screen Detener) when stopped — both boards
+  mirror them in their own `ResultData`, and `RuntimeState::setResult` gained
+  a whole-struct overload so there is still exactly one place an experiment
+  ends. That fixes three things the fixed export text got wrong: the Falla
+  headline was hardcoded to "TEMP1 ALCANZO EL LIMITE CRITICO" although CEM1
+  can be enabled from the SD *and* a `streak`/`frequency` limit cuts just
+  like a `critical` one (see `Engine::onFlag`); an emergency stop looked
+  identical to pressing Detener, because the controller discarded the one
+  description that told them apart; and the detail claimed "sin alertas
+  activas al detener", which is false of a run that ends with alerts
+  standing. `description` still travels, as the fallback the screen uses when
+  the raw fields are absent.
+  `test_resultdata_fits_with_critical_fields` (native) pins the widest frame.
+  **REPETIR** (`ui_ButtonResultadoRepetir`) re-runs the experiment with the
+  configuration still in `_data.configuration` — the same path as Principal's
+  Iniciar, through `EventName::Repeat` — and is **hidden when the run ended
+  in `critical`**: repeating a configuration that just hit a limit would most
+  likely hit it again, and the cause needs looking at first. Because `state_data: ready` is only
   sent on a 5s poll (`Tasks::SendState`) and arrives *after* `result_data`,
   `_processState()`'s `Ready` branch treats `ScreenType::RESULT` like
   `PRINCIPAL`/`CONFIG` (early-return, doesn't auto-navigate away) — otherwise

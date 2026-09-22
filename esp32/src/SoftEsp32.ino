@@ -45,6 +45,12 @@ MrY=
 -----END CERTIFICATE-----
 )EOF";
 
+// Banco: con true no se levanta WiFi ni broker y no se crea la tarea de
+// comunicaciones. Sirve para aislar la UI de la red -- hoy el reintento TLS
+// contra EMQX (falla cada 5 s por el CA/NTP pendiente) corre en el mismo
+// core que LVGL y se ve como un parpadeo. Volver a false para produccion.
+constexpr bool BENCH_SIN_RED = true;
+
 SerialLink serial(Serial2);
 Timer timer;
 WiFiManager wiFiManager;
@@ -53,7 +59,7 @@ DisplayDriver display;
 ScreenManager screenManager;
 SdStorage sdStorage;
 
-MySystem mySystem(serial, timer, wiFiManager, brokerManager, display, screenManager);
+MySystem mySystem(serial, timer, wiFiManager, brokerManager, display, screenManager, sdStorage);
 
 void setup() {
   Serial.begin(115200);
@@ -71,31 +77,38 @@ void setup() {
   // que atender acá.
   ConfigLoader::load(sdStorage);
 
-  WiFiConfig config1;
-  config1.add(SECRET_WIFI_SSID_1, SECRET_WIFI_PASS_1); // agregar aca todas las redes
-  config1.add(SECRET_WIFI_SSID_2, SECRET_WIFI_PASS_2); // agregar aca todas las redes
-  wiFiManager.begin(config1);
+  if (!BENCH_SIN_RED) {
+    WiFiConfig config1;
+    config1.add(SECRET_WIFI_SSID_1, SECRET_WIFI_PASS_1); // agregar aca todas las redes
+    config1.add(SECRET_WIFI_SSID_2, SECRET_WIFI_PASS_2); // agregar aca todas las redes
+    wiFiManager.begin(config1);
 
-  MqttConfig config;
-  config.server   = SECRET_MQTT_SERVER;
-  config.port     = SECRET_MQTT_PORT;   // TLS
-  config.user     = SECRET_MQTT_USER;
-  config.password = SECRET_MQTT_PASSWORD;
-  config.clientId = SECRET_MQTT_CLIENT_ID;
-  config.rootCA   = ROOT_CA_CERT;
-  brokerManager.begin(config);
+    MqttConfig config;
+    config.server   = SECRET_MQTT_SERVER;
+    config.port     = SECRET_MQTT_PORT;   // TLS
+    config.user     = SECRET_MQTT_USER;
+    config.password = SECRET_MQTT_PASSWORD;
+    config.clientId = SECRET_MQTT_CLIENT_ID;
+    config.rootCA   = ROOT_CA_CERT;
+    brokerManager.begin(config);
+  }
+  else {
+    DEBUG_PRINTLN(DEBUG_MAIN, F("[BENCH] BENCH_SIN_RED: WiFi y broker deshabilitados"));
+  }
 
   mySystem.begin();
-  
-  xTaskCreatePinnedToCore(
-    communicationTask,
-    "CommunicationTask",
-    8192,
-    nullptr,
-    1,
-    nullptr,
-    1
-  );
+
+  if (!BENCH_SIN_RED) {
+    xTaskCreatePinnedToCore(
+      communicationTask,
+      "CommunicationTask",
+      8192,
+      nullptr,
+      1,
+      nullptr,
+      1
+    );
+  }
 }
 
 void loop() {

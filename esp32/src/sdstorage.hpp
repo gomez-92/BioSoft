@@ -32,6 +32,11 @@ class SdStorage {
     bool isReady() const;
 
     bool exists(const char* path) const;
+    // Crea el directorio si no existe (no falla si ya estaba). Hace falta
+    // porque SD.open(..., FILE_WRITE) NO crea los directorios intermedios:
+    // en una tarjeta virgen, o en una que nunca tuvo config.json, escribir
+    // en /biosoft/... falla sin mas explicacion que un open() en false.
+    bool ensureDir(const char* path);
     bool remove(const char* path);
 
     // Devuelve false si el archivo no existe, si el buffer es invalido, o
@@ -85,6 +90,12 @@ inline bool SdStorage::isReady() const {
 inline bool SdStorage::exists(const char* path) const {
   if (!_ready) return false;
   return SD.exists(path);
+}
+
+inline bool SdStorage::ensureDir(const char* path) {
+  if (!_ready || path == nullptr) return false;
+  if (SD.exists(path)) return true;
+  return SD.mkdir(path);
 }
 
 inline bool SdStorage::remove(const char* path) {

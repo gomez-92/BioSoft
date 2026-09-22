@@ -24,6 +24,28 @@ struct ProgressData {
 struct ResultData {
   char reason[16] = "";
   char description[64] = "";
+
+  // Los campos de abajo son la MISMA informacion que ya venia armada dentro
+  // de `description`, pero en crudo. Existen porque la pantalla Resultado
+  // del ESP32 tiene que redactar su propio texto -- distinto segun la
+  // fuente, el tipo de regla y cuantas alertas quedaron activas -- y sacarlo
+  // de la prosa de `description` significaria parsear castellano.
+  // `description` sigue viajando: es el texto de fallback y lo que se lee en
+  // el log del Mega.
+
+  // Solo con reason == "critical": que fuente corto el experimento, con que
+  // tipo de regla ("critical", "streak" o "frequency" -- cualquiera de las
+  // tres corta al llegar a SU maxEvents) y en que cuenta.
+  char source[16] = "";
+  char type[12] = "";
+  uint16_t count = 0;
+  uint16_t limit = 0;
+
+  // Solo con reason == "stopped": true si la orden vino del pulsador fisico
+  // de emergencia y no del boton Detener de la pantalla. A los fines del
+  // experimento es lo mismo, pero no es lo mismo para quien despues lee el
+  // resultado.
+  bool fromEmergency = false;
 };
 
 class RuntimeState {
@@ -43,6 +65,9 @@ class RuntimeState {
     void setTarget(float cemTarget, int frequencyTarget, unsigned long durationTarget);
     void updateProgress();
     void setResult(const char* reason, const char* description);
+    // Version canonica: la de dos argumentos arma un ResultData sin los
+    // campos crudos y delega aca.
+    void setResult(const ResultData& data);
     void setListener(RuntimeStateListener* listener);
 
   private:
@@ -100,11 +125,22 @@ inline void RuntimeState::updateProgress() {
 }
 
 inline void RuntimeState::setResult(const char* reason, const char* description) {
-  if (strcmp(_result.reason, reason) == 0 && strcmp(_result.description, description) == 0) { return; }
-  strncpy(_result.reason, reason, sizeof(_result.reason) - 1);
-  _result.reason[sizeof(_result.reason) - 1] = '\0';
-  strncpy(_result.description, description, sizeof(_result.description) - 1);
-  _result.description[sizeof(_result.description) - 1] = '\0';
+  ResultData data;
+  strncpy(data.reason, reason, sizeof(data.reason) - 1);
+  data.reason[sizeof(data.reason) - 1] = '\0';
+  strncpy(data.description, description, sizeof(data.description) - 1);
+  data.description[sizeof(data.description) - 1] = '\0';
+  setResult(data);
+}
+
+inline void RuntimeState::setResult(const ResultData& data) {
+  // La guarda de "mismo resultado, no notifiques" mira razon y descripcion:
+  // dos cortes con la misma causa y el mismo texto SON el mismo resultado,
+  // y los campos crudos se derivan de ellos.
+  if (strcmp(_result.reason, data.reason) == 0 &&
+      strcmp(_result.description, data.description) == 0) { return; }
+
+  _result = data;
   notifyResult();
 }
 

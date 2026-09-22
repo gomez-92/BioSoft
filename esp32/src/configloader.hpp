@@ -218,6 +218,27 @@ namespace ConfigLoader {
       target = parsed;
     }
 
+    // Igual que applyInterval pero con el piso de 1000 ms de los timeouts de
+    // pantalla. Rechaza entero, no recorta: un timeout de 200 ms es un valor
+    // que nadie eligio a proposito, y dejarlo en el default compilado es mas
+    // seguro que inventarle un 1000 que el operador no escribio.
+    constexpr unsigned long MinScreenTimeout = 1000;
+
+    inline void applyScreenTimeout(JsonVariantConst value, unsigned long& target, const char* name) {
+      if (!value.is<unsigned long>()) return;
+
+      unsigned long parsed = value.as<unsigned long>();
+      if (parsed < MinScreenTimeout) {
+        DEBUG_PRINT(DEBUG_CONFIGLOADER, F("[CONFIG] timeout de pantalla "));
+        DEBUG_PRINT(DEBUG_CONFIGLOADER, name);
+        DEBUG_PRINT(DEBUG_CONFIGLOADER, F(" por debajo de "));
+        DEBUG_PRINT(DEBUG_CONFIGLOADER, MinScreenTimeout);
+        DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F(" ms: se ignora"));
+        return;
+      }
+      target = parsed;
+    }
+
     inline void loadMenus(JsonObjectConst menus) {
       if (menus.isNull()) {
         DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] sin seccion 'menus': se conservan los defaults"));
@@ -322,6 +343,13 @@ namespace ConfigLoader {
       applyInterval(esp32["reSendStop"], Intervals::ReSendStop, "reSendStop");
       applyInterval(esp32["reSendReset"], Intervals::ReSendReset, "reSendReset");
       applyInterval(esp32["updateProgress"], Intervals::UpdateProgress, "updateProgress");
+      applyInterval(esp32["reSendConfig"], Intervals::ReSendConfig, "reSendConfig");
+      // Timeouts de pantalla, no periodos de tarea: ademas del rechazo de
+      // 0/negativos que ya hace applyInterval, tienen piso de 1000 ms (ver
+      // docs/config-schema.md seccion 4). Por debajo de eso el splash no
+      // llega a verse y el Busy se rinde antes de que el Mega conteste.
+      applyScreenTimeout(esp32["splashTimeout"], Intervals::SplashTimeout, "splashTimeout");
+      applyScreenTimeout(esp32["busyTimeout"], Intervals::BusyTimeout, "busyTimeout");
 
       DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] intervalos de la ESP32 aplicados"));
     }

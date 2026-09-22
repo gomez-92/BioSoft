@@ -101,7 +101,8 @@ const DEFAULTS = {
                           {label:"20~50 C",min:20,max:50}]
   },
   intervals: {
-    esp32: {updateScreens:50,reSendStart:4000,reSendStop:4000,reSendReset:4000,updateProgress:5000},
+    esp32: {updateScreens:50,reSendStart:4000,reSendStop:4000,reSendReset:4000,updateProgress:5000,
+            reSendConfig:4000,splashTimeout:4000,busyTimeout:6000},
     mega: {ping:2000,sendState:5000,measureTemperature:5000,measureCurrent:8500,
            measureMagneticField:500,updateProgress:1000,sendFlags:25000,sendResult:1000,
            settlingTime:10000}
@@ -219,7 +220,8 @@ const MENUS = [
 const INTERVALS_ESP32 = [
   ["updateScreens","Refresco de pantalla"], ["reSendStart","Reintento de start"],
   ["reSendStop","Reintento de stop"],       ["reSendReset","Reintento de reset"],
-  ["updateProgress","Actualizacion de progreso"]
+  ["updateProgress","Actualizacion de progreso"], ["reSendConfig","Reintento de config al Mega"],
+  ["splashTimeout","Duracion del splash"],  ["busyTimeout","Espera en pantalla Procesando"]
 ];
 const INTERVALS_MEGA = [
   ["ping","Ping del enlace serie"],            ["sendState","Envio de estado"],
@@ -505,6 +507,35 @@ function validate(){
     });
   });
 
+  // El Detector del Mega da por sentado que los dos rangos de temperatura
+  // estan ANIDADOS: criticalMin <= normalMin < normalMax <= criticalMax (ver
+  // Source::addSample en mega2560/src/detector.hpp).
+  //
+  // La pantalla Configuraciones YA NO deja armar un par que no lo cumpla:
+  // al elegir uno de los dos rangos rellena el otro combo solo con los
+  // compatibles. Asi que no hace falta que todos los pares sirvan -- lo que
+  // si hace falta es que ninguna opcion quede HUERFANA: una opcion sin
+  // ningun compatible del otro lado se puede elegir y deja el otro combo
+  // vacio, sin forma de completar la configuracion.
+  const normales = state.menus.temperatureNormal || [];
+  const criticos = state.menus.temperatureCritical || [];
+  const anidado = (n, c) => c.min <= n.min && n.min < n.max && n.max <= c.max;
+  const rangoOk = o => isNum(o.min) && isNum(o.max);
+
+  normales.forEach((n, ni) => {
+    if (!rangoOk(n)) return;
+    if (criticos.filter(rangoOk).some(c => anidado(n, c))) return;
+    err("Rango normal opcion " + (ni + 1) + " (" + n.min + "~" + n.max + "): ningun rango critico " +
+        "lo contiene. Elegirlo en la pantalla dejaria el combo de temperatura critica vacio.");
+  });
+
+  criticos.forEach((c, ci) => {
+    if (!rangoOk(c)) return;
+    if (normales.filter(rangoOk).some(n => anidado(n, c))) return;
+    err("Rango critico opcion " + (ci + 1) + " (" + c.min + "~" + c.max + "): no contiene a ningun " +
+        "rango normal. Elegirlo en la pantalla dejaria el combo de temperatura normal vacio.");
+  });
+
   /* --- 2. intervals --- */
   const chkInterval = (grp, meta) => meta.forEach(([k, lbl]) => {
     const v = state.intervals[grp][k];
@@ -521,6 +552,24 @@ function validate(){
   if (isInt(mt) && mt < 1000)
     err("measureTemperature en " + mt + " ms: ThermometerDS18B20::update() bloquea ~750 ms por " +
         "llamada aunque no haya sensor en el bus, asi que no puede bajar de 1000.");
+  // Los dos timeouts de pantalla: por debajo de 1 s el splash no llega a
+  // verse y el Busy se rinde antes de que el Mega alcance a contestar.
+  [["splashTimeout","Duracion del splash"],["busyTimeout","Espera en pantalla Procesando"]]
+    .forEach(([k, lbl]) => {
+      const v = state.intervals.esp32[k];
+      if (isInt(v) && v < 1000)
+        err("Intervalo " + lbl + " (esp32." + k + ") en " + v + " ms: es un timeout de pantalla, " +
+            "no puede bajar de 1000.");
+    });
+
+  // El Busy espera el state_data que el Mega difunde cada sendState; con
+  // menos margen que eso, Detener siempre cae por el timeout en vez de por
+  // la confirmacion real.
+  const bt = state.intervals.esp32.busyTimeout, ss = state.intervals.mega.sendState;
+  if (isInt(bt) && isInt(ss) && bt <= ss)
+    warn("busyTimeout (" + bt + " ms) no supera a mega.sendState (" + ss + " ms): la pantalla " +
+         "Procesando se va a rendir por timeout antes de recibir la confirmacion del Mega.");
+
   const st = state.intervals.mega.settlingTime;
   if (isInt(st) && st < DEFAULTS.intervals.mega.settlingTime)
     warn("settlingTime por debajo del default (" + DEFAULTS.intervals.mega.settlingTime + " ms): " +

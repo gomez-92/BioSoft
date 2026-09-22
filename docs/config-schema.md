@@ -116,6 +116,24 @@ ausente y cae a su default.
 
 `label` se limita a 15 caracteres mas terminador; lo que exceda se trunca.
 
+**Los dos menus de temperatura estan relacionados.** El Detector del Mega da
+por sentado que los rangos estan *anidados*
+(`criticalMin <= normalMin < normalMax <= criticalMax`, ver `Source::addSample`
+en `mega2560/src/detector.hpp`): "fuera de lo normal" tiene que ser un
+superconjunto de "critico". Si no lo fuera, una lectura perfectamente normal
+caeria fuera del rango critico y dispararia la alerta que corta el
+experimento.
+
+La pantalla Configuraciones garantiza eso **filtrando**: al elegir un rango de
+un tipo, el combo del otro se rellena solo con los compatibles, y si lo que
+estaba elegido dejo de serlo, queda sin seleccion (`--`) hasta que se elija
+uno valido. Por eso **no** hace falta que todos los pares sean compatibles.
+
+Lo que si valida el generador es que **ninguna opcion quede huerfana**: cada
+rango normal necesita al menos un critico que lo contenga, y cada critico al
+menos un normal contenido en el. Una opcion sin par compatible se puede
+elegir y deja el otro combo vacio, sin forma de completar la configuracion.
+
 **Nota de implementacion.** Los arrays pasan a ser buffers estaticos de 8
 elementos con un contador de largo real. Esto elimina de paso el riesgo ya
 conocido de `buildDropdown()` (`esp32/src/screencontroller.hpp`), que hoy
@@ -137,7 +155,10 @@ positivos. Un `0` o un valor negativo se rechaza y esa clave queda en default.
     "reSendStart": 4000,
     "reSendStop": 4000,
     "reSendReset": 4000,
-    "updateProgress": 5000
+    "updateProgress": 5000,
+    "reSendConfig": 4000,
+    "splashTimeout": 4000,
+    "busyTimeout": 6000
   },
   "mega": {
     "ping": 2000,
@@ -152,6 +173,19 @@ positivos. Un `0` o un valor negativo se rechaza y esa clave queda en default.
   }
 }
 ```
+
+`splashTimeout` y `busyTimeout` no son periodos de tarea sino **timeouts de
+pantalla**: cuanto se queda el splash antes de pasar a Principal, y cuanto
+espera la pantalla Procesando la confirmacion del Mega antes de rendirse y
+volver. Ambos tienen un **minimo de 1000 ms** -- por debajo de eso el splash
+no llega a verse y el Busy se rinde antes de que el Mega alcance a contestar.
+
+`busyTimeout` esta acoplado a `intervals.mega.sendState`: la confirmacion que
+la pantalla Procesando espera es el `state_data` que el Mega difunde con esa
+cadencia. Si `busyTimeout` no la supera, Detener siempre termina por la rama
+de timeout en vez de por la confirmacion real -- se ve igual (vuelve a
+Principal), pero deja de ser una confirmacion. El generador avisa cuando la
+combinacion cargada cae en ese caso.
 
 Los intervalos de publicacion remota **no** viven aca: son parte de la seccion
 `telemetry` (seccion 9), junto a los campos que publican.
@@ -423,7 +457,7 @@ archivo, no reflashear.
 |---|---|---|
 | `address` | int | **Obligatoria.** 72 (0x48) o 73 (0x49) |
 | `channel` | int | **Obligatoria.** 0 (AIN0-AIN1) o 1 (AIN2-AIN3). No hay 2 ni 3 |
-| `name` | string | Maximo 15 caracteres. Es el identificador que viaja en `current_data` |
+| `name` | string | Maximo 15 caracteres. El Mega resuelve por el la bobina que mide: el `SCT013-N` le corresponde a la bobina N en `coil_data` |
 | `enabled` | bool | Con `false` el canal no se registra: no se mide ni se publica |
 | `ratedCurrent` | float | A |
 | `ratedVoltage` | float | V |
@@ -630,7 +664,57 @@ el que obligo a las modificaciones de la seccion 10.3.
 
 ---
 
-## 12. Archivo de ejemplo
+## 12. `/biosoft/seleccion.json` — la eleccion del operador
+
+Es un archivo **distinto de `config.json` y con otro dueno**. `config.json` lo
+escribe el generador y define **cuales** son las opciones de cada menu;
+`seleccion.json` lo escribe el firmware (`esp32/src/selectionstore.hpp`) cuando
+el operador toca GUARDAR en la pantalla Configuraciones, y dice **cual** de
+esas opciones esta elegida. Estan separados justamente para que guardar desde
+la pantalla no pise el archivo del generador.
+
+```json
+{
+  "schemaVersion": 1,
+  "fieldMode": 0,
+  "fieldIntensity": 0,
+  "frequency": 0,
+  "duration": 0,
+  "tolFieldIntensity": 0,
+  "rangeNormalTemperature": 0,
+  "rangeCriticalTemperature": 0
+}
+```
+
+Cada valor es el **indice** de la opcion dentro del menu correspondiente de la
+seccion 3, empezando en 0. El generador no lo produce ni lo lee; no hace falta
+crearlo a mano.
+
+Tres reglas, las mismas que gobiernan `config.json`:
+
+- **Sin tarjeta SD todo funciona igual.** No hay seleccion que restaurar, queda
+  el indice 0 de cada menu (el default compilado) y GUARDAR sigue valiendo para
+  la sesion en curso: simplemente no sobrevive al reinicio. Ni el arranque ni el
+  guardado lo tratan como un error.
+- **Se descarta entero** si el JSON es invalido o si la `schemaVersion` no es la
+  soportada, nunca a medias.
+- **La primera vez no existe, y eso es lo normal.** Al arrancar, un archivo
+  ausente no es un error: queda la seleccion por defecto. Al guardar, el
+  firmware crea `/biosoft` si hace falta (`SdStorage::ensureDir`), porque en una
+  tarjeta que nunca tuvo `config.json` el directorio tampoco existe y
+  `SD.open(..., FILE_WRITE)` no crea directorios intermedios.
+- **Cada indice se valida contra el menu de hoy.** Si `config.json` cambio entre
+  un arranque y el siguiente, un menu pudo haberse achicado y el indice guardado
+  apuntaria a una opcion que ya no existe; fuera de rango se ignora esa clave y
+  queda el default compilado.
+
+`SelectionStore::load()` corre en `MySystem::begin()`, o sea **despues** de
+`ConfigLoader::load()`: cuando se validan los indices los menus ya son los
+definitivos.
+
+---
+
+## 13. Archivo de ejemplo
 
 `docs/config.example.json` es un archivo completo y valido cuyos valores son
 **identicos a los defaults compilados de hoy**. Cargarlo debe producir

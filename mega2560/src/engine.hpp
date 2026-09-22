@@ -109,11 +109,9 @@ class Engine :
     CurrentSensorSettings _currentSensorSettings[CurrentSensorCount];
 
     unsigned long _temperatureSampleSendInterval = 3000;
-    unsigned long _currentSampleSendInterval = 3000;
     unsigned long _magnetometerSampleSendInterval = 3000;
 
     unsigned long _lastTemperatureSampleSent;
-    unsigned long _lastCurrentSampleSent;
     unsigned long _lastMagnetometerSampleSent;
 
   public:
@@ -150,6 +148,7 @@ class Engine :
     void _stop();
     void _reset();
     void _finish(const char* reason, const char* description);
+    void _finish(const ResultData& result);
     // Aplica al Detector/magnetometros lo que trajo detector.sources. Se
     // llama al arrancar un experimento, NO al recibir la configuracion: ver
     // el comentario de su implementacion.
@@ -173,7 +172,7 @@ class Engine :
     void _sendFlagsData();
     void _sendTempData();
     void _sendCemData();
-    void _sendCurrentData();
+    void _sendCoilData();
 
     // Aplica config_intervals/config_control/config_coil (docs/config-schema.md
     // seccion 10) -- cada clave se valida independiente, una invalida o
@@ -229,7 +228,6 @@ inline Engine::Engine(
   _simMagnetometer(simMagnetometer),
   _realMagnetometer(realMagnetometer),
   _lastTemperatureSampleSent(0),
-  _lastCurrentSampleSent(0),
   _lastMagnetometerSampleSent(0)
 {
   // Defaults compilados de las dos fuentes (docs/config-schema.md seccion
@@ -437,7 +435,18 @@ inline void Engine::_applySourceSettings() {
 // onResult() dispara el envio de result_data mientras el dato todavia es
 // valido.
 inline void Engine::_finish(const char* reason, const char* description) {
-  _runtimeState.setResult(reason, description);
+  ResultData data;
+  strncpy(data.reason, reason, sizeof(data.reason) - 1);
+  data.reason[sizeof(data.reason) - 1] = '\0';
+  strncpy(data.description, description, sizeof(data.description) - 1);
+  data.description[sizeof(data.description) - 1] = '\0';
+  _finish(data);
+}
+
+// Sigue siendo el UNICO lugar donde termina un experimento: las tres
+// variantes de arriba arman su ResultData y entran por aca.
+inline void Engine::_finish(const ResultData& result) {
+  _runtimeState.setResult(result);
   _stop();
   _reset();
 }
@@ -474,6 +483,21 @@ inline void Engine::_sendResultData() {
   JsonDocument doc;
   doc["reason"] = data.reason;
   doc["description"] = data.description;
+
+  // Los campos crudos solo viajan cuando aplican: el frame tiene 256 bytes
+  // y mandarlos siempre sumaria claves vacias en el caso mas largo (ver
+  // test_resultdata_fits). El ESP32 los usa para redactar el texto de la
+  // pantalla Resultado y cae en `description` si no vinieron.
+  if (strcmp(data.reason, "critical") == 0) {
+    doc["source"] = data.source;
+    doc["type"] = data.type;
+    doc["count"] = data.count;
+    doc["limit"] = data.limit;
+  }
+  else if (strcmp(data.reason, "stopped") == 0) {
+    doc["emerg"] = data.fromEmergency;
+  }
+
   _serial.sendCommand(Commands::ResultData, doc);
 }
 
@@ -554,10 +578,41 @@ inline void Engine::_sendCemData() {
   _serial.sendCommand(Commands::CemData, doc);
 }
 
-inline void Engine::_sendCurrentData() {
+// Una tanda por bobina REGISTRADA: duty aplicado y corriente del sensor
+// homonimo (la bobina N lleva el SCT013-N). Las claves son "dN"/"cN" y no
+// los nombres de los sensores porque el frame tiene 256 bytes contados: con
+// 4 bobinas, "SCT013-1".."SCT013-4" mas las de duty no entrarian, y un
+// serializeJson que no entra TRUNCA EN SILENCIO con CRC valido (ver
+// SerialLink::_sendFrame). test_coildata_fits lo fija.
+//
+// Cuantas claves salen es tambien el dato que dice cuantas bobinas hay: el
+// ESP32 dibuja una fila por bobina que aparezca aca cuando no tiene la
+// seccion coils de la SD.
+inline void Engine::_sendCoilData() {
   JsonDocument doc;
-  _currentSensorsManager.publishMeasures(doc);
-  _serial.sendCommand(Commands::CurrentData, doc);
+
+  uint8_t count = _coilChannels.count();
+  for (uint8_t i = 0; i < count; i++) {
+    CoilChannel* channel = _coilChannels.getChannel(i);
+    if (channel == nullptr) continue;
+
+    char key[4];
+    snprintf(key, sizeof(key), "d%u", i + 1);
+    // Duty en POR CIENTO y con un decimal: la pantalla lo muestra asi, y
+    // redondear aca acota cuanto ocupa cada valor en el frame (un float sin
+    // redondear se serializa con hasta 9 cifras significativas).
+    doc[key] = roundf(channel->appliedDuty() * 1000.0f) / 10.0f;
+
+    char sensorName[12];
+    snprintf(sensorName, sizeof(sensorName), "SCT013-%u", i + 1);
+    ICurrentSensor* sensor = _currentSensorsManager.findByName(sensorName);
+    if (sensor == nullptr) continue;
+
+    snprintf(key, sizeof(key), "c%u", i + 1);
+    doc[key] = roundf(sensor->getCurrent() * 100.0f) / 100.0f;
+  }
+
+  _serial.sendCommand(Commands::CoilData, doc);
 }
 
 // Engine State Callbacks
@@ -631,6 +686,14 @@ inline void Engine::onTimer(const char* name) {
     DEBUG_PRINT(DEBUG_ENGINE, F("[CURRENT] JSON: "));
     serializeJson(doc, Serial);
     DEBUG_PRINTLN(DEBUG_ENGINE, );
+
+    // coil_data sale de ACA y no del callback del sensor de corriente: el
+    // frame lleva tambien el duty, que no depende de que haya un SCT013.
+    // Colgado del callback, un banco sin ADS1115 cableado (el caso normal
+    // de bring-up) no emitia ni un solo frame, y la pantalla En curso se
+    // quedaba sin duty y -- sin tarjeta SD -- sin ninguna fila de bobina,
+    // sin nada en el log que lo explicara.
+    _sendCoilData();
   }
   else if(strcmp(name, Tasks::MeasureMagneticField) == 0) {
     _magnetometerManager.updateAll();
@@ -1273,7 +1336,12 @@ inline void Engine::onEmergencyButtonPressed() {
     return;
   }
 
-  _finish("stopped", "Parada de emergencia fisica activada por el operador");
+  ResultData result;
+  strncpy(result.reason, "stopped", sizeof(result.reason) - 1);
+  strncpy(result.description, "Parada de emergencia fisica activada por el operador",
+          sizeof(result.description) - 1);
+  result.fromEmergency = true;
+  _finish(result);
 }
 
 // Sample Sensor Callbacks
@@ -1331,11 +1399,6 @@ inline void Engine::onCurrentSensorSample(ICurrentSensor* sensor) {
     _detector.addSample(sensor->getName(), sensor->getCurrent());
   }
 
-  unsigned long now = millis();
-  if(now - _lastCurrentSampleSent >= _currentSampleSendInterval) {
-    _lastCurrentSampleSent = now;
-    _sendCurrentData();
-  }
 }
 
 // Detector Callback
@@ -1379,12 +1442,17 @@ inline void Engine::onFlag(SourceEvent& event) {
     DEBUG_PRINT(DEBUG_ENGINE, source->getName());
     DEBUG_PRINTLN(DEBUG_ENGINE, F(" -> interrumpiendo experimento"));
 
-    char description[64];
+    ResultData result;
+    strncpy(result.reason, "critical", sizeof(result.reason) - 1);
     snprintf(
-        description, sizeof(description),
+        result.description, sizeof(result.description),
         "%s: limite de alertas %s alcanzado (%u/%u)",
         source->getName(), typeStr, event.count, event.limit
     );
-    _finish("critical", description);
+    strncpy(result.source, source->getName(), sizeof(result.source) - 1);
+    strncpy(result.type, typeStr, sizeof(result.type) - 1);
+    result.count = event.count;
+    result.limit = event.limit;
+    _finish(result);
   }
 }

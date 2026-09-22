@@ -78,6 +78,12 @@ function expectWarn(name, mutate, needle){
   const hit = T.warns.some(w => w.includes(needle));
   check(name, hit, hit ? "" : "avisos: " + (T.warns.join(" | ") || "(ninguno)"));
 }
+// Para lo que NO tiene que bloquear la descarga: una regla de mas es tan
+// molesta como una de menos.
+function expectOk(name, mutate){
+  reset(); mutate(T.state); T.validate();
+  check(name, T.errors.length === 0, "errores: " + T.errors.join(" | "));
+}
 
 expectError("intervalo con decimales (is<unsigned long>() lo rechazaria)",
   s => s.intervals.mega.ping = 2000.5, "entero en ms");
@@ -85,6 +91,19 @@ expectError("duracion de menu con decimales (quedaria en 0)",
   s => s.menus.duration[0].value = 60000.5, "quedaria en 0");
 expectError("measureTemperature por debajo del bloqueo del DS18B20",
   s => s.intervals.mega.measureTemperature = 500, "no puede bajar de 1000");
+expectError("rango normal sin ningun critico que lo contenga (dejaria el otro combo vacio)",
+  s => s.menus.temperatureNormal[0] = {label:"20~60 C", min:20, max:60},
+  "ningun rango critico");
+expectError("rango critico que no contiene a ningun normal",
+  s => s.menus.temperatureCritical[0] = {label:"0~5 C", min:0, max:5},
+  "no contiene a ningun");
+expectOk("par valido aunque no todos los pares lo sean (la pantalla filtra)",
+  s => { s.menus.temperatureNormal.push({label:"10~70 C", min:10, max:70});
+         s.menus.temperatureCritical.push({label:"5~75 C", min:5, max:75}); });
+expectError("splashTimeout por debajo del minimo de pantalla",
+  s => s.intervals.esp32.splashTimeout = 200, "no puede bajar de 1000");
+expectError("busyTimeout por debajo del minimo de pantalla",
+  s => s.intervals.esp32.busyTimeout = 999, "no puede bajar de 1000");
 expectError("calibrationFactor fuera de 0,1-5,0",
   s => s.coils[0].calibrationFactor = 7, "0,1 a 5,0");
 expectError("nombre de bobina repetido (config_coil resuelve por nombre)",
@@ -123,6 +142,9 @@ expectError("etiqueta de menu vacia",
 expectError("rango de temperatura invertido",
   s => { s.menus.temperatureNormal[0].min = 50; }, "tiene que ser menor que");
 
+expectWarn("busyTimeout que no supera a mega.sendState",
+  s => { s.intervals.esp32.busyTimeout = 5000; s.intervals.mega.sendState = 5000; },
+  "antes de recibir la confirmacion del Mega");
 expectWarn("bobinas habilitadas todas en el mismo grupo de fase",
   s => { s.coils[1].enabled = false; s.coils[2].enabled = true; }, "mismo grupo de fase");
 expectWarn("sampleRate distinto entre los dos canales de un mismo ADS1115",

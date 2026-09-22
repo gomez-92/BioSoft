@@ -98,7 +98,10 @@
       "reSendStart": 4000,
       "reSendStop": 4000,
       "reSendReset": 4000,
-      "updateProgress": 5000
+      "updateProgress": 5000,
+      "reSendConfig": 4000,
+      "splashTimeout": 4000,
+      "busyTimeout": 6000
     },
     "mega": {
       "ping": 2000,

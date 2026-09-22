@@ -207,6 +207,42 @@ void test_start_fits_with_field_mode(void) {
     TEST_ASSERT_TRUE(survivesTransport(Commands::Start, doc));
 }
 
+// result_data en su caso mas largo: corte por limite, con la descripcion
+// completa que arma Engine::onFlag MAS los campos crudos que el ESP32 usa
+// para redactar el texto de la pantalla. Si dejara de entrar, el frame
+// llegaria truncado con CRC valido y la pantalla Resultado se quedaria sin
+// fuente ni limite -- mostrando el motivo de otra corrida.
+void test_resultdata_fits_with_critical_fields(void) {
+    JsonDocument doc;
+    doc["reason"] = "critical";
+    doc["description"] = "SCT013-1: limite de alertas frequency alcanzado (250/250)";
+    doc["source"] = "SCT013-1";
+    doc["type"] = "frequency";   // el mas largo de los tres tipos de regla
+    doc["count"] = 250;
+    doc["limit"] = 250;
+
+    TEST_ASSERT_TRUE(survivesTransport(Commands::ResultData, doc));
+}
+
+// coil_data lleva duty Y corriente de las 4 bobinas en un solo frame. El
+// caso peor es el de arriba: 8 claves con el valor mas largo que el Engine
+// puede producir despues de redondear (100.0 de duty, corrientes de dos
+// decimales). Si dejara de entrar, serializeJson truncaria en silencio y la
+// pantalla En curso mostraria menos bobinas de las que hay -- con CRC
+// valido, indistinguible de un Mega que registro menos canales.
+void test_coildata_fits_with_four_coils(void) {
+    JsonDocument doc;
+    for (uint8_t i = 1; i <= 4; i++) {
+        char key[4];
+        snprintf(key, sizeof(key), "d%u", i);
+        doc[key] = 100.0f;
+        snprintf(key, sizeof(key), "c%u", i);
+        doc[key] = 88.88f;
+    }
+
+    TEST_ASSERT_TRUE(survivesTransport(Commands::CoilData, doc));
+}
+
 // Este es el test que justifica la fragmentacion: una fuente entera con la
 // forma del esquema (cabecera + las 3 reglas anidadas) NO entra en un frame.
 // docs/config-schema.md 10.1 asumia que si; por eso detector.sources viaja
@@ -254,6 +290,9 @@ int main(int argc, char** argv) {
     RUN_TEST(test_whole_source_in_one_frame_does_not_fit);
 
     RUN_TEST(test_start_fits_with_field_mode);
+
+    RUN_TEST(test_resultdata_fits_with_critical_fields);
+    RUN_TEST(test_coildata_fits_with_four_coils);
 
     RUN_TEST(test_every_command_name_fits_in_the_command_field);
 

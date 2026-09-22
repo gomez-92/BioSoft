@@ -16,8 +16,7 @@
 #include "screenmanager.hpp"
 #include "configurationoptions.hpp"
 #include "configloader.hpp"
-#include "tasks.hpp"
-#include "intervals.hpp"
+#include "selectionstore.hpp"
 #include "debugconfig.hpp"
 
 // Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
@@ -31,7 +30,13 @@ constexpr bool DEBUG_MYSYSTEM = true;
 // la pantalla de Configuracion -- sin la otra placa enchufada. Con el Mega
 // conectado no cambia nada: el flujo normal (state_data -> _processState)
 // sigue mandando. Dejar en false para el firmware de produccion.
-constexpr bool BENCH_SIN_MEGA = false;
+//
+// Con el flag activo y sin Mega tambien se puentea el resto del recorrido,
+// para poder navegar todas las pantallas: Iniciar pasa directo a Running
+// (sin Busy ni reintentos de `start`) y Detener fabrica un result_data
+// local ("stopped") que lleva a Resultado. Nada de esto manda comandos al
+// serial ni toca el flujo con el Mega conectado.
+constexpr bool BENCH_SIN_MEGA = true;
 
 
 
@@ -52,6 +57,7 @@ class MySystem :
     BrokerManager& _brokerManager;
     DisplayDriver& _display;
     ScreenManager& _screenManager;
+    SdStorage& _sdStorage;
 
     // Frames de configuracion en vuelo, mandados desde onSerialConnected()
     // y reenviados por Tasks::ReSendConfig hasta que cada uno tenga su ack
@@ -75,7 +81,7 @@ class MySystem :
     PendingConfigFrame _pendingConfig[MaxPendingConfigFrames];
 
   public:
-    MySystem(SerialLink& serial, Timer& timer, WiFiManager& wifiManager, BrokerManager& brokerManager, DisplayDriver& display, ScreenManager& screenManager);
+    MySystem(SerialLink& serial, Timer& timer, WiFiManager& wifiManager, BrokerManager& brokerManager, DisplayDriver& display, ScreenManager& screenManager, SdStorage& sdStorage);
     void begin();
     void update();
     void remoteUpdate();
@@ -83,6 +89,8 @@ class MySystem :
   private:
     void _sendStart();
     void _sendStop();
+    void _applyResult(const char* reason, const char* description);
+    void _applyResult(const char* reason, const char* description, JsonVariantConst params);
     void _sendReset();
 
     void _sendMegaConfig();
@@ -122,13 +130,14 @@ class MySystem :
 
 };
 
-inline MySystem::MySystem(SerialLink& serial, Timer& timer, WiFiManager& wifiManager, BrokerManager& brokerManager, DisplayDriver& display, ScreenManager& screenManager) :
+inline MySystem::MySystem(SerialLink& serial, Timer& timer, WiFiManager& wifiManager, BrokerManager& brokerManager, DisplayDriver& display, ScreenManager& screenManager, SdStorage& sdStorage) :
   _serial(serial), 
   _timer(timer), 
   _wifiManager(wifiManager), 
   _brokerManager(brokerManager), 
   _display(display), 
-  _screenManager(screenManager) 
+  _screenManager(screenManager),
+  _sdStorage(sdStorage)
 {
   _serial.setListener(this);
   _timer.setTimerListener(this);
@@ -138,6 +147,22 @@ inline MySystem::MySystem(SerialLink& serial, Timer& timer, WiFiManager& wifiMan
 }
 
 inline void MySystem::begin() {
+  // Restaura la seleccion del operador antes de calcular los labels: si hay
+  // una guardada en la SD, Principal tiene que mostrar ESA y no el indice 0
+  // de cada menu. Corre despues de ConfigLoader (que ya definio los menus),
+  // asi que los indices se validan contra los menus definitivos. Sin SD no
+  // pasa nada: quedan los defaults compilados.
+  SelectionStore::load(_sdStorage, _data.configuration);
+
+  // Los labels de Principal se calculan una vez en el constructor de
+  // SystemData, que corre en la inicializacion estatica -- antes de
+  // setup() y por lo tanto antes de ConfigLoader::load(). Sin esta
+  // relectura la pantalla muestra los defaults compilados mientras
+  // _sendStart() manda al Mega los valores de la SD: dos numeros
+  // distintos para el mismo experimento. begin() corre despues de
+  // ConfigLoader, asi que aca las tablas ya son las definitivas.
+  _data.updatePrincipalConfigurationLabels();
+
   _serial.begin();
   _timer.begin();
   _timer.start();
@@ -162,7 +187,12 @@ inline void MySystem::begin() {
   };
    
   const int totalScreens = sizeof(screens) / sizeof(screens[0]);
-  const int initialIndex = 0;
+  // -1 = el manager no muestra ninguna pantalla en init(). Cual es la
+  // primera lo decide el _processState(Idle) de abajo, que ademas deja el
+  // StateData coherente con lo que se ve; con initialIndex=0 el splash se
+  // mostraba dos veces (una acá y otra ahí) y habia dos lugares
+  // decidiendo lo mismo.
+  const int initialIndex = -1;
 
   _screenManager.begin(screens, totalScreens, initialIndex);
   _screenManager.init();  
@@ -651,13 +681,13 @@ inline bool MySystem::_publish(const char* topic, const char* payload) {
 // espera el Decoder ya configurado del lado de Datacake: renombrar uno obliga
 // a actualizar tambien ese Decoder, o el valor deja de llegar sin error
 // visible. BOB1 es el nombre historico del Decoder para la bobina; se reusa
-// para la corriente medida (measureCurrent, sensor SCT013) en vez de agregar
+// para la corriente medida (coilCurrent[0], sensor SCT013-1) en vez de agregar
 // un campo nuevo.
 inline void MySystem::_publishMeasures() {
   JsonDocument doc;
   if (Topics::MagneticField.enabled) doc[Topics::MagneticField.name] = _data.measures.measureMagneticField;
   if (Topics::Temperature.enabled)   doc[Topics::Temperature.name]   = _data.measures.measureTemperature;
-  if (Topics::Current.enabled)       doc[Topics::Current.name]       = _data.measures.measureCurrent;
+  if (Topics::Current.enabled)       doc[Topics::Current.name]       = _data.measures.coilCurrent[0];
 
   _publishTelemetry(doc);
 }
@@ -701,7 +731,11 @@ inline void MySystem::_publishStatus() {
 
 inline void MySystem::_processState(const char* status, bool forceStatus) {
   IScreen* screen = _screenManager.getCurrent();
-  ScreenType current = screen->getType();
+  // En la primera llamada (el Idle de begin()) todavia no se mostro
+  // ninguna pantalla -- ScreenManager arranca con initialIndex = -1 y
+  // getCurrent() devuelve nullptr. SPLASH es la respuesta correcta ahi:
+  // es lo que ui_init() dejo cargado en el display.
+  ScreenType current = (screen != nullptr) ? screen->getType() : ScreenType::SPLASH;
   if (strcmp(status, StateData::Idle) == 0) {
     if (forceStatus) {
       _data.setInitialized(false);
@@ -739,7 +773,24 @@ inline void MySystem::_processState(const char* status, bool forceStatus) {
         _data.configuration.targetDurationOption
     ].duration;
     _data.alerts = AlertsData();
+    _data.clearAlertHistory();
+    // Todas las mediciones arrancan en 0, no en lo que dejo el experimento
+    // anterior ni en los valores de maqueta del export: hasta que llegue la
+    // primera muestra, 0 es lo unico que se puede afirmar.
+    _data.measures.measureMagneticField = 0.0f;
+    _data.measures.measureTemperature = 0.0f;
+    for (uint8_t i = 0; i < MAX_COILS; i++) {
+      _data.measures.coilCurrent[i] = 0.0f;
+      _data.measures.coilDuty[i] = 0.0f;
+      _data.measures.latestCoilUpdate[i] = 0;
+    }
+    _data.measures.latestMagneticFieldUpdate = 0;
+    _data.measures.latestTemperatureUpdate = 0;
     snprintf(_data.progress.health, sizeof(_data.progress.health), "%s", HealthData::Normal);
+    // Acumulador del campo medio que muestra Resultado: arranca de cero
+    // con cada experimento.
+    _data.measures.magneticFieldSum = 0.0;
+    _data.measures.magneticFieldSamples = 0;
     _data.setState(status);
     _screenManager.show(ScreenType::RUNNING);
   }
@@ -821,22 +872,7 @@ inline void MySystem::onCommand(const char* command, JsonVariantConst params) {
   else if(strcmp(command, Commands::ResultData) == 0) {
     const char* reason = params["reason"] | "";
     const char* description = params["description"] | "";
-
-    snprintf(_data.result.reason, sizeof(_data.result.reason), "%s", reason);
-    snprintf(_data.result.description, sizeof(_data.result.description), "%s", description);
-
-    // Snapshot de lo que el ESP32 ya venia trackeando en vivo, congelado en
-    // el instante del corte (ver comentario de ResultData en systemdata.hpp).
-    snprintf(_data.result.health, sizeof(_data.result.health), "%s", _data.progress.health);
-    _data.result.progressPercent = _data.progressPercent();
-    snprintf(_data.result.elapsed, sizeof(_data.result.elapsed), "%s", _data.elapsedTime());
-
-    DEBUG_PRINT(DEBUG_MYSYSTEM, F("[RESULT] reason="));
-    DEBUG_PRINT(DEBUG_MYSYSTEM, reason);
-    DEBUG_PRINT(DEBUG_MYSYSTEM, F(" description="));
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, description);
-
-    _screenManager.show(ScreenType::RESULT);
+    _applyResult(reason, description, params);
   }
   else if(strcmp(command, Commands::OneFlagsData) == 0) {
     const char* source = params["source"] | "?";
@@ -854,6 +890,10 @@ inline void MySystem::onCommand(const char* command, JsonVariantConst params) {
     DEBUG_PRINTLN(DEBUG_MYSYSTEM, limit);
 
     _data.pushAlert(type, source, count, limit);
+    // Dos registros distintos a proposito: pushAlert dedupe por fuente+tipo
+    // (lo que necesitan la salud y Resultado) y pushAlertEvent NO dedupe,
+    // porque los 4 paneles de En curso muestran los ultimos 4 EVENTOS.
+    _data.pushAlertEvent(source, type);
 
     // La salud se recalcula al vuelo con cada flag que llega, no por
     // polling -- ver tambien el reset a Normal al entrar a Running.
@@ -876,13 +916,41 @@ inline void MySystem::onCommand(const char* command, JsonVariantConst params) {
       float cem1 = params["CEM1"].as<float>();
       _data.measures.measureMagneticField = cem1;
       _data.measures.latestMagneticFieldUpdate = millis();
+      // Solo cuenta para el campo medio mientras corre el experimento:
+      // fuera de Running el Mega sigue mandando cem_data (campo ambiente).
+      if (strcmp(_data.getState(), StateData::Running) == 0) {
+        _data.addMagneticFieldSample(cem1);
+      }
     }
   }
-  else if(strcmp(command, Commands::CurrentData) == 0) {
-    if (params.containsKey("SCT013-1") && params["SCT013-1"].is<float>()) {
-      float curr1 = params["SCT013-1"].as<float>();
-      _data.measures.measureCurrent = curr1;
-      _data.measures.latestCurrentUpdate = millis();
+  else if(strcmp(command, Commands::CoilData) == 0) {
+    // "dN" (duty aplicado, en %) y "cN" (corriente del SCT013-N) por cada
+    // bobina REGISTRADA en el Mega; ver Engine::_sendCoilData(). Una bobina
+    // que no aparece en el frame no existe del otro lado, y por eso la
+    // pantalla no le dibuja fila: el sello latestCoilUpdate se marca solo
+    // para las que si vinieron.
+    //
+    // El duty puede venir sin la corriente (bobina registrada cuyo sensor
+    // no esta, que es el caso de bring-up con un solo ADS1115), asi que
+    // cada clave se mira por separado y el sello lo marca cualquiera de
+    // las dos.
+    for (uint8_t i = 0; i < MAX_COILS; i++) {
+      char key[4];
+      bool reported = false;
+
+      snprintf(key, sizeof(key), "d%u", i + 1);
+      if (params[key].is<float>()) {
+        _data.measures.coilDuty[i] = params[key].as<float>();
+        reported = true;
+      }
+
+      snprintf(key, sizeof(key), "c%u", i + 1);
+      if (params[key].is<float>()) {
+        _data.measures.coilCurrent[i] = params[key].as<float>();
+        reported = true;
+      }
+
+      if (reported) _data.measures.latestCoilUpdate[i] = millis();
     }
   }
   
@@ -925,6 +993,53 @@ inline void MySystem::onSerialDisconnected() {
   _data.communication.serialOk = false;
 }
 
+// Guarda el resultado y navega a Resultado. Lo llama el handler de
+// result_data y, con BENCH_SIN_MEGA, el puente de Detener sin Mega.
+inline void MySystem::_applyResult(const char* reason, const char* description) {
+  _applyResult(reason, description, JsonVariantConst());
+}
+
+inline void MySystem::_applyResult(const char* reason, const char* description, JsonVariantConst params) {
+  snprintf(_data.result.reason, sizeof(_data.result.reason), "%s", reason);
+  snprintf(_data.result.description, sizeof(_data.result.description), "%s", description);
+
+  // Campos crudos: solo vienen cuando aplican al motivo. Lo que no vino
+  // queda en su valor por defecto y la pantalla cae en `description`.
+  _data.result.source[0] = '\0';
+  _data.result.type[0] = '\0';
+  _data.result.count = 0;
+  _data.result.limit = 0;
+  _data.result.fromEmergency = false;
+
+  if (params["source"].is<const char*>()) {
+    snprintf(_data.result.source, sizeof(_data.result.source), "%s", params["source"].as<const char*>());
+  }
+  if (params["type"].is<const char*>()) {
+    snprintf(_data.result.type, sizeof(_data.result.type), "%s", params["type"].as<const char*>());
+  }
+  if (params["count"].is<uint16_t>()) _data.result.count = params["count"].as<uint16_t>();
+  if (params["limit"].is<uint16_t>()) _data.result.limit = params["limit"].as<uint16_t>();
+  if (params["emerg"].is<bool>())     _data.result.fromEmergency = params["emerg"].as<bool>();
+
+  // Snapshot de lo que el ESP32 ya venia trackeando en vivo, congelado en
+  // el instante del corte (ver comentario de ResultData en systemdata.hpp).
+  snprintf(_data.result.health, sizeof(_data.result.health), "%s", _data.progress.health);
+  _data.result.progressPercent = _data.progressPercent();
+  snprintf(_data.result.elapsed, sizeof(_data.result.elapsed), "%s", _data.elapsedTime());
+  _data.result.elapsedSeconds = _data.elapsedSeconds();
+  snprintf(_data.result.fieldMode, sizeof(_data.result.fieldMode), "%s", _data.principal.fieldModeValue);
+  _data.result.hasMeanMagneticField = _data.measures.magneticFieldSamples > 0;
+  _data.result.meanMagneticField = _data.meanMagneticField();
+  _data.result.alertCount = _data.activeAlertCount();
+
+  DEBUG_PRINT(DEBUG_MYSYSTEM, F("[RESULT] reason="));
+  DEBUG_PRINT(DEBUG_MYSYSTEM, reason);
+  DEBUG_PRINT(DEBUG_MYSYSTEM, F(" description="));
+  DEBUG_PRINTLN(DEBUG_MYSYSTEM, description);
+
+  _screenManager.show(ScreenType::RESULT);
+}
+
 inline void MySystem::onWiFiConnected(const char* ssid) {
   _data.communication.wifiOk = true;
 }
@@ -961,6 +1076,11 @@ inline void MySystem::onScreenEvent(ScreenEvent e) {
   }
   else if(e.type == ScreenType::PRINCIPAL && e.name == EventName::Start) {
     DEBUG_PRINTLN(DEBUG_MYSYSTEM, "Procesando start!");
+    if(BENCH_SIN_MEGA && !_serial.isConnected()) {
+      DEBUG_PRINTLN(DEBUG_MYSYSTEM, "BENCH_SIN_MEGA: sin Mega, paso a Running sin mandar start");
+      _processState(StateData::Running);
+      return;
+    }
     _sendStart();
     // addTask acá y de nuevo en onStateChanged() cuando newState pasa a
     // Starting (esta misma llamada a _processState dispara ese callback) --
@@ -972,6 +1092,12 @@ inline void MySystem::onScreenEvent(ScreenEvent e) {
   }
   else if(e.type == ScreenType::RUNNING && e.name == EventName::Stop) {
     DEBUG_PRINTLN(DEBUG_MYSYSTEM, "Procesando stop!");
+    if(BENCH_SIN_MEGA && !_serial.isConnected()) {
+      DEBUG_PRINTLN(DEBUG_MYSYSTEM, "BENCH_SIN_MEGA: sin Mega, fabrico result_data stopped");
+      _data.setState(StateData::Ready);
+      _applyResult("stopped", "Detenido desde el banco (sin Mega)");
+      return;
+    }
     _sendStop();
     // Mismo patron redundante-pero-seguro que el caso Start de arriba.
     _timer.addTask(Tasks::ReSendStop, Intervals::ReSendStop);
@@ -981,14 +1107,35 @@ inline void MySystem::onScreenEvent(ScreenEvent e) {
     _screenManager.show(ScreenType::PRINCIPAL);
   }
   else if(e.type == ScreenType::CONFIG && e.name == EventName::Save) {
-    // No hay nada que persistir aca -- ConfigurationController::onSave()
-    // (screencontroller.hpp) ya escribio _data.configuration ANTES de
-    // emitir este evento; este handler solo navega de vuelta.
+    // ConfigurationController::onSave() (screencontroller.hpp) ya escribio
+    // _data.configuration ANTES de emitir este evento (y ya valido que los
+    // rangos de temperatura esten anidados); aca solo se persiste y se
+    // navega. El resultado de save() se ignora a proposito: sin tarjeta SD
+    // la seleccion vale igual para esta sesion, solo no sobrevive al
+    // reinicio, y no hay nada que el operador pueda hacer al respecto
+    // desde esta pantalla.
+    SelectionStore::save(_sdStorage, _data.configuration);
     _screenManager.show(ScreenType::PRINCIPAL);
   }
   else if(e.type == ScreenType::RESULT && e.name == EventName::Back) {
     _data.result = ResultData();
     _screenManager.show(ScreenType::PRINCIPAL);
+  }
+  // REPETIR: el mismo camino que Iniciar desde Principal, con la
+  // configuracion intacta -- desde Resultado no se puede haber cambiado, la
+  // pantalla Configuraciones no es alcanzable desde aca.
+  else if(e.type == ScreenType::RESULT && e.name == EventName::Repeat) {
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, "Procesando repetir!");
+    _data.result = ResultData();
+
+    if(BENCH_SIN_MEGA && !_serial.isConnected()) {
+      DEBUG_PRINTLN(DEBUG_MYSYSTEM, "BENCH_SIN_MEGA: sin Mega, paso a Running sin mandar start");
+      _processState(StateData::Running);
+      return;
+    }
+    _sendStart();
+    _timer.addTask(Tasks::ReSendStart, Intervals::ReSendStart);
+    _processState(StateData::Starting);
   }
   else if(e.type == ScreenType::BUSY && e.name == EventName::Timeout) {
     if(_data.getState() == StateData::Starting) {

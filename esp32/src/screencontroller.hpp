@@ -3,6 +3,8 @@
 #include "eventsname.hpp"
 #include "screenmanager.hpp"
 #include "configurationoptions.hpp"
+#include "configloader.hpp"
+#include "intervals.hpp"
 #include "systemdata.hpp"
 #include "iscreen.hpp"
 #include "ui.h"
@@ -22,6 +24,7 @@ static void btnConfigBackClick(lv_event_t * e);
 static void btnRunningDetenerClick(lv_event_t * e);
 
 static void btnResultadoVolverClick(lv_event_t * e);
+static void btnResultadoRepetirClick(lv_event_t * e);
 
 
 // "count" es el contador real de cada menu (ConfigurationOptions::countXxx),
@@ -96,7 +99,7 @@ class SplashController : public BaseScreenController {
     bool _launched = false;
 };
 
-inline SplashController::SplashController() : BaseScreenController(ui_Splash, ScreenType::SPLASH, "splash") {}
+inline SplashController::SplashController() : BaseScreenController(ui_SplashScreen, ScreenType::SPLASH, "splash") {}
 
 inline void SplashController::show() {
   BaseScreenController::show();
@@ -106,7 +109,7 @@ inline void SplashController::show() {
 
 inline void SplashController::update() {
   unsigned long now = millis();
-  if(now - _startTime > 4000) {
+  if(now - _startTime > Intervals::SplashTimeout) {
     if(_listener == nullptr) return;
     if(_launched) return;
     _launched = true;
@@ -132,21 +135,28 @@ class PrincipalController : public BaseScreenController {
     SystemData& _data;
 };
 
-inline PrincipalController::PrincipalController(SystemData& data) : BaseScreenController(ui_Principal, ScreenType::PRINCIPAL, "principal"), _data(data) {}
+inline PrincipalController::PrincipalController(SystemData& data) : BaseScreenController(ui_PrincipalScreen, ScreenType::PRINCIPAL, "principal"), _data(data) {}
 
 inline void PrincipalController::init() {
-  lv_obj_add_event_cb(ui_PrincipalBtnIniciar, btnPrincipalGoToRunningClick, LV_EVENT_CLICKED, this);
-  lv_obj_add_event_cb(ui_PrincipalBtnConfiguracion, btnPrincipalGoToConfigClick, LV_EVENT_CLICKED, this);
+  lv_obj_add_event_cb(ui_ButtonPrincipalIniciar, btnPrincipalGoToRunningClick, LV_EVENT_CLICKED, this);
+  lv_obj_add_event_cb(ui_ButtonPrincipalConfigurar, btnPrincipalGoToConfigClick, LV_EVENT_CLICKED, this);
 }
 
 inline void PrincipalController::show() {
   BaseScreenController::show();
-  lv_label_set_text(ui_PrincipalObjetivoCampoValue, _data.principal.targetFieldIntensity);
-  lv_label_set_text(ui_PrincipalObjetivoFrecuenciaValue, _data.principal.targetFieldFrequency);
-  lv_label_set_text(ui_PrincipalObjetivoDuracionValue, _data.principal.targetDuration);
-  lv_label_set_text(ui_PrincipalTolCampoValue, _data.principal.fieldIntensityTolerance);
-  lv_label_set_text(ui_PrincipalRangoTempNormalValue, _data.principal.normalTemperatureRange);
-  lv_label_set_text(ui_PrincipalRangoTempCritValue, _data.principal.criticalTemperatureRange);
+  // El diseno muestra el numero grande y la unidad chica en widgets
+  // separados; la unidad ya viene fija del export (mT, Hz, h/m, %, C).
+  lv_label_set_text(ui_PrincipalIntensidadCampoValor, _data.principal.intensityValue);
+  lv_label_set_text(ui_PrincipalFrecuenciaValor, _data.principal.frequencyValue);
+  lv_label_set_text(ui_PrincipalDuracionHorasValor, _data.principal.durationHours);
+  lv_label_set_text(ui_PrincipalDuracionMinutosValor, _data.principal.durationMinutes);
+  lv_label_set_text(ui_PrincipalTolIntensidadValor, _data.principal.toleranceValue);
+  lv_label_set_text(ui_PrincipalTempNormalValor, _data.principal.normalTemperatureValue);
+  lv_label_set_text(ui_PrincipalTempCriticaValor, _data.principal.criticalTemperatureValue);
+  // El diseno UiFinalParte1 muestra solo el modo ("CAMPO X"/"CAMPO NULO");
+  // el grupo (tratado/control) y los chips de componentes del diseno
+  // anterior ya no tienen widget.
+  lv_label_set_text(ui_PrincipalModoValor, _data.principal.fieldModeValue);
 }
 
 inline void PrincipalController::update() {}
@@ -190,7 +200,11 @@ inline void btnPrincipalGoToConfigClick(lv_event_t * e) {
 // (onDropdownChanged) solo actualiza estos campos, NO _data.configuration.
 // El valor elegido recien se aplica a _data.configuration en onSave() --
 // si el operador entra a Configuraciones, cambia algo y sale por
-// onBack() (Volver) en vez de Guardar, el cambio se descarta sin avisar.
+// onBack() (Volver) en vez de Guardar, el cambio se descarta -- por
+// decision de diseno, sin avisar: el diseno UiFinalParte1 no trae el
+// cartel "N CAMBIOS SIN GUARDAR" del anterior y no se quiso reponerlo.
+// onBack() descarta explicitamente (resincroniza el staging) en vez de
+// confiar en que el proximo show() lo haga.
 class ConfigurationController : public BaseScreenController {
   public:
     ConfigurationController(SystemData& data);
@@ -203,6 +217,7 @@ class ConfigurationController : public BaseScreenController {
   private:
     SystemData& _data;
 
+    uint8_t _lastOptionFieldMode = 0;
     uint8_t _lastOptionFieldIntensity = 0;
     uint8_t _lastOptionFrequency = 0;
     uint8_t _lastOptionDuration = 0;
@@ -210,11 +225,32 @@ class ConfigurationController : public BaseScreenController {
     uint8_t _lastOptionRangeNormalTemperature = 0;
     uint8_t _lastOptionRangeCriticalTemperature = 0;
 
+    // Los dos combos de temperatura se rellenan filtrados (ver
+    // _rebuildNormalOptions), asi que la posicion dentro del combo YA NO es
+    // el indice de la opcion. Estos mapas traducen posicion filtrada ->
+    // indice absoluto en ConfigurationOptions, que es lo unico que se guarda
+    // en _data.configuration y lo unico que entiende el resto del sistema
+    // (_sendStart, SelectionStore, updatePrincipalConfigurationLabels).
+    uint8_t _normalMap[ConfigurationOptions::MaxOptions];
+    uint8_t _normalCount = 0;
+    uint8_t _criticalMap[ConfigurationOptions::MaxOptions];
+    uint8_t _criticalCount = 0;
+
+    // "ninguna opcion elegida": el combo quedo sin seleccion porque lo que
+    // estaba elegido no es compatible con lo que se eligio del otro lado.
+    static constexpr uint8_t NoSelection = 0xFF;
+
   private:
     void _applyState();
+    void _syncStagingFromData();
+    void _rebuildNormalOptions();
+    void _rebuildCriticalOptions();
+    uint8_t _applySelection(lv_obj_t* dropdown, const uint8_t* map, uint8_t count, uint8_t absolute);
+    static bool _isNested(const ConfigurationOptions::OptionRangeTemperature& normal,
+                          const ConfigurationOptions::OptionRangeTemperature& critical);
 };
 
-inline ConfigurationController::ConfigurationController(SystemData& data) : BaseScreenController(ui_Configuracion, ScreenType::CONFIG, "configuration"), _data(data) {}
+inline ConfigurationController::ConfigurationController(SystemData& data) : BaseScreenController(ui_ConfiguracionesScreen, ScreenType::CONFIG, "configuration"), _data(data) {}
 
 inline void ConfigurationController::show() {
   BaseScreenController::show();
@@ -225,80 +261,207 @@ inline void ConfigurationController::update() {}
 
 inline void ConfigurationController::init() {
   BaseScreenController::init();
-  buildDropdown(ui_DuracionOpciones, ConfigurationOptions::optionsDuration, ConfigurationOptions::countDuration);
-  buildDropdown(ui_CampoOpciones, ConfigurationOptions::optionsFieldIntensity, ConfigurationOptions::countFieldIntensity);
-  buildDropdown(ui_FrecuenciaOpciones, ConfigurationOptions::optionsFrequency, ConfigurationOptions::countFrequency);
-  buildDropdown(ui_ToleranciaCampoOpciones, ConfigurationOptions::optionsTolFieldIntensity, ConfigurationOptions::countTolFieldIntensity);
-  buildDropdown(ui_RangoTempNormalOpciones, ConfigurationOptions::optionsRangeNormalTemperature, ConfigurationOptions::countRangeNormalTemperature);
-  buildDropdown(ui_RangoTempCritOpciones, ConfigurationOptions::optionsRangeCriticalTemperature, ConfigurationOptions::countRangeCriticalTemperature);
 
-  // PENDIENTE (SquareLine, tarjeta 15 de Trello): dropdown de modo de
-  // experimento (campo X / campo nulo). Todo lo que no es el widget ya
-  // esta: ConfigurationOptions::optionsFieldMode/countFieldMode,
-  // SystemData::configuration.fieldModeOption y el envio del parametro
-  // `mode` en MySystem::_sendStart(). Cuando exista el objeto en ui_
-  // Configuracion.c, esto son 4 lineas siguiendo el patron de arriba:
-  // buildDropdown + add_event_cb aca, lv_dropdown_set_selected en
-  // _applyState(), la rama en onDropdownChanged() y la asignacion en
-  // onSave(). Mientras tanto el modo queda fijo en campo X.
+  // PENDIENTE (ajuste visual, se corrige en SquareLine y se re-exporta):
+  // el texto de los 7 dropdowns desborda. Los 7 salen del export con
+  // lv_font_montserrat_20 mientras sus titulos usan montserrat_10, y dos
+  // de ellos tienen ancho fijo -- Modo 118 px e Intensidad 90 px -- contra
+  // lv_pct(100) en los otros cinco. A 20 px, "Campo nulo" (la etiqueta mas
+  // larga de las compiladas) ya no entra en esos anchos.
+  // Dos cosas a tener en cuenta cuando se ajuste:
+  //  - No alcanza con achicar la fuente en LV_PART_MAIN: eso es el boton
+  //    cerrado. La lista desplegada es otro objeto (lv_dropdown_get_list),
+  //    que SquareLine no estiliza, asi que hay que tocar las dos partes o
+  //    el problema se muda al desplegable.
+  //  - El ancho tiene que tolerar etiquetas mas largas que las compiladas:
+  //    los menus vienen de la SD y el `label` es texto libre del operador
+  //    (ver ConfigLoader y docs/config-schema.md seccion 3).
 
-  // Callbacks dropdown (wrapper estático)
-  lv_obj_add_event_cb(ui_DuracionOpciones, dropdownConfigSelectedChanged, LV_EVENT_VALUE_CHANGED, this);
-  lv_obj_add_event_cb(ui_CampoOpciones, dropdownConfigSelectedChanged, LV_EVENT_VALUE_CHANGED, this);
-  lv_obj_add_event_cb(ui_FrecuenciaOpciones, dropdownConfigSelectedChanged, LV_EVENT_VALUE_CHANGED, this);
-  lv_obj_add_event_cb(ui_ToleranciaCampoOpciones, dropdownConfigSelectedChanged, LV_EVENT_VALUE_CHANGED, this);
-  lv_obj_add_event_cb(ui_RangoTempNormalOpciones, dropdownConfigSelectedChanged, LV_EVENT_VALUE_CHANGED, this);
-  lv_obj_add_event_cb(ui_RangoTempCritOpciones, dropdownConfigSelectedChanged, LV_EVENT_VALUE_CHANGED, this);
+  // El de modo pisa el "NORMAL/NULO" que trae el export: la lista real es
+  // ConfigurationOptions::optionsFieldMode, fija en 2 entradas por diseno.
+  buildDropdown(ui_ConfiguracionModoOpciones, ConfigurationOptions::optionsFieldMode, ConfigurationOptions::countFieldMode);
+  buildDropdown(ui_ConfiguracionDuracionOpciones, ConfigurationOptions::optionsDuration, ConfigurationOptions::countDuration);
+  buildDropdown(ui_ConfiguracionIntensidadCampoOpciones, ConfigurationOptions::optionsFieldIntensity, ConfigurationOptions::countFieldIntensity);
+  buildDropdown(ui_ConfiguracionFrecuenciaOpciones, ConfigurationOptions::optionsFrequency, ConfigurationOptions::countFrequency);
+  buildDropdown(ui_ConfiguracionTolIntensidadOpciones, ConfigurationOptions::optionsTolFieldIntensity, ConfigurationOptions::countTolFieldIntensity);
+  // Los dos de temperatura NO se llenan aca: su contenido depende de lo que
+  // este elegido en el otro, asi que los arma _applyState() en cada show().
 
-  lv_obj_add_event_cb(ui_ConfiguracionGuardarBtn, btnConfigSaveClick, LV_EVENT_CLICKED, this);
-  lv_obj_add_event_cb(ui_ConfiguracionVolverBtn, btnConfigBackClick, LV_EVENT_CLICKED, this);
+  // Callbacks dropdown (wrapper estatico)
+  lv_obj_add_event_cb(ui_ConfiguracionModoOpciones, dropdownConfigSelectedChanged, LV_EVENT_VALUE_CHANGED, this);
+  lv_obj_add_event_cb(ui_ConfiguracionDuracionOpciones, dropdownConfigSelectedChanged, LV_EVENT_VALUE_CHANGED, this);
+  lv_obj_add_event_cb(ui_ConfiguracionIntensidadCampoOpciones, dropdownConfigSelectedChanged, LV_EVENT_VALUE_CHANGED, this);
+  lv_obj_add_event_cb(ui_ConfiguracionFrecuenciaOpciones, dropdownConfigSelectedChanged, LV_EVENT_VALUE_CHANGED, this);
+  lv_obj_add_event_cb(ui_ConfiguracionTolIntensidadOpciones, dropdownConfigSelectedChanged, LV_EVENT_VALUE_CHANGED, this);
+  lv_obj_add_event_cb(ui_ConfiguracionTempNormalOpciones, dropdownConfigSelectedChanged, LV_EVENT_VALUE_CHANGED, this);
+  lv_obj_add_event_cb(ui_ConfiguracionTempCriticaOpciones, dropdownConfigSelectedChanged, LV_EVENT_VALUE_CHANGED, this);
 
+  lv_obj_add_event_cb(ui_ButtonConfiguracionGuardar, btnConfigSaveClick, LV_EVENT_CLICKED, this);
+  lv_obj_add_event_cb(ui_ButtonConfiguracionVolver, btnConfigBackClick, LV_EVENT_CLICKED, this);
 }
 
 inline void ConfigurationController::_applyState() {
   // Aplicar a UI
-  lv_dropdown_set_selected(ui_DuracionOpciones, _data.configuration.targetDurationOption);
-  lv_dropdown_set_selected(ui_CampoOpciones, _data.configuration.targetFieldIntensityOption);  
-  lv_dropdown_set_selected(ui_FrecuenciaOpciones, _data.configuration.targetFieldFrequencyOption);
-  lv_dropdown_set_selected(ui_ToleranciaCampoOpciones, _data.configuration.fieldIntensityToleranceOption);
-  lv_dropdown_set_selected(ui_RangoTempNormalOpciones, _data.configuration.normalTemperatureRangeOption);
-  lv_dropdown_set_selected(ui_RangoTempCritOpciones, _data.configuration.criticalTemperatureRangeOption);
+  lv_dropdown_set_selected(ui_ConfiguracionModoOpciones, _data.configuration.fieldModeOption);
+  lv_dropdown_set_selected(ui_ConfiguracionDuracionOpciones, _data.configuration.targetDurationOption);
+  lv_dropdown_set_selected(ui_ConfiguracionIntensidadCampoOpciones, _data.configuration.targetFieldIntensityOption);
+  lv_dropdown_set_selected(ui_ConfiguracionFrecuenciaOpciones, _data.configuration.targetFieldFrequencyOption);
+  lv_dropdown_set_selected(ui_ConfiguracionTolIntensidadOpciones, _data.configuration.fieldIntensityToleranceOption);
+  _syncStagingFromData();
 
-  // Sincronizar cache local
+  // Los dos de temperatura van despues del sync porque cada uno se filtra
+  // con lo que esta elegido en el otro. Un par guardado siempre es
+  // compatible (onSave no deja guardar otra cosa), asi que ninguno de los
+  // dos se limpia al entrar.
+  _rebuildNormalOptions();
+  _rebuildCriticalOptions();
+}
+
+// Deja el staging igual a lo guardado: lo que muestran los dropdowns y lo
+// que se va a mandar en el proximo start vuelven a coincidir.
+inline void ConfigurationController::_syncStagingFromData() {
+  _lastOptionFieldMode = _data.configuration.fieldModeOption;
   _lastOptionFieldIntensity = _data.configuration.targetFieldIntensityOption;
   _lastOptionFrequency = _data.configuration.targetFieldFrequencyOption;
   _lastOptionDuration = _data.configuration.targetDurationOption;
   _lastOptionTolFieldIntensity = _data.configuration.fieldIntensityToleranceOption;
   _lastOptionRangeNormalTemperature = _data.configuration.normalTemperatureRangeOption;
   _lastOptionRangeCriticalTemperature = _data.configuration.criticalTemperatureRangeOption;
+}
 
+// El Detector del Mega da por sentado que los dos rangos estan ANIDADOS:
+// criticalMin <= normalMin < normalMax <= criticalMax (ver el comentario de
+// Source::addSample en mega2560/src/detector.hpp). Con esa forma "fuera de
+// normal" es un superconjunto de "critico". Un par que no la cumpla -- normal
+// mas ancho que critico -- haria que una lectura perfectamente normal caiga
+// fuera del rango critico y dispare la alerta que corta el experimento.
+//
+// En vez de dejar armar un par invalido y rechazarlo recien al guardar, cada
+// combo se rellena con las opciones compatibles con lo elegido en el otro: lo
+// invalido no llega a estar en la lista.
+inline bool ConfigurationController::_isNested(const ConfigurationOptions::OptionRangeTemperature& normal,
+                                               const ConfigurationOptions::OptionRangeTemperature& critical) {
+  return critical.tmin <= normal.tmin
+      && normal.tmin < normal.tmax
+      && normal.tmax <= critical.tmax;
+}
+
+// Deja elegida la opcion de indice ABSOLUTO `absolute` si sobrevivio al
+// filtro. Si no sobrevivio, limpia la seleccion y devuelve NoSelection: lo
+// que estaba elegido dejo de ser compatible, y seguir mostrandolo seria
+// mentir sobre lo que se va a guardar.
+inline uint8_t ConfigurationController::_applySelection(lv_obj_t* dropdown, const uint8_t* map, uint8_t count, uint8_t absolute) {
+  for (uint8_t i = 0; i < count; i++) {
+    if (map[i] != absolute) continue;
+    // NULL = volver a mostrar la opcion elegida en vez del placeholder.
+    lv_dropdown_set_text(dropdown, NULL);
+    lv_dropdown_set_selected(dropdown, i);
+    return absolute;
+  }
+
+  // Literal a proposito: lv_dropdown_set_text guarda el puntero, no copia.
+  lv_dropdown_set_text(dropdown, "--");
+  return NoSelection;
+}
+
+// Rellena el combo de rango NORMAL con los que entran dentro del rango
+// CRITICO elegido (sin critico elegido, con todos).
+inline void ConfigurationController::_rebuildNormalOptions() {
+  std::string items;
+  _normalCount = 0;
+  bool hasCritical = _lastOptionRangeCriticalTemperature != NoSelection;
+
+  for (uint8_t i = 0; i < ConfigurationOptions::countRangeNormalTemperature; i++) {
+    const auto& normal = ConfigurationOptions::optionsRangeNormalTemperature[i];
+    if (hasCritical &&
+        !_isNested(normal, ConfigurationOptions::optionsRangeCriticalTemperature[_lastOptionRangeCriticalTemperature])) {
+      continue;
+    }
+    if (_normalCount > 0) items += "\n";
+    items += normal.label;
+    _normalMap[_normalCount] = i;
+    _normalCount++;
+  }
+
+  lv_dropdown_set_options(ui_ConfiguracionTempNormalOpciones, items.c_str());
+  _lastOptionRangeNormalTemperature =
+      _applySelection(ui_ConfiguracionTempNormalOpciones, _normalMap, _normalCount, _lastOptionRangeNormalTemperature);
+}
+
+// El espejo del anterior: los CRITICOS que contienen al NORMAL elegido.
+inline void ConfigurationController::_rebuildCriticalOptions() {
+  std::string items;
+  _criticalCount = 0;
+  bool hasNormal = _lastOptionRangeNormalTemperature != NoSelection;
+
+  for (uint8_t i = 0; i < ConfigurationOptions::countRangeCriticalTemperature; i++) {
+    const auto& critical = ConfigurationOptions::optionsRangeCriticalTemperature[i];
+    if (hasNormal &&
+        !_isNested(ConfigurationOptions::optionsRangeNormalTemperature[_lastOptionRangeNormalTemperature], critical)) {
+      continue;
+    }
+    if (_criticalCount > 0) items += "\n";
+    items += critical.label;
+    _criticalMap[_criticalCount] = i;
+    _criticalCount++;
+  }
+
+  lv_dropdown_set_options(ui_ConfiguracionTempCriticaOpciones, items.c_str());
+  _lastOptionRangeCriticalTemperature =
+      _applySelection(ui_ConfiguracionTempCriticaOpciones, _criticalMap, _criticalCount, _lastOptionRangeCriticalTemperature);
 }
 
 inline void ConfigurationController::onDropdownChanged(lv_event_t * e) {
   lv_obj_t* widget = static_cast<lv_obj_t*>(lv_event_get_target(e));
   uint16_t optionSelectedIndex = lv_dropdown_get_selected(widget);
-  if(widget == ui_DuracionOpciones) {
+  if(widget == ui_ConfiguracionModoOpciones) {
+    _lastOptionFieldMode = optionSelectedIndex;
+  }
+  else if(widget == ui_ConfiguracionDuracionOpciones) {
     _lastOptionDuration = optionSelectedIndex;
   }
-  else if(widget == ui_CampoOpciones) {
+  else if(widget == ui_ConfiguracionIntensidadCampoOpciones) {
     _lastOptionFieldIntensity = optionSelectedIndex;
   }
-  else if(widget == ui_FrecuenciaOpciones) {
+  else if(widget == ui_ConfiguracionFrecuenciaOpciones) {
     _lastOptionFrequency = optionSelectedIndex;
   }
-  else if(widget == ui_ToleranciaCampoOpciones) {
+  else if(widget == ui_ConfiguracionTolIntensidadOpciones) {
     _lastOptionTolFieldIntensity = optionSelectedIndex;
   }
-  else if(widget == ui_RangoTempNormalOpciones) {
-    _lastOptionRangeNormalTemperature = optionSelectedIndex;
+  // Los dos de temperatura se traducen por el mapa (su lista esta filtrada)
+  // y rellenan el otro combo: elegir de un lado redefine que es compatible
+  // del otro.
+  else if(widget == ui_ConfiguracionTempNormalOpciones) {
+    if (optionSelectedIndex >= _normalCount) return;
+    lv_dropdown_set_text(widget, NULL);
+    _lastOptionRangeNormalTemperature = _normalMap[optionSelectedIndex];
+    _rebuildCriticalOptions();
   }
-  else if(widget == ui_RangoTempCritOpciones) {
-    _lastOptionRangeCriticalTemperature = optionSelectedIndex;
+  else if(widget == ui_ConfiguracionTempCriticaOpciones) {
+    if (optionSelectedIndex >= _criticalCount) return;
+    lv_dropdown_set_text(widget, NULL);
+    _lastOptionRangeCriticalTemperature = _criticalMap[optionSelectedIndex];
+    _rebuildNormalOptions();
   }
-
 }
 
 inline void ConfigurationController::onSave() {
+  // Con el filtrado un par incompatible ya no se puede armar; lo que si
+  // puede pasar es que uno de los dos combos haya quedado SIN seleccion,
+  // porque lo elegido del otro lado dejo afuera lo que estaba. Guardar eso
+  // escribiria un indice que no eligio nadie.
+  if (_lastOptionRangeNormalTemperature == NoSelection ||
+      _lastOptionRangeCriticalTemperature == NoSelection) {
+    // Silencioso a proposito: no se guarda ni se navega, y el unico rastro
+    // queda en el log serie. El layout no tiene renglon de error propio y no
+    // se quiso reusar otro widget para esto; lo que ve el operador es que
+    // sigue en la pantalla con un combo en "--".
+    DEBUG_PRINTLN(DEBUG_SCREENCONTROLLER, "[CONFIG] falta elegir un rango de temperatura: no se guarda");
+    return;
+  }
+
+  _data.configuration.fieldModeOption = _lastOptionFieldMode;
   _data.configuration.targetFieldIntensityOption = _lastOptionFieldIntensity;
   _data.configuration.targetFieldFrequencyOption = _lastOptionFrequency;
   _data.configuration.targetDurationOption = _lastOptionDuration;
@@ -317,6 +480,10 @@ inline void ConfigurationController::onSave() {
 }
 
 inline void ConfigurationController::onBack() {
+  // Descarte explicito: lo elegido en los dropdowns y no guardado se
+  // pierde aca, no en el proximo show().
+  _syncStagingFromData();
+
   if(_listener == nullptr) return;
   ScreenEvent ev;
   ev.type = ScreenType::CONFIG;
@@ -341,13 +508,13 @@ static void btnConfigSaveClick(lv_event_t * e) {
 static void btnConfigBackClick(lv_event_t * e) {
   ConfigurationController * self = (ConfigurationController *) lv_event_get_user_data(e);
   if(lv_event_get_code(e) == LV_EVENT_CLICKED) {
-    self->onBack();  
+    self->onBack();
   }
 }
 
 
 /* ============================================================
- *  RUNNING
+ *  RUNNING (pantalla "En curso", ui_EnCursoScreen)
  * ============================================================ */
 class RunningController : public BaseScreenController {
   public:
@@ -359,43 +526,48 @@ class RunningController : public BaseScreenController {
   private:
     SystemData& _data;
     unsigned long _lastProgressUpdate = 0;
+
+    // Cache de lo ya escrito en los dos labels de medicion, para no
+    // reescribirlos (y repintarlos) en cada tick de 50 ms. Es miembro y no
+    // static de funcion: un static sobrevive entre experimentos y haria que
+    // el segundo no refresque si arranca con el mismo valor con que termino
+    // el primero. show() los vuelve a NAN, que nunca compara igual, asi que
+    // al entrar a la pantalla siempre se escribe.
+    float _shownMagneticField = NAN;
+    float _shownTemperature = NAN;
+
+    // 0xFF = todavia no se aplico ninguna distribucion de filas. No sirve
+    // arrancar en 0: el export trae las 4 filas visibles, asi que "0 filas"
+    // tambien hay que aplicarlo una primera vez.
+    uint8_t _visibleCoils = 0xFF;
+
     void _loadTargetsData();
     void _updateMeasuresData();
+    void _updateCoilsData();
     void _updateProgressData();
     void _updateAlertsData();
     void _updateHealthData();
-    void _applyAlertPanel(
-        const AlertData& alert,
-        lv_obj_t* panel,
-        lv_obj_t* critImg,
-        lv_obj_t* warningImg,
-        lv_obj_t* typeText,
-        lv_obj_t* sourceText,
-        lv_obj_t* countText,
-        lv_obj_t* maxText,
-        lv_obj_t* lastUpdateText
-    );
+    void _applyAlertDots(const char* source, lv_obj_t* const dots[MAX_ALERT_DOTS]);
+    uint8_t _resolveVisibleCoils() const;
+    void _applyCoilVisibility();
 };
 
-inline RunningController::RunningController(SystemData& data) : BaseScreenController(ui_Running, ScreenType::RUNNING, "running"), _data(data) {}
+inline RunningController::RunningController(SystemData& data) : BaseScreenController(ui_EnCursoScreen, ScreenType::RUNNING, "running"), _data(data) {}
 
 inline void RunningController::init() {
   BaseScreenController::init();
-  lv_bar_set_range(ui_TotalProgressBar, 0, 100);
-  lv_obj_add_event_cb(ui_TabPageProgressBtnDetener, btnRunningDetenerClick, LV_EVENT_CLICKED, this);
+  lv_obj_add_event_cb(ui_ButtonDetener, btnRunningDetenerClick, LV_EVENT_CLICKED, this);
 
-  // Los 3 iconos de salud se crean sin flag de visibilidad (quedarian
-  // superpuestos) -- arrancan en NORMAL por defecto, _updateHealthData
-  // corrige al vuelo con el dato real apenas se muestra la pantalla.
-  lv_obj_add_flag(ui_HealthWarningImg, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_add_flag(ui_HealthCriticalImg, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_remove_flag(ui_HealthNormalImg, LV_OBJ_FLAG_HIDDEN);
+  // Los 3 chips de salud se exportan visibles uno al lado del otro; arrancan
+  // en NORMAL, _updateHealthData los corrige apenas se muestra la pantalla.
+  lv_obj_add_flag(ui_EnCursoHeaderEstadoAdvertencia, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(ui_EnCursoHeaderEstadoCritico, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_remove_flag(ui_EnCursoHeaderEstadoNormal, LV_OBJ_FLAG_HIDDEN);
 
-  // Paneles de alertas: arrancan ocultos, solo se muestran (de a uno) cuando
-  // hay una flag real que dibujar en ese slot -- ver _applyAlertPanel.
-  lv_obj_add_flag(ui_Alert1, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_add_flag(ui_Alert2, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_add_flag(ui_Alert3, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_t* const bars[MAX_COILS] = { ui_EnCursoMedicionesBobina1ControlBar, ui_EnCursoMedicionesBobina2ControlBar, ui_EnCursoMedicionesBobina3ControlBar, ui_EnCursoMedicionesBobina4ControlBar };
+  for (uint8_t i = 0; i < MAX_COILS; i++) {
+    lv_bar_set_range(bars[i], 0, 100);
+  }
 }
 
 inline void RunningController::onStop() {
@@ -408,171 +580,200 @@ inline void RunningController::onStop() {
 
 inline void RunningController::show() {
   BaseScreenController::show();
+
+  // NAN nunca compara igual, asi que _updateMeasuresData escribe si o si:
+  // al entrar a la pantalla los valores mostrados arrancan en 0 (o en la
+  // ultima muestra recibida), nunca en el texto de maqueta del export.
+  _shownMagneticField = NAN;
+  _shownTemperature = NAN;
+
+  // Cuantas bobinas hay se decide al entrar, no en cada tick: la respuesta
+  // no cambia durante un experimento.
+  _applyCoilVisibility();
+
   // tab objetivos
   _loadTargetsData();
-  // tab progreso
+  // barra inferior (avance, restante)
   _updateProgressData();
   _lastProgressUpdate = millis();
-  // tab measures
+  // tab mediciones
   _updateMeasuresData();
-  // tab alertas
+  _updateCoilsData();
   _updateAlertsData();
   // estado de salud
   _updateHealthData();
 }
 
+// Mismos valores sueltos que muestra Principal (numero grande + unidad chica
+// en widgets separados), formateados desde los campos numericos de la opcion.
 inline void RunningController::_loadTargetsData() {
-  lv_label_set_text(ui_RunningObjetivoIntensidadValue, _data.principal.targetFieldIntensity);
-  lv_label_set_text(ui_RunningObjetivoFreqValue, _data.principal.targetFieldFrequency);
-  lv_label_set_text(ui_RunningObjetivoDuracionValue, _data.principal.targetDuration);
-  lv_label_set_text(ui_RunningRangoIntensidadValue, _data.principal.fieldIntensityTolerance);
-  lv_label_set_text(ui_RunningRangoTempNormalValue, _data.principal.normalTemperatureRange);
-  lv_label_set_text(ui_RunningRangoTempCriticaValue, _data.principal.criticalTemperatureRange);
+  lv_label_set_text(ui_EnCursoObjetivosIntensidadValor, _data.principal.intensityValue);
+  lv_label_set_text(ui_EnCursoObjetivosFrecuenciaValor, _data.principal.frequencyValue);
+  lv_label_set_text(ui_EnCursoObjetivosDuracionHorasValor, _data.principal.durationHours);
+  lv_label_set_text(ui_EnCursoObjetivosDuracionMinutosValor, _data.principal.durationMinutes);
+  lv_label_set_text(ui_EnCursoObjetivosTempNormalValor, _data.principal.normalTemperatureValue);
+  lv_label_set_text(ui_EnCursoObjetivosTempCriticaValor, _data.principal.criticalTemperatureValue);
+  lv_label_set_text(ui_EnCursoObjetivosTolIntensidadValor, _data.principal.toleranceValue);
+  lv_label_set_text(ui_EnCursoObjetivosModoValor, _data.principal.fieldModeValue);
 }
 
 inline void RunningController::_updateMeasuresData() {
-  static float measureMagneticField = 0.0f;
-  static float measureTemperature = 0.0f;
-  static float measureCurrent = 0.0f;
-
-  if(measureMagneticField != _data.measures.measureMagneticField) {
-    measureMagneticField = _data.measures.measureMagneticField;
+  if(_shownMagneticField != _data.measures.measureMagneticField) {
+    _shownMagneticField = _data.measures.measureMagneticField;
     char magneticFieldStr[16];
     snprintf(magneticFieldStr, sizeof(magneticFieldStr), "%.2f", _data.measures.measureMagneticField);
-    lv_label_set_text(ui_MedicionCampoMagneticoValue, magneticFieldStr);
+    lv_label_set_text(ui_EnCursoMedicionesIntensidadValor, magneticFieldStr);
   }
-  
-  if(measureTemperature != _data.measures.measureTemperature) {
-    measureTemperature = _data.measures.measureTemperature;
+
+  if(_shownTemperature != _data.measures.measureTemperature) {
+    _shownTemperature = _data.measures.measureTemperature;
     char temperatureStr[16];
     snprintf(temperatureStr, sizeof(temperatureStr), "%.1f", _data.measures.measureTemperature);
-    lv_label_set_text(ui_MedicionTempValue, temperatureStr);
+    lv_label_set_text(ui_EnCursoMedicionesTempValor, temperatureStr);
   }
-  
-  if(measureCurrent != _data.measures.measureCurrent) {
-    measureCurrent = _data.measures.measureCurrent;
-    char currentStr[16];
-    snprintf(currentStr, sizeof(currentStr), "%.1f", _data.measures.measureCurrent);
-    lv_label_set_text(ui_MedicionCorrienteValue, currentStr);
-  }
+}
 
-  if(measureMagneticField != 0.0f) {
-    lv_label_set_text(ui_MedicionCampoMagneticoLastUpdate, _data.latestUpdateStr(_data.measures.latestMagneticFieldUpdate));
+// Cuantas bobinas dibujar. Manda la seccion `coils` de la SD -- es la que
+// describe el gabinete real -- contando solo las habilitadas: una bobina con
+// enabled:false no recibe PWM y no hay nada que mostrarle.
+//
+// Sin tarjeta o sin esa seccion, la ESP32 no tiene forma propia de saberlo y
+// cae en lo que reporte el Mega: una fila por bobina que haya llegado en un
+// frame coil_data. Sin SD y sin Mega no se dibuja ninguna, que es la
+// respuesta honesta -- mejor que inventar 2 porque es lo que suele registrar
+// el .ino del Mega, dato que ademas vive del otro lado del cable.
+inline uint8_t RunningController::_resolveVisibleCoils() const {
+  uint8_t configured = 0;
+  const ConfigLoader::CoilConfig* coils = ConfigLoader::coilConfigs();
+  for (uint8_t i = 0; i < ConfigLoader::coilConfigCount() && i < MAX_COILS; i++) {
+    if (coils[i].enabled) configured++;
   }
-  else {
-    lv_label_set_text(ui_MedicionCampoMagneticoLastUpdate, "Sin datos");
-  }
+  if (configured > 0) return configured;
 
-  if(measureTemperature != 0.0f) {
-    lv_label_set_text(ui_MedicionTempLastUpdate, _data.latestUpdateStr(_data.measures.latestTemperatureUpdate));
+  uint8_t reported = 0;
+  for (uint8_t i = 0; i < MAX_COILS; i++) {
+    if (_data.measures.latestCoilUpdate[i] != 0) reported++;
   }
-  else {
-    lv_label_set_text(ui_MedicionTempLastUpdate, "Sin datos");
+  return reported;
+}
+
+// Ademas de mostrar u ocultar filas escribe los NOMBRES, y por eso sale
+// temprano si la cuenta no cambio: los nombres salen de la SD o son fijos,
+// no cambian hasta que se reinicie el sistema, asi que reescribirlos en cada
+// tick seria repintar cuatro labels por segundo para nada.
+inline void RunningController::_applyCoilVisibility() {
+  uint8_t resolved = _resolveVisibleCoils();
+  if (resolved == _visibleCoils) return;
+  _visibleCoils = resolved;
+
+  lv_obj_t* const rows[MAX_COILS] = {
+    ui_EnCursoMedicionesBobina1, ui_EnCursoMedicionesBobina2,
+    ui_EnCursoMedicionesBobina3, ui_EnCursoMedicionesBobina4
+  };
+  lv_obj_t* const nameLabels[MAX_COILS] = {
+    ui_EnCursoMedicionesBobina1Nombre, ui_EnCursoMedicionesBobina2Nombre,
+    ui_EnCursoMedicionesBobina3Nombre, ui_EnCursoMedicionesBobina4Nombre
+  };
+
+  const ConfigLoader::CoilConfig* coils = ConfigLoader::coilConfigs();
+  uint8_t named = ConfigLoader::coilConfigCount();
+
+  for (uint8_t i = 0; i < MAX_COILS; i++) {
+    if (i >= _visibleCoils) {
+      lv_obj_add_flag(rows[i], LV_OBJ_FLAG_HIDDEN);
+      continue;
+    }
+
+    // El nombre sale de la SD si esta (el mismo con el que el Mega resuelve
+    // config_coil); si no, el generico "B1".."B4". El export trae "B3" en
+    // la fila 4.
+    if (i < named && coils[i].name[0] != '\0') {
+      lv_label_set_text(nameLabels[i], coils[i].name);
+    }
+    else {
+      char str[8];
+      snprintf(str, sizeof(str), "B%u", i + 1);
+      lv_label_set_text(nameLabels[i], str);
+    }
+
+    lv_obj_remove_flag(rows[i], LV_OBJ_FLAG_HIDDEN);
   }
-  
-  if(measureCurrent != 0.0f) {
-    lv_label_set_text(ui_MedicionCorrienteLastUpdate, _data.latestUpdateStr(_data.measures.latestCurrentUpdate));
+}
+
+// Una fila por bobina visible: duty aplicado y corriente, las dos del frame
+// coil_data del Mega. Las dos arrancan en 0 y ahi se quedan hasta que
+// llegue el primer frame -- no se muestran guiones, porque 0 es lo que
+// efectivamente esta saliendo por el PWM antes de que el lazo arranque.
+inline void RunningController::_updateCoilsData() {
+  lv_obj_t* const currentLabels[MAX_COILS] = { ui_EnCursoMedicionesBobina1Corriente, ui_EnCursoMedicionesBobina2Corriente, ui_EnCursoMedicionesBobina3Corriente, ui_EnCursoMedicionesBobina4Corriente };
+  lv_obj_t* const dutyBars[MAX_COILS] = { ui_EnCursoMedicionesBobina1ControlBar, ui_EnCursoMedicionesBobina2ControlBar, ui_EnCursoMedicionesBobina3ControlBar, ui_EnCursoMedicionesBobina4ControlBar };
+  lv_obj_t* const dutyLabels[MAX_COILS] = { ui_EnCursoMedicionesBobina1ControlValor, ui_EnCursoMedicionesBobina2ControlValor, ui_EnCursoMedicionesBobina3ControlValor, ui_EnCursoMedicionesBobina4ControlValor };
+
+  // Los nombres NO se tocan aca: los escribe _applyCoilVisibility() cuando
+  // cambia la cantidad de filas, porque no cambian durante la ejecucion.
+  for (uint8_t i = 0; i < _visibleCoils; i++) {
+    char str[16];
+
+    snprintf(str, sizeof(str), "%.2f A", _data.measures.coilCurrent[i]);
+    lv_label_set_text(currentLabels[i], str);
+
+    float duty = _data.measures.coilDuty[i];
+    if (duty < 0.0f) duty = 0.0f;
+    if (duty > 100.0f) duty = 100.0f;
+    lv_bar_set_value(dutyBars[i], (int32_t) (duty + 0.5f), LV_ANIM_OFF);
+    snprintf(str, sizeof(str), "%.1f%%", duty);
+    lv_label_set_text(dutyLabels[i], str);
   }
-  else {
-    lv_label_set_text(ui_MedicionCorrienteLastUpdate, "Sin datos");
-  }
-  
 }
 
 inline void RunningController::_updateProgressData() {
-  float percent = _data.progressPercent();
-  char progressPercentStr[8];
-  snprintf(progressPercentStr, sizeof(progressPercentStr), "%.1f%%", percent);
-  lv_label_set_text(ui_TotalProgressValue, progressPercentStr);
-  lv_label_set_text(ui_ElapsedTimeValue, _data.elapsedTime());
-  lv_bar_set_value(ui_TotalProgressBar, (int)percent, LV_ANIM_OFF);
-  lv_arc_set_value(ui_MedicionTemperaturaArc, (int)_data.measures.measureTemperature);
-  lv_arc_set_value(ui_MedicionCorrienteArc, (int)(_data.measures.measureCurrent * 10));
-  lv_arc_set_value(ui_MedicionCampoMagneticoArc, (int)(_data.measures.measureMagneticField) * 10);
+  char str[8];
+  snprintf(str, sizeof(str), "%.1f%%", _data.progressPercent());
+  lv_label_set_text(ui_Label1, str);   // ui_Label1 es el % de PROGRESO (sin renombrar en SquareLine)
+
+  // TRANSCURRIDO, como lo titula el diseno UiFInalParte2 (el anterior
+  // mostraba RESTANTE); es el mismo dato que congela Resultado.
+  unsigned long elapsed = _data.elapsedSeconds();
+  snprintf(str, sizeof(str), "%lu", elapsed / 3600);
+  lv_label_set_text(ui_EnCursoTranscurridoHorasValor, str);
+  snprintf(str, sizeof(str), "%02lu", (elapsed % 3600) / 60);
+  lv_label_set_text(ui_EnCursoTranscurridoMinutosValor, str);
 }
 
-inline void RunningController::_applyAlertPanel(
-    const AlertData& alert,
-    lv_obj_t* panel,
-    lv_obj_t* critImg,
-    lv_obj_t* warningImg,
-    lv_obj_t* typeText,
-    lv_obj_t* sourceText,
-    lv_obj_t* countText,
-    lv_obj_t* maxText,
-    lv_obj_t* lastUpdateText
-) {
-  if (!alert.active) {
-    lv_obj_add_flag(panel, LV_OBJ_FLAG_HIDDEN);
-    return;
-  }
+// Los 4 paneles que cada medicion tiene al lado del titulo son los ULTIMOS
+// 4 eventos de esa fuente: el mas antiguo a la izquierda, el mas reciente a
+// la derecha. Se muestran tantos como eventos haya (ninguno con 0, los 4 mas
+// nuevos a partir del cuarto) y el resto se ocultan -- un panel apagado no
+// se distinguiria de uno "sin alerta todavia".
+//
+// El color es el del PROPIO evento, no el del conjunto: rojo si ese evento
+// fue critico, ambar si fue streak o frequency. Son los mismos dos colores
+// que el export usa en los chips de salud del header.
+inline void RunningController::_applyAlertDots(const char* source, lv_obj_t* const dots[MAX_ALERT_DOTS]) {
+  const AlertHistory* history = _data.alertHistory(source);
+  uint8_t count = (history != nullptr) ? history->count : 0;
 
-  lv_obj_remove_flag(panel, LV_OBJ_FLAG_HIDDEN);
+  for (uint8_t i = 0; i < MAX_ALERT_DOTS; i++) {
+    if (i >= count) {
+      lv_obj_add_flag(dots[i], LV_OBJ_FLAG_HIDDEN);
+      continue;
+    }
 
-  bool isCritical = strcmp(alert.type, "critical") == 0;
-  if (isCritical) {
-    lv_obj_remove_flag(critImg, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(warningImg, LV_OBJ_FLAG_HIDDEN);
+    bool critical = strcmp(history->types[i], "critical") == 0;
+    lv_obj_set_style_bg_color(dots[i],
+                              critical ? lv_color_hex(0xA30000) : lv_color_hex(0xC47F08),
+                              LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_remove_flag(dots[i], LV_OBJ_FLAG_HIDDEN);
   }
-  else {
-    lv_obj_add_flag(critImg, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_remove_flag(warningImg, LV_OBJ_FLAG_HIDDEN);
-  }
-
-  const char* typeLabel = "?";
-  if (strcmp(alert.type, "critical") == 0) {
-    typeLabel = "CRITICO";
-  }
-  else if (strcmp(alert.type, "streak") == 0) {
-    typeLabel = "RACHA";
-  }
-  else if (strcmp(alert.type, "frequency") == 0) {
-    typeLabel = "FRECUENCIA";
-  }
-  lv_label_set_text(typeText, typeLabel);
-  lv_label_set_text(sourceText, alert.source);
-
-  char countStr[8];
-  snprintf(countStr, sizeof(countStr), "%d", alert.count);
-  lv_label_set_text(countText, countStr);
-
-  char maxStr[8];
-  snprintf(maxStr, sizeof(maxStr), "%d", alert.limit);
-  lv_label_set_text(maxText, maxStr);
-
-  lv_label_set_text(lastUpdateText, _data.latestUpdateStr(alert.lastUpdate));
 }
 
 inline void RunningController::_updateAlertsData() {
-  _applyAlertPanel(
-      _data.alerts.items[0],
-      ui_Alert1,
-      ui_Alert1CritImg, ui_Alert1WarningImg,
-      ui_Alert1TypeAlertText, ui_Alert1SourceText,
-      ui_Alert1StatsCountText, ui_Alert1StatsMaxText,
-      ui_Alert1LastUpdateText
-  );
-  _applyAlertPanel(
-      _data.alerts.items[1],
-      ui_Alert2,
-      ui_Alert2CritImg, ui_Alert2WarningImg,
-      ui_Alert2TypeAlertText, ui_Alert2SourceText,
-      ui_Alert2StatsCountText, ui_Alert2StatsMaxText,
-      ui_Alert2LastUpdateText
-  );
-  _applyAlertPanel(
-      _data.alerts.items[2],
-      ui_Alert3,
-      // ui_Alert2WarningImg1, no ui_Alert3WarningImg -- asi lo exporto
-      // SquareLine (probablemente el panel Alert3 se duplico a partir de
-      // Alert2 una vez de mas), no es un typo de este archivo. El objeto
-      // referenciado es igual el icono de warning debajo del panel Alert3;
-      // renombrarlo requeriria tocar el .c/.h generado.
-      ui_Alert3CritImg, ui_Alert2WarningImg1,
-      ui_Alert3TypeAlertText, ui_Alert3SourceText,
-      ui_Alert3StatsCountText, ui_Alert3StatsMaxText,
-      ui_Alert3LastUpdateText
-  );
+  // En UiFInalParte2 los puntos ya estan dentro del panel que nombran
+  // (el export anterior los tenia cruzados).
+  lv_obj_t* const cemDots[MAX_ALERT_DOTS] = { ui_EnCursoMedicionesIntensidadAlertas1, ui_EnCursoMedicionesIntensidadAlertas2, ui_EnCursoMedicionesIntensidadAlertas3, ui_EnCursoMedicionesIntensidadAlertas4 };
+  lv_obj_t* const tempDots[MAX_ALERT_DOTS] = { ui_EnCursoMedicionesTempAlertas1, ui_EnCursoMedicionesTempAlertas2, ui_EnCursoMedicionesTempAlertas3, ui_EnCursoMedicionesTempAlertas4 };
+  _applyAlertDots("CEM1", cemDots);
+  _applyAlertDots("TEMP1", tempDots);
 }
 
 inline void RunningController::_updateHealthData() {
@@ -581,34 +782,26 @@ inline void RunningController::_updateHealthData() {
   bool isCritical = strcmp(health, HealthData::Critical) == 0;
   bool isWarning  = strcmp(health, HealthData::Warning) == 0;
 
-  const char* label = "NORMAL";
+  // Un solo chip visible a la vez: los tres comparten el flex row del header.
   if (isCritical) {
-    label = "CRITICO";
-  }
-  else if (isWarning) {
-    label = "ADVERTENCIA";
-  }
-  lv_label_set_text(ui_HealthEstado, label);
-
-  if (isCritical) {
-    lv_obj_remove_flag(ui_HealthCriticalImg, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_remove_flag(ui_EnCursoHeaderEstadoCritico, LV_OBJ_FLAG_HIDDEN);
   }
   else {
-    lv_obj_add_flag(ui_HealthCriticalImg, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_EnCursoHeaderEstadoCritico, LV_OBJ_FLAG_HIDDEN);
   }
 
   if (isWarning) {
-    lv_obj_remove_flag(ui_HealthWarningImg, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_remove_flag(ui_EnCursoHeaderEstadoAdvertencia, LV_OBJ_FLAG_HIDDEN);
   }
   else {
-    lv_obj_add_flag(ui_HealthWarningImg, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_EnCursoHeaderEstadoAdvertencia, LV_OBJ_FLAG_HIDDEN);
   }
 
   if (!isCritical && !isWarning) {
-    lv_obj_remove_flag(ui_HealthNormalImg, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_remove_flag(ui_EnCursoHeaderEstadoNormal, LV_OBJ_FLAG_HIDDEN);
   }
   else {
-    lv_obj_add_flag(ui_HealthNormalImg, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui_EnCursoHeaderEstadoNormal, LV_OBJ_FLAG_HIDDEN);
   }
 }
 
@@ -617,14 +810,20 @@ inline void RunningController::update() {
   _updateAlertsData();
   _updateHealthData();
 
-  // El progreso (%, elapsed) no necesita refrescarse en cada tick de
-  // pantalla (50ms) -- un experimento se mide en minutos, no en decimas de
-  // segundo. Se throttlea a 1s, igual que los envios por Serial del resto
-  // del proyecto.
+  // El progreso (%, restante) y las corrientes no necesitan refrescarse en
+  // cada tick de pantalla (50ms) -- un experimento se mide en minutos, no en
+  // decimas de segundo. Se throttlea a 1s, igual que los envios por Serial
+  // del resto del proyecto.
   unsigned long now = millis();
   if (now - _lastProgressUpdate >= 1000) {
     _lastProgressUpdate = now;
     _updateProgressData();
+    // Se recalcula junto con los datos y no solo en show() por el caso sin
+    // SD: ahi la cuenta sale de los frames coil_data del Mega, que todavia
+    // no habian llegado al entrar a la pantalla. Es idempotente y son 4
+    // banderas, asi que no vale la pena condicionarlo.
+    _applyCoilVisibility();
+    _updateCoilsData();
   }
 }
 
@@ -645,22 +844,28 @@ class ResultadoController : public BaseScreenController {
     void update() override;
     void init() override;
     void onVolver();
+    void onRepetir();
 
   private:
     SystemData& _data;
     void _applyResult();
+    void _applyPanel(lv_obj_t* panel, bool visible, lv_obj_t* modeLabel, lv_obj_t* detailLabel, const char* detail);
+    void _buildAlertsClause(char* out, size_t size) const;
+    void _buildCriticalTexts(char* headline, size_t headlineSize, char* detail, size_t detailSize) const;
 };
 
-inline ResultadoController::ResultadoController(SystemData& data) : BaseScreenController(ui_Resultado, ScreenType::RESULT, "result"), _data(data) {}
+inline ResultadoController::ResultadoController(SystemData& data) : BaseScreenController(ui_ResultadoScreen, ScreenType::RESULT, "result"), _data(data) {}
 
 inline void ResultadoController::init() {
   BaseScreenController::init();
-  lv_obj_add_event_cb(ui_ResultadoBtnVolver, btnResultadoVolverClick, LV_EVENT_CLICKED, this);
+  lv_obj_add_event_cb(ui_ButtonResultadoPrincipal, btnResultadoVolverClick, LV_EVENT_CLICKED, this);
+  lv_obj_add_event_cb(ui_ButtonResultadoRepetir, btnResultadoRepetirClick, LV_EVENT_CLICKED, this);
 
-  // Los 3 paneles de resultado (Exitoso/Falla/Detenido) se crean visibles y
-  // superpuestos en el mismo lugar -- arrancan ocultos, _applyResult() deja
-  // visible solo el que corresponde a _data.result.reason.
-  lv_obj_add_flag(ui_ResultadoExitoso, LV_OBJ_FLAG_HIDDEN);
+  // Los 3 paneles (Completado/Falla/Detenido) ocupan el mismo lugar. El
+  // export deja Completado visible y los otros dos ocultos; se ocultan los
+  // 3 aca para no depender de ese default, _applyResult() muestra el que
+  // corresponde a _data.result.reason.
+  lv_obj_add_flag(ui_ResultadoCompletado, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_ResultadoFalla, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(ui_ResultadoDetenido, LV_OBJ_FLAG_HIDDEN);
 }
@@ -673,9 +878,69 @@ inline void ResultadoController::onVolver() {
   _listener->onScreenEvent(ev);
 }
 
+inline void ResultadoController::onRepetir() {
+  if(_listener == nullptr) return;
+  ScreenEvent ev;
+  ev.type = ScreenType::RESULT;
+  ev.name = EventName::Repeat;
+  _listener->onScreenEvent(ev);
+}
+
 inline void ResultadoController::show() {
   BaseScreenController::show();
   _applyResult();
+}
+
+// "sin alertas activas" / "1 alerta activa" / "N alertas activas". Sale del
+// contador congelado al momento del corte, no de un texto fijo: un
+// experimento puede completarse o ser detenido con alertas activas, y el
+// texto de maqueta del export ("sin alertas activas al detener") daba por
+// sentado que no.
+inline void ResultadoController::_buildAlertsClause(char* out, size_t size) const {
+  uint8_t count = _data.result.alertCount;
+  if (count == 0) {
+    snprintf(out, size, "sin alertas activas");
+    return;
+  }
+  snprintf(out, size, "%u %s", count, count == 1 ? "alerta activa" : "alertas activas");
+}
+
+// Titular y detalle del panel de Falla, armados con los campos crudos del
+// corte. El titular del export estaba clavado en "TEMP1 ALCANZO EL LIMITE
+// CRITICO", que es falso en cuanto corta otra fuente (CEM1 es habilitable
+// desde la SD) o corta otro tipo de regla: el limite de streak o el de
+// frequency cortan igual que el de critical, cada uno por su maxEvents.
+inline void ResultadoController::_buildCriticalTexts(char* headline, size_t headlineSize,
+                                                     char* detail, size_t detailSize) const {
+  const char* source = _data.result.source[0] != '\0' ? _data.result.source : "UNA FUENTE";
+
+  const char* rule = "CRITICO";
+  if (strcmp(_data.result.type, "streak") == 0) rule = "DE RACHA";
+  else if (strcmp(_data.result.type, "frequency") == 0) rule = "DE FRECUENCIA";
+
+  snprintf(headline, headlineSize, "%s ALCANZO EL LIMITE %s", source, rule);
+
+  // Sin los campos crudos (Mega viejo, o frame sin ellos) queda la
+  // descripcion que armo el Mega, que dice lo mismo en prosa.
+  if (_data.result.limit == 0) {
+    snprintf(detail, detailSize, "%s", _data.result.description);
+    return;
+  }
+
+  char alerts[32];
+  _buildAlertsClause(alerts, sizeof(alerts));
+  snprintf(detail, detailSize, "%u/%u ocurrencias - %s",
+           _data.result.count, _data.result.limit, alerts);
+}
+
+inline void ResultadoController::_applyPanel(lv_obj_t* panel, bool visible, lv_obj_t* modeLabel, lv_obj_t* detailLabel, const char* detail) {
+  if (!visible) {
+    lv_obj_add_flag(panel, LV_OBJ_FLAG_HIDDEN);
+    return;
+  }
+  lv_label_set_text(modeLabel, _data.result.fieldMode);
+  lv_label_set_text(detailLabel, detail);
+  lv_obj_remove_flag(panel, LV_OBJ_FLAG_HIDDEN);
 }
 
 inline void ResultadoController::_applyResult() {
@@ -683,35 +948,61 @@ inline void ResultadoController::_applyResult() {
   bool isCritical  = strcmp(_data.result.reason, "critical") == 0;
   bool isStopped   = strcmp(_data.result.reason, "stopped") == 0;
 
-  if (isCompleted) lv_obj_remove_flag(ui_ResultadoExitoso, LV_OBJ_FLAG_HIDDEN);
-  else lv_obj_add_flag(ui_ResultadoExitoso, LV_OBJ_FLAG_HIDDEN);
+  char alerts[32];
+  _buildAlertsClause(alerts, sizeof(alerts));
 
-  if (isCritical) lv_obj_remove_flag(ui_ResultadoFalla, LV_OBJ_FLAG_HIDDEN);
-  else lv_obj_add_flag(ui_ResultadoFalla, LV_OBJ_FLAG_HIDDEN);
+  // Completado: el titular fijo del export ("LA EXPOSICION LLEGO A SU FIN")
+  // ya dice todo, el detalle aporta como quedaron las alertas.
+  char completedDetail[64];
+  snprintf(completedDetail, sizeof(completedDetail), "%s", alerts);
 
-  if (isStopped) lv_obj_remove_flag(ui_ResultadoDetenido, LV_OBJ_FLAG_HIDDEN);
-  else lv_obj_add_flag(ui_ResultadoDetenido, LV_OBJ_FLAG_HIDDEN);
+  // Detenido: de donde vino la orden. Para el experimento es lo mismo, pero
+  // no para quien lee el resultado despues.
+  char stoppedDetail[64];
+  snprintf(stoppedDetail, sizeof(stoppedDetail), "%s - %s",
+           _data.result.fromEmergency ? "pulsador de emergencia" : "boton de la pantalla",
+           alerts);
 
-  const char* healthLabel = "NORMAL";
-  if (strcmp(_data.result.health, HealthData::Critical) == 0) {
-    healthLabel = "CRITICO";
+  char criticalHeadline[48];
+  char criticalDetail[64];
+  _buildCriticalTexts(criticalHeadline, sizeof(criticalHeadline), criticalDetail, sizeof(criticalDetail));
+
+  _applyPanel(ui_ResultadoCompletado, isCompleted, ui_ResultadoMotivoCompletadoTipoCampo, ui_ResultadoMotivoCompletadoMotivoDetalle, completedDetail);
+  _applyPanel(ui_ResultadoDetenido, isStopped, ui_ResultadoMotivoDetenidoTipoCampo, ui_ResultadoMotivoDetenidoMotivoDetalle, stoppedDetail);
+  _applyPanel(ui_ResultadoFalla, isCritical, ui_ResultadoMotivoFallaTipoCampo, ui_ResultadoMotivoFallaMotivoDetalle, criticalDetail);
+
+  if (isCritical) {
+    lv_label_set_text(ui_ResultadoMotivoFallaMotivo, criticalHeadline);
   }
-  else if (strcmp(_data.result.health, HealthData::Warning) == 0) {
-    healthLabel = "ADVERTENCIA";
-  }
 
-  // El diseno de la pantalla solo tiene un campo de detalle libre -- el
-  // progreso/tiempo/salud (que el ESP32 ya trackeaba en vivo, congelados en
-  // SystemData::result al llegar result_data) se anexan ahi junto con la
-  // descripcion que arma el Mega.
-  char detail[160];
-  snprintf(
-      detail, sizeof(detail),
-      "%s\nProgreso: %.0f%%   Tiempo: %s   Salud: %s",
-      _data.result.description, _data.result.progressPercent,
-      _data.result.elapsed, healthLabel
-  );
-  lv_label_set_text(ui_ResultadoDetalleText, detail);
+  // REPETIR se oculta cuando corto por falla: repetir el mismo experimento
+  // con la misma configuracion que acaba de disparar un limite lo mas
+  // probable es que vuelva a cortar igual. Hay que revisar la causa (o la
+  // configuracion) antes, y para eso hay que salir de esta pantalla.
+  if (isCritical) lv_obj_add_flag(ui_ButtonResultadoRepetir, LV_OBJ_FLAG_HIDDEN);
+  else            lv_obj_remove_flag(ui_ButtonResultadoRepetir, LV_OBJ_FLAG_HIDDEN);
+
+  // Progreso, tiempo y campo medio: snapshot congelado en SystemData::result
+  // al llegar result_data (ver systemdata.hpp), no los getters en vivo.
+  char text[16];
+  snprintf(text, sizeof(text), "%.0f%%", _data.result.progressPercent);
+  lv_label_set_text(ui_ResultadoProgresoValor, text);
+
+  unsigned long totalMinutes = _data.result.elapsedSeconds / 60;
+  snprintf(text, sizeof(text), "%lu", totalMinutes / 60);
+  lv_label_set_text(ui_ResultadoProgresoHorasValor, text);
+  snprintf(text, sizeof(text), "%02lu", totalMinutes % 60);
+  lv_label_set_text(ui_ResultadoProgresoMinutosValor, text);
+
+  if (_data.result.hasMeanMagneticField) {
+    snprintf(text, sizeof(text), "%.2f", _data.result.meanMagneticField);
+  }
+  else {
+    // Sin ninguna muestra de CEM1 durante el experimento: no hay promedio
+    // que mostrar, y un "0.00" se leeria como campo nulo medido.
+    snprintf(text, sizeof(text), "--");
+  }
+  lv_label_set_text(ui_ResultadoCampoMedioUnidadValor, text);
 }
 
 inline void ResultadoController::update() {}
@@ -720,6 +1011,14 @@ static void btnResultadoVolverClick(lv_event_t * e) {
   ResultadoController * self = (ResultadoController *) lv_event_get_user_data(e);
   if(lv_event_get_code(e) == LV_EVENT_CLICKED) {
     self->onVolver();
+  }
+}
+
+static void btnResultadoRepetirClick(lv_event_t * e) {
+  ResultadoController * self = (ResultadoController *) lv_event_get_user_data(e);
+  if(lv_event_get_code(e) == LV_EVENT_CLICKED) {
+    DEBUG_PRINTLN(DEBUG_SCREENCONTROLLER, "BtnRepetir clicked!");
+    self->onRepetir();
   }
 }
 
@@ -737,10 +1036,10 @@ class BusyController : public BaseScreenController {
     SystemData& _data;
 };
 
-inline BusyController::BusyController(SystemData& data) : BaseScreenController(ui_Busy, ScreenType::BUSY, "busy"), _data(data) {}
+inline BusyController::BusyController(SystemData& data) : BaseScreenController(ui_EsperandoScreen, ScreenType::BUSY, "busy"), _data(data) {}
 
 inline void BusyController::show() {
-  lv_label_set_text(ui_BusyMensaje, _data.busy.messageProcess);
+  lv_label_set_text(ui_EsperandoMensaje, _data.busy.messageProcess);
   BaseScreenController::show();
   _startTime = millis();
   _launched = false;
@@ -748,7 +1047,7 @@ inline void BusyController::show() {
 
 inline void BusyController::update() {
   unsigned long now = millis();
-  if(now - _startTime > 6000) {
+  if(now - _startTime > Intervals::BusyTimeout) {
     if(_listener == nullptr) return;
     if(_launched) return;
     ScreenEvent ev;

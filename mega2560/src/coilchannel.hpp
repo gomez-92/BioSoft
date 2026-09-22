@@ -55,6 +55,11 @@ class CoilChannel {
     // actual.
     bool setCalibrationFactor(float factor);
     float calibrationFactor() const;
+    // Ultimo duty REALMENTE escrito al PWM (0..1): el comun por el factor de
+    // esta bobina, ya saturado. No es el que pidio FieldController -- esa es
+    // justamente la diferencia que la pantalla En curso tiene que mostrar
+    // cuando una bobina satura y queda corta.
+    float appliedDuty() const;
 
     const char* getName() const;
 
@@ -65,10 +70,11 @@ class CoilChannel {
     uint8_t _activeLevel;
     float _factor;
     bool _enabled;
+    float _appliedDuty;
 };
 
 inline CoilChannel::CoilChannel(PwmDriver& pwm, uint8_t enablePin, const char* name, uint8_t activeLevel)
-  : _pwm(pwm), _enablePin(enablePin), _name(name), _activeLevel(activeLevel), _factor(1.0f), _enabled(false) {
+  : _pwm(pwm), _enablePin(enablePin), _name(name), _activeLevel(activeLevel), _factor(1.0f), _enabled(false), _appliedDuty(0.0f) {
 }
 
 inline void CoilChannel::begin() {
@@ -87,6 +93,9 @@ inline void CoilChannel::disable() {
   digitalWrite(_enablePin, inactiveLevel);
   _pwm.disable();
   _enabled = false;
+  // Con el PWM apagado el duty efectivo es 0. Dejar el ultimo valor haria
+  // que En curso siguiera mostrando la intensidad de una bobina apagada.
+  _appliedDuty = 0.0f;
 }
 
 inline bool CoilChannel::isEnabled() const {
@@ -119,7 +128,12 @@ inline void CoilChannel::setIntensity(float duty) {
   // seria un error de configuracion que conviene no propagar.
   if (scaled < 0.0f) scaled = 0.0f;
 
+  _appliedDuty = scaled;
   _pwm.write(scaled);
+}
+
+inline float CoilChannel::appliedDuty() const {
+  return _appliedDuty;
 }
 
 inline bool CoilChannel::setCalibrationFactor(float factor) {
