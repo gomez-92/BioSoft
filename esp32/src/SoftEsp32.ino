@@ -20,6 +20,22 @@ constexpr bool DEBUG_MAIN = true;
 #define RXD2 22  // RX del ESP32 ← TX del Mega
 #define TXD2 27  // TX del ESP32 → RX del Mega
 
+// PENDIENTE: ESTE CERTIFICADO NO ES EL DEL BROKER QUE SE ESTA USANDO.
+//
+// Es DigiCert Global Root G2, y la instancia de EMQX Cloud serverless usa
+// certificados de otra autoridad. Por eso todo intento de conexion falla con
+// "-9984 X509 - Certificate verification failed": la placa busca una firma
+// que no esta, y rechaza al broker.
+//
+// Para arreglarlo: bajar el CA desde la consola de EMQX (Overview ->
+// "CA certificate" / emqxsl-ca.crt) y reemplazar el bloque de abajo entero,
+// incluidas las lineas BEGIN/END. Bajarlo de la consola y no copiarlo de
+// ningun otro lado: es la unica forma de estar seguro de cual firma esa
+// instancia.
+//
+// La otra mitad del problema -- el reloj en 1970, que hace rechazar hasta el
+// certificado correcto -- ya esta resuelta: MySystem sincroniza NTP al
+// conectar el WiFi y no intenta hablar con el broker hasta tener hora.
 static const char* ROOT_CA_CERT = R"EOF(
 -----BEGIN CERTIFICATE-----
 MIIDjjCCAnagAwIBAgIQAzrx5qcRqaC7KGSxHQn65TANBgkqhkiG9w0BAQsFADBh

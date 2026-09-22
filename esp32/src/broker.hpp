@@ -41,7 +41,17 @@ class BrokerListener {
 struct PublishMessage {
     char topic[128];
     char payload[512];
+    bool retain;
 };
+
+// Tope del paquete MQTT completo (topic + cabecera + payload) que PubSubClient
+// arma en un solo buffer. Su default es 256, que alcanzaba cuando toda la
+// telemetria era un unico mensaje de 128 bytes; con la division en grupos el
+// de `result` lleva la descripcion del corte y no entra. Sin agrandarlo,
+// publish() devolveria false y -- como processPublishQueue() deja el mensaje
+// encolado y corta -- ese mensaje bloquearia para siempre a todos los que
+// vinieran atras.
+constexpr uint16_t BrokerBufferSize = 512;
 
 class BrokerManager {
   public:
@@ -51,7 +61,7 @@ class BrokerManager {
     void loop();
 
     bool isConnected();
-    bool publish(const char* topic, const char* message);
+    bool publish(const char* topic, const char* message, bool retain = false);
     bool subscribe(const char* topic);
     void processPublishQueue();
 
@@ -123,6 +133,9 @@ inline void BrokerManager::begin(const MqttConfig& config) {
     }
     _config = config;
     _initialized = true;
+    if (!_client.setBufferSize(BrokerBufferSize)) {
+        DEBUG_PRINTLN(DEBUG_BROKER, "[BROKER] ERROR: no se pudo agrandar el buffer MQTT");
+    }
     configureTLS();
     if (_config.server) _client.setServer(_config.server, _config.port);
     _client.setCallback(_mqttCallback);
@@ -244,8 +257,20 @@ inline void BrokerManager::processPublishQueue() {
     while (xQueuePeek(_publishQueue, &msg, 0) == pdTRUE) {
         DEBUG_PRINTF(DEBUG_BROKER, "[BROKER] Publishing topic=%s\n", msg.topic);
 
-        bool success = _client.publish(msg.topic, msg.payload);
+        bool success = _client.publish(msg.topic, msg.payload, msg.retain);
         if (!success) {
+            // Un payload que no entra en el buffer falla SIEMPRE: dejarlo en
+            // la cola trabaria todo lo que viene atras para siempre. Se
+            // descarta y se sigue. Una caida del enlace, en cambio, es
+            // transitoria: ahi el mensaje se conserva y se reintenta.
+            size_t packet = strlen(msg.topic) + strlen(msg.payload) + 16;
+            if (packet > BrokerBufferSize) {
+                DEBUG_PRINTF(DEBUG_BROKER, "[BROKER] Mensaje de %u bytes no entra en el buffer -> descartado\n",
+                             (unsigned) packet);
+                PublishMessage oversized;
+                xQueueReceive(_publishQueue, &oversized, 0);
+                continue;
+            }
             DEBUG_PRINTLN(DEBUG_BROKER, "[BROKER] Publish fallo, mensaje queda en cola");
             break;
         }
@@ -256,7 +281,7 @@ inline void BrokerManager::processPublishQueue() {
     }
 }
 
-inline bool BrokerManager::publish(const char* topic, const char* message) {
+inline bool BrokerManager::publish(const char* topic, const char* message, bool retain) {
     if (_publishQueue == nullptr) {
         DEBUG_PRINTLN(DEBUG_BROKER, "[BROKER] Queue no inicializada");
         return false;
@@ -265,6 +290,7 @@ inline bool BrokerManager::publish(const char* topic, const char* message) {
     PublishMessage msg{};
     strncpy(msg.topic, topic, sizeof(msg.topic) - 1);
     strncpy(msg.payload, message, sizeof(msg.payload) - 1);
+    msg.retain = retain;
 
     // Intento normal
     if (xQueueSend(_publishQueue, &msg, 0) == pdTRUE) {

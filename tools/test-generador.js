@@ -121,11 +121,12 @@ expectError("par (address, channel) duplicado",
 expectError("channel 2, que no existe en un ADS1115",
   s => s.currentSensors[0].channel = 2, "no tiene un par diferencial 2 ni 3");
 // El payload NO puede desbordar: Topics::TelemetryField::name es char[16], asi
-// que el firmware trunca toda clave a 15. Con ese tope la tanda mas pesada da
-// 94 de 128 bytes. Se verifica el tope, no un error que no puede existir.
+// que el firmware trunca toda clave a 15. Con ese tope, y con la telemetria
+// repartida en grupos, ninguno se acerca al buffer. Se verifica el tope, no
+// un error que no puede existir.
 (function(){
   reset();
-  ["magneticField","temperature","current"].forEach(k =>
+  ["magneticField","temperature"].forEach(k =>
     T.state.telemetry.fields[k].name = "NOMBRE_LARGUISIMO_QUE_NO_ENTRA");
   T.validate();
   check("claves larguisimas no generan error de payload (el firmware trunca a 15)",
@@ -133,6 +134,15 @@ expectError("channel 2, que no existe en un ADS1115",
   check("claves larguisimas si avisan que se truncan",
         T.warns.some(w => w.includes("se truncara")), T.warns.join(" | "));
 })();
+expectError("dos grupos de telemetria en el mismo topic",
+  s => s.telemetry.groups.coils.topic = s.telemetry.groups.measures.topic,
+  "no puede distinguir un mensaje del otro");
+expectError("cadencia de un grupo periodico en 0",
+  s => s.telemetry.groups.coils.interval = 0, "entero positivo en ms");
+expectWarn("alertas con retencion (son eventos, no estado)",
+  s => s.telemetry.groups.alerts.retain = true, "como si acabara de ocurrir");
+expectWarn("grupo de resultado deshabilitado",
+  s => s.telemetry.groups.result.enabled = false, "no se entera de por que termino");
 expectWarn("una tanda sin ningun campo habilitado no se publica",
   s => { s.telemetry.fields.health.enabled = false;
          s.telemetry.fields.progress.enabled = false;
@@ -150,8 +160,8 @@ expectWarn("bobinas habilitadas todas en el mismo grupo de fase",
 expectWarn("sampleRate distinto entre los dos canales de un mismo ADS1115",
   s => { s.currentSensors[1].enabled = true; s.currentSensors[1].sampleRate = 128; },
   "gana el ultimo que se configura");
-expectWarn("campo de telemetria renombrado (rompe el Decoder de Datacake)",
-  s => s.telemetry.fields.health.name = "SALUD", "Decoder de Datacake espera");
+expectWarn("campo de telemetria renombrado (rompe el dashboard remoto)",
+  s => s.telemetry.fields.health.name = "SALUD", "el dashboard espera");
 expectWarn("control.enabled en false no es una corrida real",
   s => s.control.enabled = false, "no una corrida real");
 expectWarn("settlingTime por debajo del default",

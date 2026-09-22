@@ -133,12 +133,17 @@ const DEFAULTS = {
     {name:"SCT013-4",enabled:false,address:73,channel:1,ratedCurrent:5.0,ratedVoltage:1.0,calibration:0.775,sampleRate:860,integrationTimeMs:200}
   ],
   telemetry: {
-    topic:"biosoft/telemetry",
-    intervals:{measures:30000,status:30000},
+    groups:{
+      measures:{enabled:true,topic:"biosoft/telemetry/measures",interval:30000,retain:true},
+      coils:   {enabled:true,topic:"biosoft/telemetry/coils",   interval:30000,retain:true},
+      status:  {enabled:true,topic:"biosoft/telemetry/status",  interval:30000,retain:true},
+      targets: {enabled:true,topic:"biosoft/telemetry/targets",                retain:true},
+      alerts:  {enabled:true,topic:"biosoft/telemetry/alerts",                 retain:false},
+      result:  {enabled:true,topic:"biosoft/telemetry/result",                 retain:true}
+    },
     fields:{
       magneticField:{enabled:true,name:"CEM1"},
       temperature:{enabled:true,name:"TEMP1"},
-      current:{enabled:true,name:"BOB1"},
       health:{enabled:true,name:"ESTADO"},
       progress:{enabled:true,name:"PROGRESS"},
       elapsedTime:{enabled:true,name:"ELAPSED_TIME"}
@@ -150,7 +155,7 @@ const DEFAULTS = {
 const MAX_MENU_OPTIONS = 8;
 const MAX_LABEL  = 15;   // label de menu, name de bobina, de sensor y de campo
 const MAX_TOPIC  = 63;
-const MQTT_BUFFER = 128; // char payload[128] en MySystem::_publishTelemetry()
+const MQTT_BUFFER = 384; // Topics::MaxPayloadLength, el buffer de MySystem::_publishTelemetry()
 
 const clone = o => JSON.parse(JSON.stringify(o));
 let state = clone(DEFAULTS);
@@ -237,10 +242,24 @@ const RULES = [
   ["frequency","Frecuencia","muestras no normales dentro de la ventana"]
 ];
 
+// Los 6 grupos de telemetria. `periodic` distingue los que tienen cadencia
+// de los que salen por evento: para estos ultimos un intervalo no significa
+// nada (ocurren una vez) y el formulario ni siquiera lo ofrece.
+const TELEMETRY_GROUPS = [
+  ["measures", "Mediciones",  "Campo magnetico y temperatura",                       true],
+  ["coils",    "Bobinas",     "Corriente y duty aplicado de cada bobina",            true],
+  ["status",   "Estado",      "Salud, avance, tiempos, estado y enlace con el Mega", true],
+  ["targets",  "Objetivos",   "Consignas del experimento -- se publica al arrancar", false],
+  ["alerts",   "Alertas",     "Una por cada alerta que levanta el Detector",         false],
+  ["result",   "Resultado",   "Motivo del corte -- se publica al terminar",          false]
+];
+
+// Solo estos campos tienen clave configurable. Las claves de los grupos
+// nuevos son estructurales ("c1".."d4", "REASON", "SRC"...): forman parte de
+// la forma del mensaje, no son valores que el operador elija.
 const TELEMETRY_FIELDS = [
   ["magneticField","Campo magnetico",     "measures"],
   ["temperature",  "Temperatura",         "measures"],
-  ["current",      "Corriente",           "measures"],
   ["health",       "Salud",               "status"],
   ["progress",     "Progreso",            "status"],
   ["elapsedTime",  "Tiempo transcurrido", "status"]
@@ -390,21 +409,31 @@ function sCurrent(){
 
 function sTelemetry(){
   let h = '<section><h2>7 · Telemetria remota</h2>' +
-    '<p class="hint">El set de campos es <b>cerrado</b>: son los 6 que el firmware sabe producir. Lo ' +
-    'configurable es cuales se publican, con que clave y a que cadencia. <b>Cambiar el topic o cualquier ' +
-    'nombre rompe el dashboard</b>: el Decoder de Datacake espera exactamente esas claves, y si se ' +
-    'renombra una, ese valor deja de llegar sin ningun error visible del lado del firmware. Solo ESP32.</p>' +
-    '<div class="grid">' +
-      txt("telemetry.topic", "Topic MQTT", MAX_TOPIC) +
-      num("telemetry.intervals.measures", INT, "Cadencia de mediciones (ms)") +
-      num("telemetry.intervals.status", INT, "Cadencia de estado (ms)") +
-    '</div><div class="tablewrap"><table style="margin-top:14px">' +
-    '<tr><th>Campo</th><th>Publica</th><th>Clave en el payload</th><th>Tanda</th></tr>';
-  TELEMETRY_FIELDS.forEach(([k, lbl, batch]) => {
+    '<p class="hint">La telemetria va dividida en <b>grupos</b>, cada uno a su propio topic y con su ' +
+    'propia cadencia, porque no entra todo en un mensaje. Cada grupo se habilita por separado. ' +
+    '<b>Cambiar un topic o una clave rompe el dashboard</b>: lo que se renombre deja de llegar sin ' +
+    'ningun error visible del lado del firmware. "Retiene" hace que el broker le entregue el ultimo ' +
+    'mensaje a quien se suscriba despues, para que el dashboard no arranque vacio. Solo ESP32.</p>' +
+    '<div class="tablewrap"><table>' +
+    '<tr><th>Grupo</th><th>Publica</th><th>Topic</th><th>Cadencia</th><th>Retiene</th>' +
+    '<th>Contenido</th></tr>';
+  TELEMETRY_GROUPS.forEach(([k, lbl, desc, periodic]) => {
+    h += '<tr><td>' + lbl + '</td>' +
+      '<td>' + chk("telemetry.groups." + k + ".enabled", "") + '</td>' +
+      '<td style="width:260px">' + txt("telemetry.groups." + k + ".topic", "", MAX_TOPIC) + '</td>' +
+      '<td style="width:130px">' +
+        (periodic ? num("telemetry.groups." + k + ".interval", INT, "") :
+                    '<span style="color:var(--muted)">por evento</span>') + '</td>' +
+      '<td>' + chk("telemetry.groups." + k + ".retain", "") + '</td>' +
+      '<td style="color:var(--muted)">' + desc + '</td></tr>';
+  });
+  h += '</table></div><div class="tablewrap"><table style="margin-top:14px">' +
+    '<tr><th>Campo</th><th>Publica</th><th>Clave en el payload</th><th>Grupo</th></tr>';
+  TELEMETRY_FIELDS.forEach(([k, lbl, group]) => {
     h += '<tr><td>' + lbl + '</td>' +
       '<td>' + chk("telemetry.fields." + k + ".enabled", "") + '</td>' +
       '<td style="width:220px">' + txt("telemetry.fields." + k + ".name", "", MAX_LABEL) + '</td>' +
-      '<td style="color:var(--muted)">' + (batch === "measures" ? "mediciones" : "estado") + '</td></tr>';
+      '<td style="color:var(--muted)">' + group + '</td></tr>';
   });
   return h + '</table></div></section>';
 }
@@ -670,16 +699,42 @@ function validate(){
   });
 
   /* --- 7. telemetry --- */
-  if (!state.telemetry.topic.trim()) err("Falta el topic MQTT.");
-  else if (state.telemetry.topic.length > MAX_TOPIC)
-    warn("El topic se truncara a " + MAX_TOPIC + " caracteres.");
-  else if (state.telemetry.topic !== DEFAULTS.telemetry.topic)
-    warn('Topic cambiado a "' + state.telemetry.topic + '": hay que actualizar el Decoder de ' +
-         "Datacake o no llega nada.");
-  ["measures", "status"].forEach(k => {
-    if (!isInt(state.telemetry.intervals[k]) || state.telemetry.intervals[k] <= 0)
-      err('Cadencia de telemetria "' + k + '": tiene que ser un entero positivo en ms.');
+  const topicsUsados = new Map();
+  TELEMETRY_GROUPS.forEach(([k, lbl, desc, periodic]) => {
+    const g = state.telemetry.groups[k];
+    if (!g.topic.trim()) { err('Grupo de telemetria "' + lbl + '": falta el topic MQTT.'); }
+    else if (g.topic.length > MAX_TOPIC) {
+      warn('Grupo "' + lbl + '": el topic se truncara a ' + MAX_TOPIC + " caracteres.");
+    }
+    else if (g.topic !== DEFAULTS.telemetry.groups[k].topic) {
+      warn('Grupo "' + lbl + '": topic cambiado a "' + g.topic + '". Hay que actualizar el ' +
+           "dashboard o ese grupo no llega.");
+    }
+
+    // Dos grupos en el mismo topic mezclan formas de JSON distintas en una
+    // sola suscripcion, y el Decoder no tiene como saber cual recibio.
+    if (g.enabled && g.topic.trim()) {
+      if (topicsUsados.has(g.topic))
+        err('Los grupos "' + topicsUsados.get(g.topic) + '" y "' + lbl + '" publican en el mismo ' +
+            'topic ("' + g.topic + '"): el Decoder no puede distinguir un mensaje del otro.');
+      else topicsUsados.set(g.topic, lbl);
+    }
+
+    if (periodic && (!isInt(g.interval) || g.interval <= 0))
+      err('Cadencia del grupo "' + lbl + '": tiene que ser un entero positivo en ms.');
+
+    // Una alerta retenida se le entrega a cada nuevo suscriptor como si
+    // acabara de ocurrir: el dashboard mostraria una alerta vieja de un
+    // experimento terminado hace rato como si fuera actual.
+    if (k === "alerts" && g.retain)
+      warn('Grupo "Alertas" con retencion: son eventos, no estado. El broker le entregaria la ' +
+           "ultima alerta a cualquiera que se conecte despues, como si acabara de ocurrir.");
   });
+  if (TELEMETRY_GROUPS.every(([k]) => !state.telemetry.groups[k].enabled))
+    warn("Todos los grupos de telemetria estan deshabilitados: no se publica nada al monitor remoto.");
+  if (!state.telemetry.groups.result.enabled)
+    warn("Grupo Resultado deshabilitado: el monitor remoto no se entera de por que termino un " +
+         "experimento, ni siquiera cuando corta por una alerta critica.");
   TELEMETRY_FIELDS.forEach(([k, lbl]) => {
     const f = state.telemetry.fields[k];
     if (f.enabled && !f.name.trim())
@@ -687,15 +742,16 @@ function validate(){
     else if (f.name.length > MAX_LABEL)
       warn('Campo de telemetria "' + lbl + '": la clave se truncara a ' + MAX_LABEL + " caracteres.");
     else if (f.enabled && f.name !== DEFAULTS.telemetry.fields[k].name)
-      warn('Campo "' + lbl + '" renombrado a "' + f.name + '": el Decoder de Datacake espera "' +
+      warn('Campo "' + lbl + '" renombrado a "' + f.name + '": el dashboard espera "' +
            DEFAULTS.telemetry.fields[k].name + '". Si no se actualiza alla, ese valor deja de llegar.');
   });
-  checkPayload("mediciones", ["magneticField", "temperature", "current"]);
+  checkPayload("mediciones", ["magneticField", "temperature"]);
   checkPayload("estado",     ["health", "progress", "elapsedTime"]);
-  const pm = payloadBytes(["magneticField", "temperature", "current"]);
+  const pm = payloadBytes(["magneticField", "temperature"]);
   const ps = payloadBytes(["health", "progress", "elapsedTime"]);
-  info += (info ? " · " : "") + "Payload MQTT en el peor caso: " + pm + " bytes la tanda de " +
-          "mediciones y " + ps + " la de estado, sobre un buffer de " + MQTT_BUFFER + ".";
+  info += (info ? " · " : "") + "Payload MQTT de los campos con clave configurable: " + pm +
+          " bytes el grupo de mediciones y " + ps + " el de estado, sobre un buffer de " +
+          MQTT_BUFFER + ". Los demas grupos usan claves fijas y cortas.";
 
   paint();
 }
@@ -716,7 +772,7 @@ function validate(){
  * inexistente y mandaria a acortar claves sin motivo. Se muestra el numero y
  * listo. Si alguna vez se agranda MaxFieldNameLength, este calculo es el que
  * dice cuanto margen queda. */
-const WORST = {magneticField:12, temperature:12, current:12, health:10, progress:3, elapsedTime:10};
+const WORST = {magneticField:12, temperature:12, health:10, progress:3, elapsedTime:10};
 
 function payloadBytes(keys){
   const on = keys.filter(k => state.telemetry.fields[k].enabled);

@@ -573,7 +573,7 @@ namespace ConfigLoader {
 
     // Un campo ausente conserva su default compilado (nombre Y enabled): es
     // el mismo criterio del resto del esquema, y acá importa especialmente
-    // porque el nombre es la clave que espera el Decoder de Datacake.
+    // porque el nombre es la clave que espera el dashboard remoto.
     inline void applyTelemetryField(JsonObjectConst fields, const char* key, Topics::TelemetryField& target) {
       JsonObjectConst field = fields[key];
       if (field.isNull()) return;
@@ -589,35 +589,56 @@ namespace ConfigLoader {
 
     // A diferencia de control/coils/detector, esta seccion es del ESP32 y se
     // aplica acá mismo: no viaja al Mega.
+    // Un grupo trae enable, topic y cadencia. `interval` se ignora en los
+    // grupos por evento (targets/alerts/result): ahi no hay timer que
+    // configurar, y aceptarlo sugeriria que se puede espaciar algo que
+    // ocurre una sola vez.
+    inline void applyTelemetryGroup(JsonObjectConst groups, const char* key,
+                                    Topics::TelemetryGroup& target, bool periodic) {
+      JsonObjectConst group = groups[key];
+      if (group.isNull()) return;
+
+      if (group["enabled"].is<bool>()) {
+        target.enabled = group["enabled"].as<bool>();
+      }
+      if (group["topic"].is<const char*>()) {
+        strncpy(target.topic, group["topic"].as<const char*>(), Topics::MaxTopicLength - 1);
+        target.topic[Topics::MaxTopicLength - 1] = '\0';
+      }
+      if (group["retain"].is<bool>()) {
+        target.retain = group["retain"].as<bool>();
+      }
+      if (periodic) {
+        applyInterval(group["interval"], target.interval, key);
+      }
+    }
+
     inline void loadTelemetry(JsonObjectConst telemetry) {
       if (telemetry.isNull()) {
         DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] sin seccion 'telemetry': se conservan los defaults"));
         return;
       }
 
-      if (telemetry["topic"].is<const char*>()) {
-        strncpy(Topics::Telemetry, telemetry["topic"].as<const char*>(), Topics::MaxTopicLength - 1);
-        Topics::Telemetry[Topics::MaxTopicLength - 1] = '\0';
-      }
-
-      JsonObjectConst intervals = telemetry["intervals"];
-      if (!intervals.isNull()) {
-        applyInterval(intervals["measures"], Intervals::PublishMeasures, "telemetry.measures");
-        applyInterval(intervals["status"], Intervals::PublishStatus, "telemetry.status");
+      JsonObjectConst groups = telemetry["groups"];
+      if (!groups.isNull()) {
+        applyTelemetryGroup(groups, "measures", Topics::Measures, true);
+        applyTelemetryGroup(groups, "coils", Topics::Coils, true);
+        applyTelemetryGroup(groups, "status", Topics::Status, true);
+        applyTelemetryGroup(groups, "targets", Topics::Targets, false);
+        applyTelemetryGroup(groups, "alerts", Topics::Alerts, false);
+        applyTelemetryGroup(groups, "result", Topics::Result, false);
       }
 
       JsonObjectConst fields = telemetry["fields"];
       if (!fields.isNull()) {
         applyTelemetryField(fields, "magneticField", Topics::MagneticField);
         applyTelemetryField(fields, "temperature", Topics::Temperature);
-        applyTelemetryField(fields, "current", Topics::Current);
         applyTelemetryField(fields, "health", Topics::Health);
         applyTelemetryField(fields, "progress", Topics::Progress);
         applyTelemetryField(fields, "elapsedTime", Topics::ElapsedTime);
       }
 
-      DEBUG_PRINT(DEBUG_CONFIGLOADER, F("[CONFIG] telemetria aplicada, topic="));
-      DEBUG_PRINTLN(DEBUG_CONFIGLOADER, Topics::Telemetry);
+      DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] telemetria aplicada"));
     }
 
     // Rango 0.1-5.0 de calibrationFactor NO se valida acá -- lo hace

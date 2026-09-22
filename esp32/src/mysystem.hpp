@@ -1,6 +1,7 @@
 #pragma once
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
+#include <time.h>
 
 #include "eventsname.hpp"
 #include "systemdata.hpp"
@@ -106,10 +107,16 @@ class MySystem :
     void _buildConfigCurrentDoc(JsonDocument& doc, const ConfigLoader::CurrentSensorConfigEntry& sensor);
     const ConfigLoader::RuleConfig* _findRuleConfig(const ConfigLoader::SourceConfigEntry& source, const char* ruleName);
 
-    bool _publish(const char* topic, const char* payload);
-    void _publishTelemetry(JsonDocument& doc);
+    bool _publish(const char* topic, const char* payload, bool retain);
+    void _syncTime();
+    bool _timeIsValid() const;
+    void _publishTelemetry(const Topics::TelemetryGroup& group, JsonDocument& doc);
     void _publishMeasures();
+    void _publishCoils();
     void _publishStatus();
+    void _publishTargets();
+    void _publishAlert(const char* source, const char* type, int count, int limit);
+    void _publishResult();
 
 
     void _processState(const char* status, bool forceStatus = false);
@@ -209,6 +216,19 @@ inline void MySystem::update() {
 
 inline void MySystem::remoteUpdate() {
   _wifiManager.update();
+
+  // Sin hora valida no se intenta conectar al broker: el handshake TLS
+  // fallaria igual por fecha de certificado, y cada intento fallido es un
+  // handshake completo que se come tiempo de CPU para nada.
+  if (!_timeIsValid()) {
+    static bool warned = false;
+    if (!warned && _data.communication.wifiOk) {
+      warned = true;
+      DEBUG_PRINTLN(DEBUG_MYSYSTEM, F("[NTP] esperando hora valida antes de conectar al broker"));
+    }
+    return;
+  }
+
   _brokerManager.loop();
 }
 
@@ -671,14 +691,30 @@ inline void MySystem::_cancelPendingConfig(const char* command, const char* key)
   }
 }
 
-inline bool MySystem::_publish(const char* topic, const char* payload) {
-  return _brokerManager.publish(topic, payload);
+inline bool MySystem::_publish(const char* topic, const char* payload, bool retain) {
+  return _brokerManager.publish(topic, payload, retain);
+}
+
+// TLS necesita un reloj: todo certificado tiene fecha de validez, y un ESP32
+// arranca en 1970, asi que mbedTLS rechaza hasta el certificado correcto por
+// "todavia no es valido". Se dispara al conectar el WiFi y no bloquea; quien
+// espera es _timeIsValid(), que mide si ya llego la hora.
+inline void MySystem::_syncTime() {
+  configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+  DEBUG_PRINTLN(DEBUG_MYSYSTEM, F("[NTP] sincronizacion pedida"));
+}
+
+// Cualquier fecha posterior al desarrollo de esto alcanza para distinguir
+// "el reloj ya se sincronizo" de "sigue en el epoch". No hace falta saber la
+// hora exacta, solo que no sea 1970.
+inline bool MySystem::_timeIsValid() const {
+  return time(nullptr) > 1735689600;   // 2025-01-01
 }
 
 // Los nombres de campo y el topic salen de Topics (topics.hpp), que trae los
 // defaults compilados (CEM1/TEMP1/BOB1/ESTADO/PROGRESS/ELAPSED_TIME) y los
 // pisa la seccion `telemetry` del archivo de la SD. Esos defaults son los que
-// espera el Decoder ya configurado del lado de Datacake: renombrar uno obliga
+// espera el dashboard remoto ya configurado: renombrar uno obliga
 // a actualizar tambien ese Decoder, o el valor deja de llegar sin error
 // visible. BOB1 es el nombre historico del Decoder para la bobina; se reusa
 // para la corriente medida (coilCurrent[0], sensor SCT013-1) en vez de agregar
@@ -687,9 +723,84 @@ inline void MySystem::_publishMeasures() {
   JsonDocument doc;
   if (Topics::MagneticField.enabled) doc[Topics::MagneticField.name] = _data.measures.measureMagneticField;
   if (Topics::Temperature.enabled)   doc[Topics::Temperature.name]   = _data.measures.measureTemperature;
-  if (Topics::Current.enabled)       doc[Topics::Current.name]       = _data.measures.coilCurrent[0];
 
-  _publishTelemetry(doc);
+  _publishTelemetry(Topics::Measures, doc);
+}
+
+// Corriente y duty de cada bobina que EXISTE del otro lado -- las que
+// reportaron al menos una vez en un frame coil_data. Publicar las 4 siempre
+// mandaria ceros de bobinas que no estan montadas, indistinguibles de una
+// bobina real que no esta recibiendo nada.
+inline void MySystem::_publishCoils() {
+  JsonDocument doc;
+  for (uint8_t i = 0; i < MAX_COILS; i++) {
+    if (_data.measures.latestCoilUpdate[i] == 0) continue;
+    char key[4];
+    snprintf(key, sizeof(key), "c%u", i + 1);
+    doc[key] = _data.measures.coilCurrent[i];
+    snprintf(key, sizeof(key), "d%u", i + 1);
+    doc[key] = _data.measures.coilDuty[i];
+  }
+
+  _publishTelemetry(Topics::Coils, doc);
+}
+
+// Los objetivos del experimento en curso: una sola vez, al arrancar. Sin
+// esto el dashboard muestra mediciones sin saber contra que consigna
+// compararlas, y sobre todo no distingue campo X de campo nulo -- que es la
+// diferencia entre el grupo tratado y el grupo control.
+inline void MySystem::_publishTargets() {
+  JsonDocument doc;
+  const auto& configuration = _data.configuration;
+
+  doc["MODE"] = ConfigurationOptions::optionsFieldMode[configuration.fieldModeOption].value;
+  doc["CEM"]  = ConfigurationOptions::optionsFieldIntensity[configuration.targetFieldIntensityOption].intensity;
+  doc["FREQ"] = ConfigurationOptions::optionsFrequency[configuration.targetFieldFrequencyOption].freq;
+  doc["DUR"]  = ConfigurationOptions::optionsDuration[configuration.targetDurationOption].duration;
+  doc["TOL"]  = ConfigurationOptions::optionsTolFieldIntensity[configuration.fieldIntensityToleranceOption].tol;
+
+  const auto& normal = ConfigurationOptions::optionsRangeNormalTemperature[configuration.normalTemperatureRangeOption];
+  const auto& critical = ConfigurationOptions::optionsRangeCriticalTemperature[configuration.criticalTemperatureRangeOption];
+  doc["TNMIN"] = normal.tmin;
+  doc["TNMAX"] = normal.tmax;
+  doc["TCMIN"] = critical.tmin;
+  doc["TCMAX"] = critical.tmax;
+
+  _publishTelemetry(Topics::Targets, doc);
+}
+
+// Una por cada flag del Mega, en el momento. No hay version periodica: una
+// alerta es un evento, y reenviarla cada N segundos haria imposible
+// distinguir una alerta que se repite de la misma alerta reenviada.
+inline void MySystem::_publishAlert(const char* source, const char* type, int count, int limit) {
+  JsonDocument doc;
+  doc["SRC"] = source;
+  doc["TYPE"] = type;
+  doc["COUNT"] = count;
+  doc["LIMIT"] = limit;
+
+  _publishTelemetry(Topics::Alerts, doc);
+}
+
+// El cierre del experimento. Es el mensaje mas pesado (lleva la descripcion
+// que arma el Mega) y el unico que el monitor remoto no puede deducir de
+// ningun otro: sin esto, una corrida cortada por temperatura critica se ve
+// desde afuera igual que una que termino bien.
+inline void MySystem::_publishResult() {
+  JsonDocument doc;
+  doc["REASON"] = _data.result.reason;
+  doc["DESC"] = _data.result.description;
+  doc["PROGRESS"] = (int) _data.result.progressPercent;
+  doc["ELAPSED"] = _data.result.elapsed;
+  if (_data.result.hasMeanMagneticField) doc["MEAN"] = _data.result.meanMagneticField;
+  if (_data.result.source[0] != '\0') {
+    doc["SRC"] = _data.result.source;
+    doc["TYPE"] = _data.result.type;
+    doc["COUNT"] = _data.result.count;
+    doc["LIMIT"] = _data.result.limit;
+  }
+
+  _publishTelemetry(Topics::Result, doc);
 }
 
 // Serializa y publica, salvo que no haya nada que mandar o que el payload no
@@ -699,22 +810,28 @@ inline void MySystem::_publishMeasures() {
 // silencio si no entra y devuelve lo que escribio, y hasta ahora ese retorno
 // se ignoraba. Con los nombres de campo configurables desde la SD, un par de
 // nombres largos alcanzan para pasarse de 128 y publicar un JSON cortado, que
-// el Decoder de Datacake no puede parsear: se perderia la tanda entera sin un
+// el dashboard no puede parsear: se perderia la tanda entera sin un
 // solo error visible. Preferimos no publicar y dejarlo dicho en el log.
-inline void MySystem::_publishTelemetry(JsonDocument& doc) {
+inline void MySystem::_publishTelemetry(const Topics::TelemetryGroup& group, JsonDocument& doc) {
+  if (!group.enabled) return;
   if (doc.size() == 0) return;
 
-  char payload[128];
+  char payload[Topics::MaxPayloadLength];
   size_t length = serializeJson(doc, payload, sizeof(payload));
 
+  // serializeJson trunca en silencio si no entra, y un JSON truncado es
+  // ilegible para el Decoder: se perderia la tanda entera sin una linea que
+  // lo explique. Mejor no publicar y decirlo.
   if (length >= sizeof(payload) - 1) {
-    DEBUG_PRINT(DEBUG_MYSYSTEM, F("[TELEMETRIA] payload no entra en "));
+    DEBUG_PRINT(DEBUG_MYSYSTEM, F("[TELEMETRIA] payload de "));
+    DEBUG_PRINT(DEBUG_MYSYSTEM, group.topic);
+    DEBUG_PRINT(DEBUG_MYSYSTEM, F(" no entra en "));
     DEBUG_PRINT(DEBUG_MYSYSTEM, (int)sizeof(payload));
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, F(" bytes -- no se publica (acortar los nombres de campo)"));
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, F(" bytes -- no se publica"));
     return;
   }
 
-  _publish(Topics::Telemetry, payload);
+  _publish(group.topic, payload, group.retain);
 }
 
 inline void MySystem::_publishStatus() {
@@ -722,8 +839,14 @@ inline void MySystem::_publishStatus() {
   if (Topics::Health.enabled)      doc[Topics::Health.name]      = _data.progress.health;
   if (Topics::Progress.enabled)    doc[Topics::Progress.name]    = (int)_data.progressPercent();
   if (Topics::ElapsedTime.enabled) doc[Topics::ElapsedTime.name] = _data.elapsedTime();
+  doc["REMAINING"] = (unsigned long) _data.remainingSeconds();
+  doc["STATE"] = _data.getState();
+  // Estado del enlace con el Mega: desde afuera es la diferencia entre "el
+  // experimento va bien" y "hace rato que no sabemos nada de la placa que
+  // lo controla".
+  doc["MEGA"] = _data.communication.serialOk;
 
-  _publishTelemetry(doc);
+  _publishTelemetry(Topics::Status, doc);
 }
 
 
@@ -894,6 +1017,7 @@ inline void MySystem::onCommand(const char* command, JsonVariantConst params) {
     // (lo que necesitan la salud y Resultado) y pushAlertEvent NO dedupe,
     // porque los 4 paneles de En curso muestran los ultimos 4 EVENTOS.
     _data.pushAlertEvent(source, type);
+    _publishAlert(source, type, count, limit);
 
     // La salud se recalcula al vuelo con cada flag que llega, no por
     // polling -- ver tambien el reset a Normal al entrar a Running.
@@ -973,6 +1097,9 @@ inline void MySystem::onTimer(const char* name) {
   else if(strcmp(name, Tasks::PublishMeasures) == 0) {
     _publishMeasures();
   }
+  else if(strcmp(name, Tasks::PublishCoils) == 0) {
+    _publishCoils();
+  }
   else if(strcmp(name, Tasks::PublishStatus) == 0) {
     _publishStatus();
   }
@@ -1032,6 +1159,10 @@ inline void MySystem::_applyResult(const char* reason, const char* description, 
   _data.result.meanMagneticField = _data.meanMagneticField();
   _data.result.alertCount = _data.activeAlertCount();
 
+  // Se publica DESPUES de armar el snapshot completo: el mensaje lleva el
+  // progreso y el transcurrido congelados, no los getters en vivo.
+  _publishResult();
+
   DEBUG_PRINT(DEBUG_MYSYSTEM, F("[RESULT] reason="));
   DEBUG_PRINT(DEBUG_MYSYSTEM, reason);
   DEBUG_PRINT(DEBUG_MYSYSTEM, F(" description="));
@@ -1042,6 +1173,7 @@ inline void MySystem::_applyResult(const char* reason, const char* description, 
 
 inline void MySystem::onWiFiConnected(const char* ssid) {
   _data.communication.wifiOk = true;
+  _syncTime();
 }
 
 inline void MySystem::onWiFiDisconnected() {
@@ -1166,6 +1298,7 @@ inline void MySystem::onStateChanged(const char* oldState, const char* newState)
   else if(strcmp(oldState, StateData::Running) == 0) {
     _timer.removeTask(Tasks::UpdateProgress);
     _timer.removeTask(Tasks::PublishMeasures);
+    _timer.removeTask(Tasks::PublishCoils);
     _timer.removeTask(Tasks::PublishStatus);
   }
 
@@ -1174,10 +1307,18 @@ inline void MySystem::onStateChanged(const char* oldState, const char* newState)
   }
   else if(strcmp(newState, StateData::Running) == 0) {
     _timer.addTask(Tasks::UpdateProgress, Intervals::UpdateProgress);
-    // Telemetria a Datacake (via EMQX) -- solo mientras corre el
+    // Telemetria al monitor remoto (via EMQX) -- solo mientras corre el
     // experimento, no tiene sentido gastar cuota del plan en idle.
-    _timer.addTask(Tasks::PublishMeasures, Intervals::PublishMeasures);
-    _timer.addTask(Tasks::PublishStatus, Intervals::PublishStatus);
+    // Una tarea por grupo periodico, cada una con SU intervalo. Un grupo
+    // deshabilitado no registra tarea: _publishTelemetry igual lo filtraria,
+    // pero no tiene sentido despertar al timer para descartar.
+    if (Topics::Measures.enabled) _timer.addTask(Tasks::PublishMeasures, Topics::Measures.interval);
+    if (Topics::Coils.enabled)    _timer.addTask(Tasks::PublishCoils, Topics::Coils.interval);
+    if (Topics::Status.enabled)   _timer.addTask(Tasks::PublishStatus, Topics::Status.interval);
+
+    // Los objetivos van una sola vez, al arrancar: no cambian durante el
+    // experimento y repetirlos seria trafico repetido sin informacion nueva.
+    _publishTargets();
   }
   else if(strcmp(newState, StateData::Starting) == 0) {
     _timer.addTask(Tasks::ReSendStart, Intervals::ReSendStart);

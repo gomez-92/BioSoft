@@ -607,18 +607,25 @@ and `StateListener` (own app state, from `SystemData`).
   library) and disables the chip's auto-sleep, since LVGL polls it instead
   of using INT. Switching boards means flipping `TOUCH_KIND` *and* the
   inversion flag together.
-- **MQTT/TLS is currently broken and known**: the broker is an EMQX Cloud
-  *serverless* instance (`*.emqxsl.com:8883`, host in `secrets.h`), whose
-  certificates are issued by Let's Encrypt (ISRG Root X1), but
-  `SoftEsp32.ino` embeds *DigiCert Global Root G2* as `ROOT_CA_CERT`, so every
-  connect fails with `-9984 X509 - Certificate verification failed` every
-  ~10 s in the monitor. On top of that the firmware never syncs NTP
-  (`configTime()` is not called anywhere), so even with the right CA mbedTLS
-  may reject the cert as not yet valid with the clock at 1970. Both need
-  fixing together: replace the CA (download `emqxsl-ca.crt` from the EMQX
-  console rather than trusting memory) and sync time in `onWiFiConnected`
-  before the first broker attempt. Those errors are noise for bench work on
-  the SD config or the screens — nothing else depends on the broker.
+- **MQTT/TLS is half-fixed: the CA is still wrong.** The broker is an EMQX
+  Cloud *serverless* instance (`*.emqxsl.com:8883`, host in `secrets.h`) and
+  `SoftEsp32.ino` still embeds *DigiCert Global Root G2* as `ROOT_CA_CERT`,
+  which is not who signs it, so every connect fails with `-9984 X509 -
+  Certificate verification failed`. The fix is to paste the CA downloaded from
+  the EMQX console (not from memory — only the console says who actually signs
+  that instance); the block carries a comment saying exactly that.
+  The **clock half is done**: `MySystem::_syncTime()` calls `configTime()`
+  from `onWiFiConnected()`, and `remoteUpdate()` will not let the broker even
+  try until `_timeIsValid()` (epoch past 2025). That matters because every
+  certificate carries validity dates and an ESP32 boots at 1970, so the right
+  CA alone would still be rejected as "not yet valid" — and each failed
+  attempt is a full TLS handshake burning CPU for nothing.
+  The remote monitor is a **dashboard of the user's own**, not Datacake, and
+  it is **read-only**: the board publishes and never subscribes,
+  `onMessageReceived()` is empty on purpose and there are no remote commands.
+  That is a deliberate boundary — a remote `start` would energize coils with
+  animals in the cabinet and nobody in the room, while the physical e-stop
+  only helps someone who is already there.
 - `MySystem`'s `BENCH_SIN_MEGA` flag (`mysystem.hpp`) lets the HMI leave the
   splash and reach Principal without a Mega connected (on splash timeout, if
   `!_serial.isConnected()`, it forces `Ready`). Bench-only: with it on and no
@@ -681,23 +688,50 @@ NULO"` placeholder the SquareLine export ships with.
   `stop` the ESP32 can wait up to ~5s for the confirming `"ready"` before the
   Busy screen's own 6s timeout (`BusyController::update()`,
   `screencontroller.hpp`) fires first.
-- `Topics` (`topics.hpp`) is no longer constants: the MQTT topic and the six
-  telemetry field names/enables are mutable globals seeded with the compiled
-  defaults and overwritten by `ConfigLoader` from the SD `telemetry` section —
-  same "applied locally" pattern as `menus`/`intervals.esp32`, nothing here
-  travels to the Mega. The field *set* is closed (six values the firmware knows
-  how to produce); what's configurable is which of them publish, under what key
-  name, at what cadence, and to which topic. **Those default names are the
-  contract with the Datacake Decoder** — renaming one without updating the
-  Decoder makes that value silently stop arriving.
-  `_publishMeasures()`/`_publishStatus()` now funnel through
-  `_publishTelemetry()`, which skips the batch when no field is enabled and,
-  more importantly, **refuses to publish a payload that doesn't fit the 128-byte
-  buffer** instead of letting `serializeJson` truncate it silently (the same
-  ignored-return-value trap as `SerialLink::_sendFrame`, and now reachable
-  because field names come from a file). A truncated JSON is unparseable to the
-  Decoder anyway, so publishing it would trade one missing field for a whole
-  lost batch, without a log line to explain it.
+- `Topics` (`topics.hpp`) is no longer constants: telemetry is split into **six
+  groups, each with its own MQTT topic**, all mutable globals seeded with the
+  compiled defaults and overwritten by `ConfigLoader` from the SD `telemetry`
+  section — same "applied locally" pattern as `menus`/`intervals.esp32`,
+  nothing here travels to the Mega. Three are periodic and carry an interval
+  (`measures`, `coils`, `status`, one `Timer` task each, registered only while
+  Running and only when enabled); three are **event-driven and carry no
+  interval at all** (`targets` once on entering Running, `alerts` on every
+  `flag_data`, `result` from `_applyResult`). An interval would be meaningless
+  for something that happens once, so the schema doesn't accept one — `enabled`
+  is what turns a group off.
+  The split is not cosmetic: everything in one message does not fit, and the
+  cadences are genuinely different. It also means **two groups must never share
+  a topic** — the Decoder would get two different JSON shapes on one
+  subscription with no way to tell them apart; the generator rejects it.
+  `fields` (configurable `enabled`+`name`) covers **only the five keys that
+  were already the dashboard contract** before the split. Everything the new
+  groups publish (`c1`..`d4`, `REASON`, `SRC`, `MODE`...) is structural — part
+  of the message shape, not a knob — and is not individually configurable.
+  **Topics and those five names are the contract with the dashboard**;
+  renaming one without updating it makes that value silently stop arriving.
+  Every group carries a `retain` flag too, so a dashboard opened mid-run gets
+  the last known state instead of an empty screen — decisive for `targets` and
+  `result`, which publish once per experiment. It is `false` for `alerts`
+  alone: those are an event stream, and a retained alert would be handed to
+  every new subscriber as if it had just happened, long after the run ended.
+  Two groups are worth protecting: `targets` is the only thing that says
+  whether a run is the treated or the control group (`MODE`), and `result` is
+  the only thing that reports *why* an experiment ended — without it a run cut
+  short by a critical alert looks, from outside, exactly like one that finished.
+  `coils` publishes only the coils that have actually reported, so the
+  dashboard never sees zeros from coils that aren't mounted.
+  Every group funnels through `_publishTelemetry(group, doc)`, which skips a
+  group that is disabled or empty and **refuses to publish a payload that
+  doesn't fit `Topics::MaxPayloadLength`** instead of letting `serializeJson`
+  truncate it silently (the same ignored-return-value trap as
+  `SerialLink::_sendFrame`). Below that, `BrokerManager::begin()` raises
+  PubSubClient's packet buffer to 512 — its 256 default was enough while
+  telemetry was one 128-byte message but not for `result`, which carries the
+  cut description — and `processPublishQueue()` now **drops** a message too big
+  for that buffer rather than retrying it: an oversize publish fails every
+  time, and leaving it queued would block every message behind it forever. A
+  dropped link still keeps its messages queued, which is the case retrying is
+  for.
 - `MySystem::_sendMegaConfig()` (called from `onSerialConnected()`, so it
   fires on every connect *and* reconnect) generalizes that same ack/retry
   pattern to an arbitrary set of frames instead of one fixed command: up to

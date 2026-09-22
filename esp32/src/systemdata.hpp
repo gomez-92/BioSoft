@@ -100,9 +100,9 @@ struct ResultData {
 struct MeasuresData {
   float measureMagneticField = 0.0f;
   float measureTemperature = 0.0f;
-  // coilCurrent[0] es SCT013-1, y es tambien la corriente que se publica
-  // por MQTT (Topics::Current): una sola, porque el Decoder de Datacake
-  // espera un campo, no cuatro.
+  // coilCurrent[0] es SCT013-1. Las cuatro se publican por MQTT desde el
+  // grupo `coils` de la telemetria (antes salia solo esta, como campo
+  // "BOB1", porque toda la telemetria era un unico mensaje).
   float coilCurrent[MAX_COILS] = {0.0f, 0.0f, 0.0f, 0.0f};
   // Duty REALMENTE aplicado a cada bobina, en por ciento (0..100). Llega en
   // el mismo frame coil_data que la corriente; es el duty comun por el

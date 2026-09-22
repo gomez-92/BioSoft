@@ -14,13 +14,9 @@ namespace Intervals {
   inline unsigned long ReSendReset           = 4000;
   inline unsigned long UpdateProgress        = 5000;
 
-  // Cadencia de publicacion a Datacake (via MQTT/EMQX), separada por tipo
-  // de variable como pidio el usuario -- mediciones en vivo vs estado
-  // general -- para poder ajustarlas independiente una de la otra sin
-  // tocar codigo. Valores de arranque conservadores; ajustar segun el
-  // limite real del plan de Datacake que se este usando.
-  inline unsigned long PublishMeasures       = 30000;
-  inline unsigned long PublishStatus         = 30000;
+  // Las cadencias de telemetria NO viven aca: cada grupo lleva la suya en
+  // topics.hpp, junto a su topic y su enable, porque son tres cosas que se
+  // configuran juntas y por grupo (ver docs/config-schema.md seccion 9).
 
   // Reintento del envio fragmentado de config_intervals/config_control/
   // config_coil al Mega (ver mysystem.hpp::_sendMegaConfig()).

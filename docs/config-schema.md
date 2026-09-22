@@ -501,17 +501,30 @@ miden y se envian a la pantalla, nada mas. Las unicas fuentes son `CEM1` y
 
 ## 9. Seccion `telemetry` — publicacion remota
 
-Parametriza `MySystem::_publishMeasures()` / `_publishStatus()`
-(`esp32/src/mysystem.hpp`) y el topic de `esp32/src/topics.hpp`. Solo ESP32.
+Parametriza los grupos de `esp32/src/topics.hpp` y las funciones
+`MySystem::_publish*()` (`esp32/src/mysystem.hpp`). Solo ESP32.
+
+La telemetria va repartida en **6 grupos**, cada uno con **su propio topic**.
+No es una decision estetica: todo junto no entra en un mensaje (el payload
+tiene un tope duro, ver mas abajo) y cada grupo tiene una cadencia natural
+distinta — las mediciones cambian todo el tiempo, los objetivos una vez por
+experimento. Separados, cada uno se habilita y se espacia sin tocar a los
+demas, y el dashboard mapea cada topic a su propio set de campos sin tener que
+adivinar la forma del JSON.
 
 ```json
 "telemetry": {
-  "topic": "biosoft/telemetry",
-  "intervals": { "measures": 30000, "status": 30000 },
+  "groups": {
+    "measures": { "enabled": true, "topic": "biosoft/telemetry/measures", "interval": 30000, "retain": true },
+    "coils":    { "enabled": true, "topic": "biosoft/telemetry/coils",    "interval": 30000, "retain": true },
+    "status":   { "enabled": true, "topic": "biosoft/telemetry/status",   "interval": 30000, "retain": true },
+    "targets":  { "enabled": true, "topic": "biosoft/telemetry/targets",  "retain": true },
+    "alerts":   { "enabled": true, "topic": "biosoft/telemetry/alerts",   "retain": false },
+    "result":   { "enabled": true, "topic": "biosoft/telemetry/result",   "retain": true }
+  },
   "fields": {
     "magneticField": { "enabled": true, "name": "CEM1" },
     "temperature":   { "enabled": true, "name": "TEMP1" },
-    "current":       { "enabled": true, "name": "BOB1" },
     "health":        { "enabled": true, "name": "ESTADO" },
     "progress":      { "enabled": true, "name": "PROGRESS" },
     "elapsedTime":   { "enabled": true, "name": "ELAPSED_TIME" }
@@ -519,35 +532,89 @@ Parametriza `MySystem::_publishMeasures()` / `_publishStatus()`
 }
 ```
 
-El **set de campos es cerrado**: son los 6 que el firmware sabe producir, y no
-se pueden agregar nuevos desde el archivo. Lo configurable es cuales se
-publican, con que nombre de clave salen y a que cadencia.
+### 9.1 Los grupos
 
-`fields.*.name` es la clave JSON que va en el payload MQTT.
-`magneticField`/`temperature`/`current` salen en la publicacion de mediciones
-(`intervals.measures`); `health`/`progress`/`elapsedTime` en la de estado
-(`intervals.status`).
+| Grupo | Cuando publica | Contenido |
+|---|---|---|
+| `measures` | periodico | campo magnetico y temperatura |
+| `coils` | periodico | `c1`..`c4` (corriente, A) y `d1`..`d4` (duty aplicado, %) |
+| `status` | periodico | salud, avance, transcurrido, `REMAINING`, `STATE`, `MEGA` |
+| `targets` | al arrancar el experimento | `MODE`, `CEM`, `FREQ`, `DUR`, `TOL`, `TNMIN`, `TNMAX`, `TCMIN`, `TCMAX` |
+| `alerts` | con cada alerta | `SRC`, `TYPE`, `COUNT`, `LIMIT` |
+| `result` | al terminar | `REASON`, `DESC`, `PROGRESS`, `ELAPSED`, `MEAN` y, si corto una fuente, `SRC`/`TYPE`/`COUNT`/`LIMIT` |
 
-> **Cambiar `topic` o cualquier `name` rompe el dashboard remoto.** El Decoder
-> configurado del lado de Datacake espera exactamente esas 6 claves en ese
-> topic. Renombrar un campo aca obliga a actualizar el Decoder en Datacake, o
-> el valor deja de llegar, silenciosamente y sin error visible en el firmware.
-> Los nombres del ejemplo son los que el Decoder tiene hoy. `BOB1` es el
-> nombre historico del Decoder para la bobina, reusado para la corriente
-> medida.
+Los tres primeros son **periodicos** y llevan `interval` (entero positivo, ms).
+Los otros tres son **por evento** y no lo llevan: ocurren una vez, y aceptar un
+intervalo ahi sugeriria que se puede espaciar algo que no se repite. Si se
+escribe igual, se ignora.
 
-Topes: `topic` maximo 63 caracteres, cada `name` maximo 15. Lo que exceda se
-trunca al copiarse.
+Para apagar un grupo esta `enabled`, no el intervalo. Un grupo deshabilitado
+no registra su tarea en el `Timer`.
 
-El payload serializado tiene que entrar en el buffer de 128 bytes de
-`MySystem::_publishTelemetry()`. Con los nombres default entra holgado, pero
-un par de nombres largos alcanzan para pasarse. Si eso pasa **la tanda no se
-publica** y queda registrado en el log: `serializeJson` recorta en silencio, y
-un JSON cortado no lo puede parsear el Decoder de Datacake, asi que publicarlo
-solo cambiaria un dato faltante por una tanda entera perdida sin aviso.
+`retain` le pide al broker que **guarde el ultimo mensaje del topic** y se lo
+entregue a cualquiera que se suscriba despues. Es lo que hace que el dashboard
+muestre el estado actual apenas se abre, en vez de quedar vacio hasta la
+proxima tanda -- y para `targets` y `result`, que se publican una sola vez por
+experimento, es la diferencia entre verlos o no verlos nunca.
 
-Un campo con `enabled: false` no ocupa lugar en el payload. Si los 3 campos de
-una tanda quedan deshabilitados, esa tanda no se publica (no se manda `{}`).
+Va en `true` en todo lo que es **estado** y en `false` en `alerts`, que es un
+**flujo de eventos**: una alerta retenida se le entregaria a cada nuevo
+suscriptor como si acabara de ocurrir, mucho despues de que el experimento
+termino. El generador avisa si se la habilita.
+
+**`coils` publica solo las bobinas que existen** — las que reportaron al menos
+una vez en un frame `coil_data`. Mandar siempre las cuatro significaria mandar
+ceros de bobinas no montadas, indistinguibles de una bobina real que no esta
+recibiendo nada.
+
+**`targets` es el unico que dice si la corrida es del grupo tratado o del
+grupo control** (`MODE`: `"x"` o `"null"`). Sin el, en el dashboard las dos se
+ven igual. **`result` es el unico que informa el corte**: deshabilitarlo deja
+al monitor remoto sin saber por que termino un experimento, ni siquiera cuando
+corta por una alerta critica.
+
+### 9.2 Los campos con clave configurable
+
+`fields` cubre **solo** los cinco de la tabla: son los que ya formaban el
+contrato con el consumidor antes de la division en grupos. Las demas claves
+(`c1`..`d4`, `REASON`, `SRC`, `MODE`...) son **estructurales** — parte de la
+forma del mensaje, no valores que el operador elija — y no se configuran una
+por una.
+
+Un campo con `enabled: false` no ocupa lugar en el payload. Si todos los
+campos de un grupo quedan deshabilitados, ese grupo no publica (no se manda
+`{}`).
+
+> **Cambiar un `topic` o un `name` rompe el dashboard remoto.** El dashboard
+> espera exactamente esos topics y esas claves; lo que se renombre aca deja de
+> llegar, silenciosamente y sin error visible en el firmware.
+> **Dos grupos no pueden compartir topic**: el dashboard recibiria dos formas de
+> JSON distintas por la misma suscripcion sin poder distinguirlas. El
+> generador lo rechaza.
+
+### 9.3 Topes
+
+`topic` maximo 63 caracteres y cada `name` maximo 15; lo que exceda se trunca
+al copiarse.
+
+El payload serializado tiene que entrar en `Topics::MaxPayloadLength`
+(384 bytes), y el paquete MQTT completo — topic + cabecera + payload — en el
+buffer de PubSubClient, que `BrokerManager::begin()` agranda a 512. El default
+de la libreria es 256, que alcanzaba cuando la telemetria era un unico mensaje
+de 128 bytes pero no para el grupo `result`, que lleva la descripcion del
+corte.
+
+La telemetria es **solo salida**: la placa publica y no se suscribe a nada.
+`MySystem::onMessageReceived()` esta vacio a proposito y no hay comandos
+remotos -- el monitor remoto observa, no controla.
+
+Si un payload no entra, **el grupo no se publica** y queda en el log:
+`serializeJson` recorta en silencio y un JSON cortado no lo puede parsear el
+el dashboard, asi que publicarlo cambiaria un dato faltante por un mensaje
+entero perdido sin aviso. Y si aun asi un mensaje llegara a la cola sin entrar en el
+buffer de PubSubClient, se descarta en vez de reintentarse: un publish que
+falla por tamano falla siempre, y dejarlo encolado trabaria todo lo que venga
+atras.
 
 ---
 
@@ -656,7 +723,7 @@ De menor a mayor riesgo. Cada paso deja el sistema funcionando.
 | 2 | `intervals` | `constexpr` a variables runtime, ambas placas | bajo, mecanico | **hecho** |
 | 3 | `control` + `coils` | parametros del regulador y factores por canal | medio: toca el lazo | **hecho** |
 | 4 | `detector.sources` | validacion en el Mega + retiro de `testMode` | medio: toca seguridad | **hecho** |
-| 5 | `telemetry` | solo ESP32; coordinar con el Decoder de Datacake | medio: dependencia externa | **hecho** |
+| 5 | `telemetry` | solo ESP32; coordinar con el dashboard remoto | medio: dependencia externa | **hecho** |
 | 6 | `currentSensors` | 2 modulos ADS1115, probe de I2C antes de registrar | alto | **hecho** |
 
 Los pasos 1 y 2 se pudieron hacer sin tocar el protocolo serie. El paso 3 fue
