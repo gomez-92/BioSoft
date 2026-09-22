@@ -228,7 +228,8 @@ provee:
    que necesite la bobina, con buffer capaz de manejar las cargas.
 2. **Generar la rama invertida y seleccionarla**: op-amp inversor referenciado
    al offset (no a masa) mas un multiplexor analogico gobernado por un GPIO,
-   con ambas ramas bufferadas por igual para que queden simetricas. Ver ADR-001.
+   con ambas ramas bufferadas por igual para que queden simetricas. Ver ADR-001
+   y el esquematico en `docs/etapa-de-fase.html`.
 3. **Filtrar el PWM**: red RC que convierta 3906 Hz / 8 bits en un nivel DC
    estable, con rizado tolerable y respuesta suficientemente rápida para el
    lazo de control (cadencia de corrección: una muestra de magnetómetro cada
@@ -242,7 +243,9 @@ provee:
 ## 9. Abierto
 
 - Nivel de salida real del AD9833 en el armado concreto — medir en banco.
-- Topología del acondicionamiento (offset, ganancia) y elección concreta del
-  op-amp y del multiplexor — pendiente desde las sesiones del 2026-09-07/09.
+- ~~Topología del acondicionamiento y elección del op-amp y del multiplexor~~
+  — resuelto el 2026-09-17: esquemático, lista de materiales y verificación
+  en `docs/etapa-de-fase.html` (MCP6004 + CD4053B, inversión respecto de
+  VREF = 2,5 V). El resumen de por qué esos y no otros está en el ADR-001.
 - Valores del filtro RC, que dependen de la etapa elegida.
 - Datos de la bobina y del túnel de magnetoterapia del banco de pruebas.

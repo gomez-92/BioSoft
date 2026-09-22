@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!--
+  Esquemático de la etapa de fase (campo X / campo nulo), decisión C del ADR-001.
+  Archivo autocontenido: sin dependencias, se abre con doble clic y se imprime.
+  Es la ÚNICA fuente del circuito: el ADR y coil-excitation.md apuntan acá, no lo copian.
+-->
+<title>Etapa de fase BioSoft</title>
+<style>
+  :root {
+    --ground: #f2f4f6;
+    --surface: #ffffff;
+    --ink: #1b2430;
+    --muted: #5b6875;
+    --rule: #cfd6dd;
+    --accent: #0f766e;
+    --accent-soft: #d8eeeb;
+    --sans: "Segoe UI", system-ui, -apple-system, sans-serif;
+    --mono: Consolas, "Cascadia Mono", "DejaVu Sans Mono", monospace;
+    color-scheme: light dark;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #141a20; --surface: #1c242c; --ink: #e4e9ee; --muted: #9aa7b3;
+      --rule: #333e49; --accent: #2dd4bf; --accent-soft: #1f3a38;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #141a20; --surface: #1c242c; --ink: #e4e9ee; --muted: #9aa7b3;
+    --rule: #333e49; --accent: #2dd4bf; --accent-soft: #1f3a38;
+  }
+  body { background: var(--ground); color: var(--ink); font-family: var(--sans); font-size: 15px; line-height: 1.5; margin: 0; padding-inline: 20px; padding-block: 28px 48px; }
+  main { max-width: 1160px; margin-inline: auto; }
+  header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 20px; margin-bottom: 18px; }
+  h1 { font-size: 24px; font-weight: 600; margin: 0; text-wrap: balance; letter-spacing: -0.01em; }
+  .eyebrow { font-family: var(--mono); font-size: 12px; color: var(--muted); letter-spacing: 0.06em; text-transform: uppercase; }
+  .lead { color: var(--muted); max-width: 68ch; margin: 0 0 20px; }
+  figure { margin: 0 0 28px; background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 16px; }
+  .scroll { overflow-x: auto; }
+  svg { display: block; width: 100%; max-width: 1140px; height: auto; min-width: 860px; color: var(--ink); font-family: var(--mono); }
+  svg .sym { fill: var(--surface); }
+  svg .lbl { font-size: 11px; fill: var(--ink); }
+  svg .sm { font-size: 10px; fill: var(--muted); }
+  svg .big { font-size: 12px; font-weight: 500; fill: var(--ink); }
+  svg .net { fill: var(--accent); font-size: 11px; font-weight: 500; }
+  svg .note { font-size: 11px; fill: var(--muted); font-family: var(--sans); }
+  figcaption { font-size: 13px; color: var(--muted); margin-top: 12px; max-width: 80ch; }
+  h2 { font-size: 15px; font-weight: 600; margin: 28px 0 10px; }
+  .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th { font-weight: 500; color: var(--muted); font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; }
+  td:first-child { font-family: var(--mono); white-space: nowrap; }
+  td.v { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  ul { padding-left: 18px; margin: 0; }
+  li { margin-bottom: 6px; max-width: 60ch; }
+  code { font-family: var(--mono); font-size: 0.92em; background: var(--accent-soft); padding: 1px 5px; border-radius: 3px; }
+  @media print { body { padding: 0; background: #fff; color: #000; } figure { border: 0; break-inside: avoid; } svg { min-width: 0; } }
+</style>
+</head>
+<body>
+
+<main>
+  <header>
+    <h1>Etapa de fase BioSoft</h1>
+    <span class="eyebrow">ADR-001 · inversor + mux · 5 V simple</span>
+  </header>
+  <p class="lead">Un solo AD9833. La senoidal se re-centra en VREF, se bufferea (U1A) y se invierte respecto de VREF (U1B); el 4053 elige con el pin D22 cuál de las dos reciben las bobinas 2 y 4. Las bobinas 1 y 3 siempre reciben la directa.</p>
+
+  <figure>
+    <div class="scroll">
+    <svg viewBox="0 0 1140 690" role="img" aria-label="Esquemático: divisor y buffer de VREF, acople del AD9833 al nodo N, seguidor U1A hacia bobinas 1 y 3 y entrada X0 del 4053, inversor U1B hacia X1, selector A desde D22, salida X hacia bobinas 2 y 4.">
+      <defs>
+        <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+        </marker>
+        <g id="res"><path d="M0 0 h10 l5 -7 l10 14 l10 -14 l10 14 l5 -7 h10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></g>
+        <g id="capel"><path d="M0 0 h10 M13 -9 q-6 9 0 18 M20 -9 v18 M20 0 h12" fill="none" stroke="currentColor" stroke-width="1.6"/></g>
+        <g id="gnd"><path d="M0 0 v8 M-10 8 h20 M-6 13 h12 M-2 18 h4" fill="none" stroke="currentColor" stroke-width="1.6"/></g>
+        <g id="opamp"><path class="sym" d="M0 -26 L0 26 L60 0 z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></g>
+      </defs>
+
+      <g stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round">
+        <!-- Bloque VREF -->
+        <path d="M80 52 v18 M80 130 v20 M80 210 v15 M80 150 h80 M130 150 v25 M130 207 v18 M160 150 v-12 h20"/>
+        <path d="M240 150 h60 M262 150 v36 h-102 v-24 h20"/>
+        <!-- AD9833 y nodo N -->
+        <path d="M130 330 h40 M202 330 h138 M250 330 v15 M250 405 v15"/>
+        <!-- U1A seguidor -->
+        <path d="M400 342 h40 M420 342 v40 h-100 v-28 h20 M500 342 h270 M520 342 v-62 h80"/>
+        <!-- U1B inversor -->
+        <path d="M300 330 v140 h20 M380 470 h40 M400 470 v-30 M460 440 h40 v42 M480 482 h40 M580 482 h190 M420 494 h-40"/>
+        <!-- Mux -->
+        <path d="M860 280 v20 M860 600 v20 M920 412 h80" />
+        <path d="M700 530 h70" stroke-dasharray="5 4"/>
+      </g>
+      <path d="M520 280 h80" stroke="currentColor" stroke-width="1.6" fill="none" marker-end="url(#arr)"/>
+      <path d="M920 412 h80" stroke="currentColor" stroke-width="1.6" fill="none" marker-end="url(#arr)"/>
+
+      <!-- Símbolos -->
+      <use href="#res" transform="translate(80,70) rotate(90)"/>
+      <use href="#res" transform="translate(80,150) rotate(90)"/>
+      <use href="#capel" transform="translate(130,207) rotate(-90)"/>
+      <use href="#gnd" transform="translate(80,225)"/>
+      <use href="#gnd" transform="translate(130,225)"/>
+      <use href="#opamp" transform="translate(180,150)"/>
+      <use href="#capel" transform="translate(170,330)"/>
+      <use href="#res" transform="translate(250,345) rotate(90)"/>
+      <use href="#opamp" transform="translate(340,342)"/>
+      <use href="#res" transform="translate(440,342)"/>
+      <use href="#res" transform="translate(320,470)"/>
+      <use href="#res" transform="translate(400,440)"/>
+      <use href="#opamp" transform="translate(420,482)"/>
+      <use href="#res" transform="translate(520,482)"/>
+      <use href="#gnd" transform="translate(860,620)"/>
+
+      <!-- Cajas -->
+      <rect class="sym" x="40" y="300" width="90" height="62" stroke="currentColor" stroke-width="1.6" rx="2"/>
+      <rect class="sym" x="800" y="300" width="120" height="300" stroke="currentColor" stroke-width="1.6" rx="2"/>
+
+      <!-- Nodos -->
+      <g fill="currentColor">
+        <circle cx="80" cy="150" r="3"/><circle cx="130" cy="150" r="3"/><circle cx="262" cy="150" r="3"/>
+        <circle cx="250" cy="330" r="3"/><circle cx="300" cy="330" r="3"/>
+        <circle cx="420" cy="342" r="3"/><circle cx="520" cy="342" r="3"/>
+        <circle cx="400" cy="470" r="3"/><circle cx="500" cy="482" r="3"/>
+      </g>
+      <!-- Terminales de red VREF -->
+      <g fill="var(--accent)" stroke="var(--accent)" stroke-width="1.4">
+        <circle cx="300" cy="150" r="3.5"/><circle cx="250" cy="420" r="3.5" fill="var(--surface)"/><circle cx="380" cy="494" r="3.5" fill="var(--surface)"/>
+      </g>
+      <circle cx="700" cy="530" r="3.5" fill="var(--surface)" stroke="currentColor" stroke-width="1.4"/>
+
+      <!-- Marcas de op-amp -->
+      <text class="lbl" x="186" y="142">+</text><text class="lbl" x="186" y="166">−</text>
+      <text class="lbl" x="346" y="334">+</text><text class="lbl" x="346" y="358">−</text>
+      <text class="lbl" x="426" y="474">−</text><text class="lbl" x="426" y="498">+</text>
+
+      <!-- Textos bloque VREF -->
+      <text class="big" x="80" y="44" text-anchor="middle">+5 V</text>
+      <text class="lbl" x="92" y="104">R4 10k</text>
+      <text class="lbl" x="92" y="184">R5 10k</text>
+      <text class="lbl" x="142" y="194">C2 10 µF</text>
+      <text class="lbl" x="118" y="180">+</text>
+      <text class="big" x="214" y="154">U1C</text>
+      <text class="note" x="210" y="204">seguidor · ganancia +1</text>
+      <text class="net" x="308" y="154">VREF</text>
+      <text class="sm" x="308" y="168">2,5 V bufferada</text>
+
+      <!-- Textos AD9833 -->
+      <text class="big" x="85" y="326" text-anchor="middle">AD9833</text>
+      <text class="sm" x="85" y="341" text-anchor="middle">módulo DDS</text>
+      <text class="sm" x="125" y="354" text-anchor="end">OUT</text>
+      <text class="note" x="40" y="382">salida ≈ 0,6 Vpp, offset propio ≈ 0,3 V</text>
+      <text class="lbl" x="196" y="318">+</text>
+      <text class="lbl" x="186" y="352" text-anchor="middle">C1 10 µF</text>
+      <text class="big" x="250" y="320" text-anchor="middle">N</text>
+      <text class="note" x="262" y="308">≈ 0,6 Vpp centrada en VREF</text>
+      <text class="lbl" x="260" y="380">R1 100k</text>
+      <text class="net" x="250" y="437" text-anchor="middle">VREF</text>
+
+      <!-- Textos U1A -->
+      <text class="big" x="372" y="346">U1A</text>
+      <text class="note" x="330" y="398">seguidor · ganancia +1</text>
+      <text class="lbl" x="470" y="330" text-anchor="middle">R6 100</text>
+      <text class="big" x="640" y="334" text-anchor="middle">DIRECTA</text>
+      <text class="sm" x="640" y="358" text-anchor="middle">Vdir = VREF + v</text>
+      <text class="big" x="608" y="277">BOBINAS 1 y 3</text>
+      <text class="sm" x="608" y="291">grupo fijo · siempre directa</text>
+
+      <!-- Textos U1B -->
+      <text class="lbl" x="350" y="458" text-anchor="middle">R2 10k 1%</text>
+      <text class="lbl" x="430" y="428" text-anchor="middle">R3 10k 1%</text>
+      <text class="big" x="452" y="486">U1B</text>
+      <text class="note" x="420" y="530">inversor · ganancia −1 respecto de VREF</text>
+      <text class="net" x="372" y="498" text-anchor="end">VREF</text>
+      <text class="lbl" x="550" y="470" text-anchor="middle">R7 100</text>
+      <text class="big" x="670" y="474" text-anchor="middle">INVERTIDA</text>
+      <text class="sm" x="670" y="498" text-anchor="middle">Vinv = 2·VREF − Vdir = VREF − v</text>
+
+      <!-- Textos mux -->
+      <text class="big" x="846" y="286" text-anchor="end">+5 V</text>
+      <text class="sm" x="872" y="286">C4 100 nF entre 16 y 8</text>
+      <text class="sm" x="860" y="318" text-anchor="middle">16 VCC</text>
+      <text class="lbl" x="806" y="346">13  X0</text>
+      <text class="lbl" x="806" y="486">12  X1</text>
+      <text class="lbl" x="806" y="534">11  A</text>
+      <text class="lbl" x="914" y="416" text-anchor="end">X  14</text>
+      <text class="big" x="860" y="574" text-anchor="middle">U2</text>
+      <text class="sm" x="860" y="589" text-anchor="middle">CD4053B / 74HC4053</text>
+      <text class="sm" x="860" y="656" text-anchor="middle">6 INH · 7 VEE · 8 GND · 9 C · 10 B</text>
+      <text class="sm" x="860" y="670" text-anchor="middle">1, 2, 3, 4 (Y0 Y1 Z0 Z1) sin uso → GND</text>
+      <text class="big" x="1008" y="408">BOBINAS 2 y 4</text>
+      <text class="sm" x="1008" y="422">grupo invertible</text>
+      <text class="lbl" x="692" y="526" text-anchor="end">Mega2560 D22</text>
+      <text class="sm" x="692" y="540" text-anchor="end">FIELD_MODE_PIN</text>
+      <text class="note" x="560" y="582">A = LOW  → X = X0 directa   → campo X</text>
+      <text class="note" x="560" y="598">A = HIGH → X = X1 invertida → campo nulo</text>
+
+      <!-- Nota U1 -->
+      <text class="note" x="40" y="600">U1 MCP6004 (o LMV324 / TLV2374 / TLC274): VDD pin 4 → +5 V, VSS pin 11 → GND, C3 100 nF entre 4 y 11.</text>
+      <text class="note" x="40" y="618">U1D sin uso: entrada + a VREF, entrada − unida a su salida.</text>
+      <text class="note" x="40" y="650">Referencia de tensión: R4/R5 sin apareamiento. Lo que importa es que las tres marcas VREF sean el mismo nodo bufferado.</text>
+      <text class="note" x="40" y="668">Par crítico: R2/R3 apareadas (medir y elegir). Todo 1/4 W. C1, C2 electrolíticos (+ como se indica); C3, C4 cerámicos 104.</text>
+    </svg>
+    </div>
+    <figcaption>La inversión ocurre alrededor de VREF, no de masa: U1B tiene su entrada + en VREF, así que para una entrada VREF + v entrega VREF − v. Las dos ramas nacen del mismo nodo N y pasan por una etapa del mismo integrado, de modo que cualquier desfasaje del acople C1 es común a ambas y no altera la fase relativa.</figcaption>
+  </figure>
+
+  <div class="cols">
+    <section>
+      <h2>Lista de materiales</h2>
+      <table>
+        <tr><th>Ref</th><th>Valor</th><th>Notas</th></tr>
+        <tr><td>U1</td><td class="v">MCP6004</td><td>Cuádruple RRIO, DIP-14, zócalo. Alternativas: LMV324, TLV2374, TLC274, OPA4340.</td></tr>
+        <tr><td>U2</td><td class="v">CD4053B</td><td>Triple SPDT analógico, DIP-16, zócalo. Igual pinout que 74HC4053 / HEF4053.</td></tr>
+        <tr><td>R2, R3</td><td class="v">10 kΩ 1 %</td><td>Metal film, apareadas. Único par que fija la exactitud de amplitud.</td></tr>
+        <tr><td>R1</td><td class="v">100 kΩ</td><td>Retorno del acople a VREF (fc ≈ 0,16 Hz con C1).</td></tr>
+        <tr><td>R4, R5</td><td class="v">10 kΩ</td><td>Divisor de VREF.</td></tr>
+        <tr><td>R6, R7</td><td class="v">100 Ω</td><td>Serie a cada salida; aíslan la capacidad del cable.</td></tr>
+        <tr><td>C1, C2</td><td class="v">10 µF</td><td>Electrolítico 16 V o más. C1: + hacia N. C2: + hacia VREF.</td></tr>
+        <tr><td>C3, C4</td><td class="v">100 nF</td><td>Cerámicos, entre VCC y GND de cada integrado, pegados a los pines.</td></tr>
+      </table>
+    </section>
+    <section>
+      <h2>Verificación en banco</h2>
+      <ul>
+        <li>CH1 en DIRECTA, CH2 en X. Con D22 en LOW se superponen; con HIGH son espejo alrededor de 2,5 V. En modo XY: recta a +45° / −45°.</li>
+        <li>Vpp de las dos ramas: el cociente es el desbalance de R2/R3.</li>
+        <li>Sumar ambas ramas con dos 10 kΩ a un nodo común: el residuo es <code>2·sin(φ/2)</code> más el desbalance de amplitud.</li>
+        <li>Si el sentido del selector queda invertido en la placa, se cambia el <code>HIGH</code> de <code>CoilExcitation coilExcitation(signalGenerator, FIELD_MODE_PIN, HIGH)</code> en el <code>.ino</code>; nada más.</li>
+      </ul>
+    </section>
+  </div>
+  <p class="lead" style="margin-top:28px">Contexto y alternativas descartadas: <code>docs/adr/001-inversion-de-fase.md</code>. Contrato de señales hacia la etapa de potencia: <code>docs/coil-excitation.md</code>. Firmware del selector: <code>mega2560/src/coilexcitation.hpp</code>.</p>
+</main>
+</body>
+</html>

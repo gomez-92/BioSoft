@@ -154,8 +154,35 @@ Las decisiones de arquitectura de este proyecto deberían registrar el criterio
 que las sostiene y las alternativas que se dejaron de lado, no únicamente la
 opción ganadora.
 
+## Implementación (2026-09-17)
+
+El esquemático completo, con lista de materiales y pasos de verificación en
+banco, está en **`docs/etapa-de-fase.html`** (autocontenido, se abre con doble
+clic). Ese archivo es la única fuente del circuito; acá solo queda el resumen
+de las elecciones y su motivo:
+
+- **Op-amp: MCP6004** (cuádruple, rail-to-rail, 5 V simple), o equivalentes
+  LMV324 / TLV2374 / TLC274. Descartados a 5 V simple el LM324/LM358
+  (distorsión de cruce, aparece como muesca al pasar por VREF) y el TL07x (no
+  es rail-to-rail; a 5 V la entrada en 2,5 V queda al borde del modo común).
+- **Multiplexor: CD4053B / 74HC4053 / HEF4053** (triple SPDT analógico,
+  mismo pinout). Se usa un solo SPDT: X0 = directa, X1 = invertida, A = pin 22
+  del Mega (`FIELD_MODE_PIN`, HIGH = campo nulo). Un 74LS151 u otro mux
+  *lógico* no sirve: regenera niveles TTL, no deja pasar la senoidal.
+- **Topología**: acople C1/R1 que saca el offset propio del AD9833 y re-centra
+  la señal en VREF = 2,5 V (divisor 10k/10k bufferado por la tercera sección
+  del cuádruple) **antes** de la bifurcación; seguidor para la rama directa,
+  inversor con + en VREF para la invertida (`Vinv = 2·VREF − Vdir`). Así se
+  cumple el requisito 1: la inversión es respecto del offset. El desfasaje del
+  acople es común a ambas ramas y no altera la fase relativa.
+- **Único par crítico: R2/R3** (10 k, 1 % metal film, apareadas a mano). El
+  resto sin apareamiento. Todo 1/4 W. Montaje en plaqueta perforada con
+  zócalos, desacoples de 100 nF pegados a cada chip y masa en estrella.
+
 ## Abierto
 
-- Elección concreta del op-amp y del multiplexor, contra el rango de señal real.
-- Nivel de salida del AD9833 en el armado concreto — medir en banco.
-- Valores de la red de offset y ganancia (ver `docs/coil-excitation.md`).
+- Nivel de salida del AD9833 en el armado concreto — medir en banco; el
+  esquemático asume ≈ 0,6 Vpp con offset ≈ 0,3 V (valores típicos del módulo).
+- Ganancia hacia la etapa de potencia: ambas ramas salen a ganancia unitaria;
+  si hace falta ganancia, va del lado de la potencia, no acá (dos ramas con
+  ganancia exigirían dos pares apareados en vez de uno).
