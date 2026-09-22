@@ -37,6 +37,7 @@ import sys
 import zipfile
 from html.parser import HTMLParser
 from pathlib import Path
+import html as _html
 from xml.sax.saxutils import escape
 
 RAIZ = Path(__file__).resolve().parent.parent
@@ -121,6 +122,22 @@ def _caja(color, fondo):
             '<w:ind w:left="200" w:right="120"/>' % (color, fondo))
 
 
+# -------------------------------------------------------------- diagramas ----
+# Los diagramas de cableado son texto monoespaciado con caracteres de caja:
+# cada linea es un run separado por <w:br/>, sin colapsar espacios (que es
+# lo que hace _Inline y arruinaria la alineacion). Un solo parrafo con
+# keepLines para que Word no lo parta entre paginas.
+def diagrama_xml(texto):
+    lineas = _html.unescape(texto).strip("\n").split("\n")
+    runs = []
+    for i, linea in enumerate(lineas):
+        if i:
+            runs.append("<w:r><w:br/></w:r>")
+        runs.append('<w:r><w:t xml:space="preserve">%s</w:t></w:r>' % escape(linea))
+    return ('<w:p><w:pPr><w:pStyle w:val="Diagrama"/><w:keepLines/></w:pPr>%s</w:p>'
+            % "".join(runs))
+
+
 # ----------------------------------------------------------------- tablas ----
 def tabla_xml(html_tabla):
     filas = re.findall(r"<tr>(.*?)</tr>", html_tabla, re.S)
@@ -191,7 +208,8 @@ def construir_cuerpo():
         "electromagnéticos de frecuencia extremadamente baja para "
         "experimentación con animales de laboratorio.", "Subtitle"))
     piezas.append(parrafo(
-        "Destinatario: operador del equipo   ·   Estado: equipo en desarrollo",
+        "Destinatario: operador y personal técnico del equipo   ·   "
+        "Versión 2, septiembre de 2026   ·   Estado: equipo en desarrollo",
         "Metadatos"))
 
     # Recorrido secuencial de los bloques de primer nivel.
@@ -203,7 +221,11 @@ def construir_cuerpo():
         r"|<table[^>]*>(?P<tab>.*?)</table>"
         r"|<ul>(?P<ul>.*?)</ul>"
         r"|<ol>(?P<ol>.*?)</ol>"
-        r"|<p(?P<pattr>[^>]*)>(?P<p>.*?)</p>", re.S)
+        r"|<pre class=\"diagram\">(?P<pre>.*?)</pre>"
+        r"|<figcaption>(?P<figcap>.*?)</figcaption>"
+        # `<p` seguido de espacio o `>`: sin esa restriccion, `<pre` matchea
+        # como un <p> con atributos "re ..." y el diagrama se pierde.
+        r"|<p(?P<pattr>\s[^>]*|)>(?P<p>.*?)</p>", re.S)
 
     for x in patron.finditer(cuerpo):
         if x.group("h1") is not None:
@@ -232,6 +254,10 @@ def construir_cuerpo():
         elif x.group("ol") is not None:
             for li in re.findall(r"<li>(.*?)</li>", x.group("ol"), re.S):
                 piezas.append(parrafo(li, "Numerada"))
+        elif x.group("pre") is not None:
+            piezas.append(diagrama_xml(x.group("pre")))
+        elif x.group("figcap") is not None:
+            piezas.append(parrafo(x.group("figcap"), "Epigrafe"))
         elif x.group("p") is not None:
             if "h2title" in (x.group("pattr") or ""):
                 continue   # ya absorbido en el Titulo 1
@@ -295,6 +321,18 @@ def styles_xml():
         '<w:pBdr><w:left w:val="single" w:sz="8" w:space="8" w:color="%s"/></w:pBdr>'
         '<w:ind w:left="180"/><w:spacing w:after="120"/>' % RAYA,
         SERIF))
+    s.append(_estilo(
+        "Diagrama", "Diagrama", "Normal",
+        '<w:pBdr><w:top w:val="single" w:sz="4" w:space="6" w:color="%s"/>'
+        '<w:left w:val="single" w:sz="4" w:space="6" w:color="%s"/>'
+        '<w:bottom w:val="single" w:sz="4" w:space="6" w:color="%s"/>'
+        '<w:right w:val="single" w:sz="4" w:space="6" w:color="%s"/></w:pBdr>'
+        '<w:shd w:val="clear" w:fill="F0F2F4"/><w:spacing w:after="60" w:line="240" w:lineRule="auto"/>'
+        % (RAYA, RAYA, RAYA, RAYA),
+        '<w:rFonts w:ascii="Consolas" w:hAnsi="Consolas" w:cs="Consolas"/><w:sz w:val="14"/>'))
+    s.append(_estilo(
+        "Epigrafe", "Epigrafe", "Normal", '<w:spacing w:after="200"/>',
+        SANS + '<w:sz w:val="18"/><w:color w:val="%s"/>' % GRIS))
     s.append(_estilo(
         "TablaEncabezado", "Tabla encabezado", "Normal",
         '<w:spacing w:after="0"/><w:keepNext/>',
