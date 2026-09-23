@@ -133,13 +133,19 @@
 
   <section>
     <h2>Sesiones y primer usuario</h2>
+    <p class="hint">El usuario y la contraseña de aca son los que vas a usar para
+      <strong>entrar al dashboard</strong>: los elegis vos ahora, no salen de
+      Atlas ni del broker. El servidor crea esa cuenta la primera vez que
+      arranca, y solo si la base todavia no tiene ningun usuario.
+      <strong>Cambiala apenas entres</strong>, porque queda escrita en las
+      variables de entorno de la plataforma.</p>
     <div class="grid">
       <label class="f wide"><span>JWT_SECRET</span>
         <input type="text" id="jwt" placeholder="48 bytes en hexadecimal"></label>
       <div class="wide"><button id="btnJwt" class="mini">Generar uno al azar</button>
         <span class="nota">Se genera en el navegador con <code>crypto.getRandomValues</code>.</span></div>
-      <label class="f"><span>Usuario inicial</span><input type="text" id="seedUser" value="mario"></label>
-      <label class="f"><span>Contraseña inicial</span><input type="password" id="seedPass"></label>
+      <label class="f"><span>Usuario para entrar al dashboard</span><input type="text" id="seedUser" value="mario"></label>
+      <label class="f"><span>Su contraseña (minimo 8)</span><input type="password" id="seedPass"></label>
       <label class="f"><span>Identificador del equipo</span>
         <input type="text" id="deviceId" value="biosoft-01"></label>
     </div>
