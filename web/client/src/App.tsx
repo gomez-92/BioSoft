@@ -1,36 +1,35 @@
-import { useEffect, useState } from 'react';
-import { Live } from './components/Live.js';
+import { Suspense, lazy } from 'react';
+import { BrowserRouter, Link, NavLink, Route, Routes, useNavigate } from 'react-router-dom';
+import { Historial } from './pages/Historial.js';
+
+import { Live } from './pages/Live.js';
 import { useLive } from './lib/useLive.js';
 
-interface Health {
-  ok: boolean;
-  deviceId: string;
-  mongo: { connected: boolean; state: string };
-  mqtt: { connected: boolean; url: string };
-  stored?: Record<string, number>;
-  currentRun: string | null;
-}
+// El detalle carga aparte: los graficos (recharts) son mas de la mitad del
+// bundle y solo se usan ahi. La pantalla En curso, que es la que se abre desde
+// el celular en medio del campo, no tiene por que descargarlos.
+const DetalleCorrida = lazy(() =>
+  import('./pages/Detalle.js').then((m) => ({ default: m.DetalleCorrida })));
 
 export function App() {
-  const estado = useLive();
-  const [health, setHealth] = useState<Health | null>(null);
-  const [verDiagnostico, setVerDiagnostico] = useState(false);
+  return (
+    <BrowserRouter>
+      <Contenido />
+    </BrowserRouter>
+  );
+}
 
-  // El diagnostico se consulta solo cuando esta abierto: el estado del
-  // experimento ya llega por WebSocket y no necesita polling.
-  useEffect(() => {
-    if (!verDiagnostico) return;
-    const load = () => fetch('/api/health').then((r) => r.json()).then(setHealth).catch(() => {});
-    load();
-    const id = setInterval(load, 5000);
-    return () => clearInterval(id);
-  }, [verDiagnostico]);
+function Contenido() {
+  // El socket vive en el nivel de la app, no de la pantalla En curso: asi
+  // navegar al historial y volver no reconecta ni vuelve a pedir el snapshot.
+  const estado = useLive();
+  const navigate = useNavigate();
 
   return (
     <main>
       <header className="cabecera">
         <div>
-          <h1>BioSoft</h1>
+          <Link to="/" className="marca"><h1>BioSoft</h1></Link>
           <p className="subtitle">Monitor remoto{estado.deviceId ? ` · ${estado.deviceId}` : ''}</p>
         </div>
         <span className={`enlace ${estado.conectado && estado.brokerOk ? 'enlace-ok' : 'enlace-caido'}`}>
@@ -38,27 +37,19 @@ export function App() {
         </span>
       </header>
 
-      <Live estado={estado} />
+      <nav className="navegacion">
+        <NavLink to="/" end>En curso</NavLink>
+        <NavLink to="/historial">Historial</NavLink>
+      </nav>
 
-      <section className="diagnostico">
-        <button type="button" onClick={() => setVerDiagnostico((v) => !v)}>
-          {verDiagnostico ? 'Ocultar diagnostico' : 'Ver diagnostico'}
-        </button>
-        {verDiagnostico && health && (
-          <dl className="datos">
-            <dt>Mongo</dt><dd>{health.mongo.state}</dd>
-            <dt>Broker</dt><dd>{health.mqtt.connected ? health.mqtt.url : 'desconectado'}</dd>
-            <dt>Corrida actual</dt><dd>{health.currentRun ?? 'ninguna'}</dd>
-            {health.stored && Object.entries(health.stored).map(([nombre, cantidad]) => (
-              <Fragmento key={nombre} termino={nombre} valor={String(cantidad)} />
-            ))}
-          </dl>
-        )}
-      </section>
+      <Suspense fallback={<p className="empty panel">Cargando...</p>}>
+      <Routes>
+        <Route path="/" element={<Live estado={estado} onVerCorrida={(id) => navigate(`/corrida/${id}`)} />} />
+        <Route path="/historial" element={<Historial />} />
+        <Route path="/corrida/:id" element={<DetalleCorrida />} />
+        <Route path="*" element={<p className="empty panel">Esa pagina no existe. <Link to="/">Ir al inicio</Link></p>} />
+      </Routes>
+      </Suspense>
     </main>
   );
-}
-
-function Fragmento({ termino, valor }: { termino: string; valor: string }) {
-  return (<><dt>{termino}</dt><dd>{valor}</dd></>);
 }

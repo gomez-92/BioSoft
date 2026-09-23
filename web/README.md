@@ -70,7 +70,7 @@ Dos advertencias que ya costaron tiempo en este proyecto:
 
 ## Estado
 
-Fases 0 a 3 listas.
+Fases 0 a 4 listas.
 
 - **Fase 0** — workspace, infraestructura local, `/api/health`, Socket.IO,
   simulador y pantalla de diagnostico.
@@ -93,8 +93,11 @@ Fases 0 a 3 listas.
   alertas, envejece los datos que dejan de llegar y avisa cuando se cae
   cualquiera de los tres enlaces.
 
-Falta la API REST de historicos y las pantallas de Historial y Detalle
-(fase 4), y el login (fase 5).
+- **Fase 4** — historicos: API REST (`/api/runs`, series agregadas por bucket,
+  alertas, export CSV) y las pantallas de Historial (con filtros por modo y por
+  motivo) y Detalle, con graficos de campo, temperatura, corriente y duty.
+
+Falta el login (fase 5) y el despliegue (fase 6).
 
 El snapshot tambien esta como endpoint, para mirarlo sin navegador:
 
@@ -108,7 +111,7 @@ curl http://localhost:4000/api/live/snapshot
 npm test --workspace server
 ```
 
-46 tests. Los de parseo corren solos; los de ingesta escriben de verdad en
+62 tests. Los de parseo corren solos; los de ingesta escriben de verdad en
 Mongo y **se saltean con un aviso si el compose no esta levantado**, en vez de
 fallar como si el codigo estuviera roto. Cada archivo usa SU PROPIA base
 (`biosoft_test_<nombre>`): vitest corre los archivos en paralelo y con una sola

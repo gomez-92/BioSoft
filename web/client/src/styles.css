@@ -160,15 +160,104 @@ h3 { font-size: 0.78rem; margin: 0 0 10px; text-transform: uppercase; letter-spa
 .resultado-detalle { margin: 6px 0 0; color: var(--text); font-size: 0.9rem; }
 .resultado-datos { margin: 8px 0 0; color: var(--muted); font-size: 0.82rem; }
 
-.diagnostico { margin-top: 28px; border-top: 1px solid var(--border); padding-top: 14px; }
-.diagnostico button {
-  background: none;
-  border: 1px solid var(--border);
+/* ---------------- navegacion ---------------- */
+
+.marca { text-decoration: none; color: inherit; }
+.navegacion { display: flex; gap: 4px; margin-top: 14px; }
+.navegacion a {
   color: var(--muted);
-  border-radius: 8px;
+  text-decoration: none;
+  font-size: 0.85rem;
   padding: 6px 12px;
-  font-size: 0.78rem;
-  cursor: pointer;
+  border-radius: 8px;
 }
-.diagnostico button:hover { color: var(--text); border-color: var(--muted); }
-.diagnostico .datos { margin-top: 12px; }
+.navegacion a:hover { color: var(--text); }
+.navegacion a.active { color: var(--text); background: var(--panel); }
+
+/* ---------------- historial ---------------- */
+
+.filtros { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 16px; }
+.filtros select {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 0.82rem;
+}
+.filtros-total { color: var(--muted); font-size: 0.8rem; margin-left: auto; }
+
+.lista-corridas { list-style: none; padding: 0; margin: 12px 0 0; display: flex; flex-direction: column; gap: 8px; }
+.fila-corrida {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+.fila-corrida:hover { border-color: var(--muted); }
+.fila-principal { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.fila-fecha { font-variant-numeric: tabular-nums; font-size: 0.9rem; }
+.fila-datos { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 6px; color: var(--muted); font-size: 0.78rem; }
+.fila-alertas { color: var(--warn); }
+
+.chip-motivo-completed { background: rgba(12, 163, 12, 0.16); color: #0ca30c; }
+.chip-motivo-critical { background: rgba(208, 59, 59, 0.16); color: #d03b3b; }
+.chip-motivo-stopped { background: rgba(139, 147, 167, 0.18); color: var(--muted); }
+.chip-huerfana { background: rgba(250, 178, 25, 0.14); color: var(--warn); }
+
+.paginado { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 18px; color: var(--muted); font-size: 0.82rem; }
+.paginado button {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 14px;
+  cursor: pointer;
+  font-size: 0.82rem;
+}
+.paginado button:disabled { opacity: 0.4; cursor: default; }
+
+/* ---------------- detalle y graficos ---------------- */
+
+.detalle-fecha { margin: 10px 0 0; color: var(--muted); font-size: 0.85rem; }
+
+.figura { margin: 0 0 22px; }
+.figura:last-child { margin-bottom: 0; }
+.figura figcaption {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+.figura .unidad { text-transform: none; letter-spacing: 0; }
+.figura .nota { text-transform: none; letter-spacing: 0; opacity: 0.8; }
+
+.tooltip {
+  background: #10131a;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 0.78rem;
+}
+.tooltip-hora { margin: 0 0 4px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.tooltip-fila { margin: 2px 0; display: flex; align-items: center; gap: 6px; }
+.tooltip-marca { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+
+.acciones { margin-top: 18px; }
+.boton {
+  display: inline-block;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-size: 0.82rem;
+  text-decoration: none;
+  cursor: pointer;
+  margin-top: 12px;
+}
+.boton:hover { border-color: var(--muted); }

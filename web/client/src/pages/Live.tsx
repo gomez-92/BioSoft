@@ -7,7 +7,9 @@ import type { LiveState } from '../lib/useLive.js';
 // Pantalla En curso. La que se mira desde afuera del laboratorio, casi siempre
 // desde un celular, para contestar una sola pregunta: el experimento, ¿va bien?
 
-export function Live({ estado }: { estado: LiveState }) {
+export function Live({ estado, onVerCorrida }: {
+  estado: LiveState; onVerCorrida: (id: string) => void;
+}) {
   // Un reloj propio para poder envejecer los datos en pantalla. Sin esto, un
   // valor de hace diez minutos se ve igual de fresco que uno de recien.
   const [ahora, setAhora] = useState(() => Date.now());
@@ -23,7 +25,7 @@ export function Live({ estado }: { estado: LiveState }) {
     <>
       <Avisos estado={estado} ahora={ahora} />
 
-      {!enCurso && <SinExperimento estado={estado} />}
+      {!enCurso && <SinExperimento estado={estado} onVerCorrida={onVerCorrida} />}
 
       {enCurso && (
         <>
@@ -96,7 +98,9 @@ function Avisos({ estado, ahora }: { estado: LiveState; ahora: number }) {
   );
 }
 
-function SinExperimento({ estado }: { estado: LiveState }) {
+function SinExperimento({ estado, onVerCorrida }: {
+  estado: LiveState; onVerCorrida: (id: string) => void;
+}) {
   const resultado = estado.ultimoResultado;
   return (
     <section className="panel vacio">
@@ -111,6 +115,12 @@ function SinExperimento({ estado }: { estado: LiveState }) {
             {resultado.meanMagneticField !== undefined
               && ` · campo medio ${numero(resultado.meanMagneticField, 3)} mT`}
           </p>
+          {resultado.runId && (
+            <button type="button" className="boton"
+              onClick={() => onVerCorrida(resultado.runId!)}>
+              Ver el detalle de esta corrida
+            </button>
+          )}
         </div>
       ) : (
         <p className="empty">Cuando arranque uno, esta pantalla se actualiza sola.</p>
