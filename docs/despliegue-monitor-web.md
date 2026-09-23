@@ -125,12 +125,18 @@ tiene ningún usuario.
 ### Fly.io
 
 ```
+cd web
 fly launch --no-deploy            # usa el fly.toml del repo
-fly secrets set MONGO_URI="..." MQTT_URL="..." MQTT_USER="..." \
-  MQTT_PASSWORD="..." MQTT_CLIENT_ID="biosoft-backend-prod" \
-  JWT_SECRET="$(openssl rand -hex 48)" SEED_USER="..." SEED_PASSWORD="..."
+fly secrets import < biosoft.env  # el archivo que arma el asistente
 fly deploy
 ```
+
+Los secretos se importan **desde un archivo**, no con `fly secrets set VAR="..."`.
+No es preferencia: una contraseña que contenga `$`, `"`, `'` o `!` la interpreta
+el shell antes de que llegue a `fly`. En el mejor caso el comando falla; en el
+peor guarda un valor distinto del que escribiste — `$HOME` se expande y lo que
+queda en el secreto es otra cosa, sin ningún error. Después el servicio no se
+conecta al broker y no hay nada en los logs que diga por qué.
 
 ### Render
 
