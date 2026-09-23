@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import mqtt, { type MqttClient } from 'mqtt';
 import { config, groupByTopic, type TelemetryGroup } from '../config.js';
+import { emitLinkStatus } from '../realtime/socket.js';
 
 // Un mensaje ya despachado a su grupo, antes de parsear. `retained` es el dato
 // que no se puede perder: cinco de los seis grupos se publican con retain, asi
@@ -44,6 +45,7 @@ export function startIngestor(): void {
 
   client.on('connect', () => {
     connected = true;
+    emitLinkStatus(true);
     console.log(`[mqtt] conectado a ${config.mqtt.url} como ${config.mqtt.clientId}`);
     for (const topic of groups.keys()) {
       client!.subscribe(topic, { qos: 1 }, (error) => {
@@ -54,7 +56,11 @@ export function startIngestor(): void {
   });
 
   client.on('reconnect', () => console.log('[mqtt] reconectando...'));
-  client.on('close', () => { connected = false; console.warn('[mqtt] conexion cerrada'); });
+  client.on('close', () => {
+    connected = false;
+    emitLinkStatus(false);
+    console.warn('[mqtt] conexion cerrada');
+  });
   client.on('error', (error) => console.error('[mqtt] error:', error.message));
 
   client.on('message', (topic, raw, packet) => {

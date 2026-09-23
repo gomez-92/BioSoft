@@ -70,7 +70,7 @@ Dos advertencias que ya costaron tiempo en este proyecto:
 
 ## Estado
 
-Fases 0, 1 y 2 listas.
+Fases 0 a 3 listas.
 
 - **Fase 0** — workspace, infraestructura local, `/api/health`, Socket.IO,
   simulador y pantalla de diagnostico.
@@ -87,8 +87,20 @@ Fases 0, 1 y 2 listas.
   backend retoma la corrida que haya quedado abierta, asi que reiniciarlo a
   mitad de un experimento no lo parte en dos.
 
-Falta la API REST de historicos (fase 4) y el tablero de verdad: la pantalla
-actual sigue siendo de diagnostico.
+- **Fase 3** — tiempo real: el backend manda un `snapshot` con el estado
+  completo apenas se conecta un cliente, y despues cada evento. La pantalla En
+  curso muestra salud, modo, progreso, mediciones, bobinas, objetivos y
+  alertas, envejece los datos que dejan de llegar y avisa cuando se cae
+  cualquiera de los tres enlaces.
+
+Falta la API REST de historicos y las pantallas de Historial y Detalle
+(fase 4), y el login (fase 5).
+
+El snapshot tambien esta como endpoint, para mirarlo sin navegador:
+
+```
+curl http://localhost:4000/api/live/snapshot
+```
 
 ## Tests
 

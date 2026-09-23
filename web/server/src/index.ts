@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import cors from 'cors';
 import express from 'express';
 import { healthRouter } from './api/health.js';
+import { liveRouter } from './api/live.js';
 import { config } from './config.js';
 import { connectMongo } from './db/mongo.js';
 import { initRunTracker, sweepStaleRuns } from './domain/runtracker.js';
@@ -14,6 +15,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 app.use('/api', healthRouter);
+app.use('/api', liveRouter);
 
 const server = createServer(app);
 
