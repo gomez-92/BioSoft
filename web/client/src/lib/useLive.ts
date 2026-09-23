@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
+import { clearToken, getToken } from './auth.js';
 import type {
   AlertItem, Coils, Measures, ResultItem, Snapshot, Status, Targets,
 } from './types.js';
@@ -37,11 +38,21 @@ export function useLive(): LiveState {
   const socketRef = useRef<Socket | null>(null);
 
   useEffect(() => {
-    const socket = io();
+    // El mismo token que el REST: el WebSocket es la otra puerta al mismo
+    // dato, y dejarla abierta haria inutil cerrar la primera.
+    const socket = io({ auth: { token: getToken() } });
     socketRef.current = socket;
 
     socket.on('connect', () => setState((s) => ({ ...s, conectado: true })));
     socket.on('disconnect', () => setState((s) => ({ ...s, conectado: false })));
+
+    // El servidor rechaza el handshake si el token vencio. Reintentar seria
+    // un bucle infinito de conexiones rechazadas: se limpia la sesion y la
+    // app manda al login.
+    socket.on('connect_error', (error) => {
+      setState((s) => ({ ...s, conectado: false }));
+      if (error.message === 'no autorizado') { socket.close(); clearToken(); window.location.reload(); }
+    });
 
     socket.on('snapshot', (snap: Snapshot) => {
       setState((s) => ({

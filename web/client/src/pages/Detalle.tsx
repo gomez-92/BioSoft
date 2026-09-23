@@ -4,6 +4,7 @@ import {
   GraficoBobinas, GraficoCampo, GraficoTemperatura,
   type AlertaMarca, type PuntoMedicion,
 } from '../components/Graficos.js';
+import { authFetch } from '../lib/auth.js';
 import { duracion, horaCorta, nombreMotivo, nombreTipoAlerta, numero } from '../lib/format.js';
 import type { Targets } from '../lib/types.js';
 
@@ -37,16 +38,16 @@ export function DetalleCorrida() {
     if (!id) return;
     let vigente = true;
 
-    fetch(`/api/runs/${id}`)
+    authFetch(`/api/runs/${id}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.status === 404 ? 'No existe esa corrida.' : 'No se pudo cargar.'))))
       .then((data) => { if (vigente) setDetalle(data); })
       .catch((cause) => { if (vigente) setError(cause.message); });
 
-    fetch(`/api/runs/${id}/measures`).then((r) => r.json())
+    authFetch(`/api/runs/${id}/measures`).then((r) => r.json())
       .then((data) => { if (vigente) setMediciones(data); }).catch(() => {});
-    fetch(`/api/runs/${id}/coils`).then((r) => r.json())
+    authFetch(`/api/runs/${id}/coils`).then((r) => r.json())
       .then((data) => { if (vigente) setBobinas(data); }).catch(() => {});
-    fetch(`/api/runs/${id}/alerts`).then((r) => r.json())
+    authFetch(`/api/runs/${id}/alerts`).then((r) => r.json())
       .then((data) => { if (vigente) setAlertas(data.items); }).catch(() => {});
 
     return () => { vigente = false; };
@@ -122,8 +123,52 @@ export function DetalleCorrida() {
       <Alertas alertas={alertas} />
 
       <section className="acciones">
-        <a className="boton" href={`/api/runs/${detalle.id}/export.csv`}>Descargar CSV</a>
+        <BotonCsv id={detalle.id} />
       </section>
+    </>
+  );
+}
+
+/**
+ * La descarga NO puede ser un <a href>: una navegacion del navegador no lleva
+ * el encabezado Authorization, asi que con la API cerrada el link devolveria
+ * 401 y el usuario veria "no autorizado" en vez de su archivo. Se pide con
+ * authFetch y se arma la descarga desde el blob.
+ */
+function BotonCsv({ id }: { id: string }) {
+  const [bajando, setBajando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function descargar() {
+    setBajando(true);
+    setError(null);
+    try {
+      const respuesta = await authFetch(`/api/runs/${id}/export.csv`);
+      if (!respuesta.ok) throw new Error('no se pudo descargar');
+
+      const blob = await respuesta.blob();
+      const url = URL.createObjectURL(blob);
+      const enlace = document.createElement('a');
+      enlace.href = url;
+      // El nombre lo decide el servidor (lleva la fecha de la corrida); si no
+      // viene, uno razonable de este lado.
+      const cabecera = respuesta.headers.get('content-disposition') ?? '';
+      enlace.download = /filename="([^"]+)"/.exec(cabecera)?.[1] ?? `biosoft-${id}.csv`;
+      enlace.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      setError('No se pudo descargar el archivo.');
+    } finally {
+      setBajando(false);
+    }
+  }
+
+  return (
+    <>
+      <button type="button" className="boton" onClick={descargar} disabled={bajando}>
+        {bajando ? 'Preparando...' : 'Descargar CSV'}
+      </button>
+      {error && <p className="login-error">{error}</p>}
     </>
   );
 }

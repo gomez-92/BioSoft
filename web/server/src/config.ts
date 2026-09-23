@@ -1,8 +1,17 @@
+import { randomBytes } from 'node:crypto';
 import 'dotenv/config';
 
 // Toda la configuracion del backend en un solo lugar, leida una vez al
 // arrancar. Los defaults son los de esp32/src/topics.hpp, asi que un .env
 // vacio ya habla el mismo idioma que una placa sin tarjeta SD.
+
+function randomSecret(): string {
+  console.warn(
+    '[auth] JWT_SECRET no esta definido: se usa una clave al azar. ' +
+    'Las sesiones abiertas se invalidan en cada reinicio del servidor.',
+  );
+  return randomBytes(48).toString('hex');
+}
 
 function env(name: string, fallback: string): string {
   const value = process.env[name];
@@ -23,6 +32,18 @@ export const config = {
   },
 
   deviceId: env('DEVICE_ID', 'biosoft-01'),
+
+  auth: {
+    // Sin JWT_SECRET se genera uno al azar y se avisa: el servidor arranca
+    // igual (util en desarrollo), pero cada reinicio invalida las sesiones
+    // abiertas. En produccion tiene que estar puesto, o cada despliegue
+    // desloguea a todo el mundo.
+    secret: process.env.JWT_SECRET || randomSecret(),
+    expiresIn: env('JWT_EXPIRES_IN', '7d'),
+    // Semilla del primer usuario, solo si la base no tiene ninguno.
+    seedUser: process.env.SEED_USER || '',
+    seedPassword: process.env.SEED_PASSWORD || '',
+  },
 
   run: {
     // Una corrida sin datos por este tiempo se da por muerta y se cierra como

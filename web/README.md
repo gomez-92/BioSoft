@@ -70,7 +70,7 @@ Dos advertencias que ya costaron tiempo en este proyecto:
 
 ## Estado
 
-Fases 0 a 4 listas.
+Fases 0 a 5 listas.
 
 - **Fase 0** — workspace, infraestructura local, `/api/health`, Socket.IO,
   simulador y pantalla de diagnostico.
@@ -97,7 +97,24 @@ Fases 0 a 4 listas.
   alertas, export CSV) y las pantallas de Historial (con filtros por modo y por
   motivo) y Detalle, con graficos de campo, temperatura, corriente y duty.
 
-Falta el login (fase 5) y el despliegue (fase 6).
+- **Fase 5** — autenticacion: login con JWT, contraseñas con scrypt, y todo
+  cerrado detras del token, **el WebSocket incluido** (es la otra puerta al
+  mismo dato). Lo unico publico es `/api/ping`.
+
+Falta el despliegue (fase 6).
+
+### Usuarios
+
+El primer usuario sale de `SEED_USER`/`SEED_PASSWORD` del `.env`, y solo se
+crea si la base no tiene ninguno. Despues:
+
+```
+npm run usuario --workspace server -- <usuario> <contraseña>
+```
+
+`JWT_SECRET` es opcional en desarrollo (se genera al azar y se avisa) y
+**obligatorio en produccion**: sin el, cada despliegue cierra todas las
+sesiones abiertas.
 
 El snapshot tambien esta como endpoint, para mirarlo sin navegador:
 
@@ -111,7 +128,7 @@ curl http://localhost:4000/api/live/snapshot
 npm test --workspace server
 ```
 
-62 tests. Los de parseo corren solos; los de ingesta escriben de verdad en
+79 tests. Los de parseo corren solos; los de ingesta escriben de verdad en
 Mongo y **se saltean con un aviso si el compose no esta levantado**, en vez de
 fallar como si el codigo estuviera roto. Cada archivo usa SU PROPIA base
 (`biosoft_test_<nombre>`): vitest corre los archivos en paralelo y con una sola

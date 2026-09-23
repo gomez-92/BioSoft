@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { authFetch } from '../lib/auth.js';
 import { duracion, nombreMotivo } from '../lib/format.js';
 
 // Lista de corridas. Lo que se busca al recorrerla es casi siempre lo mismo:
@@ -34,7 +35,7 @@ export function Historial() {
     if (modo) params.set('mode', modo);
 
     setCargando(true);
-    fetch(`/api/runs?${params}`)
+    authFetch(`/api/runs?${params}`)
       .then((r) => r.json())
       .then((data) => { setItems(data.items); setTotal(data.total); })
       .finally(() => setCargando(false));

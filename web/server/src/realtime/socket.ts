@@ -1,6 +1,7 @@
 import type { Server as HttpServer } from 'node:http';
 import mongoose from 'mongoose';
 import { Server } from 'socket.io';
+import { verifyToken } from '../auth/tokens.js';
 import { buildSnapshot } from '../domain/snapshot.js';
 
 // El navegador NUNCA habla con el broker: este es el unico camino por el que
@@ -14,6 +15,15 @@ let io: Server | undefined;
 
 export function startRealtime(server: HttpServer): void {
   io = new Server(server, { cors: { origin: true } });
+
+  // El WebSocket exige el mismo token que el REST. Cerrar solo las rutas HTTP
+  // dejaria toda la telemetria en vivo accesible a cualquiera que abriera un
+  // socket: la puerta de atras del mismo dato.
+  io.use((socket, next) => {
+    const token = socket.handshake.auth?.token;
+    if (typeof token === 'string' && verifyToken(token)) return next();
+    next(new Error('no autorizado'));
+  });
 
   io.on('connection', async (socket) => {
     console.log(`[socket] cliente conectado (${socket.id})`);
