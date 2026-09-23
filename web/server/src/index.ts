@@ -4,6 +4,7 @@ import express from 'express';
 import { healthRouter } from './api/health.js';
 import { config } from './config.js';
 import { connectMongo } from './db/mongo.js';
+import { registerHandlers } from './mqtt/handlers.js';
 import { startIngestor, stopIngestor } from './mqtt/ingestor.js';
 import { startRealtime } from './realtime/socket.js';
 
@@ -15,8 +16,9 @@ app.use('/api', healthRouter);
 const server = createServer(app);
 
 connectMongo();
+startRealtime(server);   // antes del ingestor: el handler emite apenas guarda
+registerHandlers();
 startIngestor();
-startRealtime(server);
 
 server.listen(config.port, () => {
   console.log(`[http] escuchando en http://localhost:${config.port}`);

@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { io } from 'socket.io-client';
 
-// FASE 0: pantalla de diagnostico, no el tablero. Muestra si los tres enlaces
-// (backend, Mongo, broker) estan vivos y lista crudo lo que va llegando por
-// WebSocket, que es exactamente el criterio de aceptacion de esta fase.
+// FASE 1: sigue siendo la pantalla de diagnostico, no el tablero. Ahora
+// muestra ademas cuantos documentos hay guardados de cada cosa, que es la
+// forma directa de ver que la ingesta escribe y no solo recibe. Lo que llega
+// por WebSocket ya viene parseado y persistido por el backend.
 
 interface Health {
   ok: boolean;
@@ -11,17 +12,14 @@ interface Health {
   uptimeSeconds: number;
   mongo: { connected: boolean; state: string };
   mqtt: { connected: boolean; url: string; clientId: string; lastMessageAt: Record<string, string> };
+  stored?: Record<string, number>;
   realtime: { clients: number };
   topics: Record<string, string>;
 }
 
-interface LiveEvent {
-  group: string;
-  receivedAt: string;
-  payload: unknown;
-}
+interface LiveEvent { group: string; data: Record<string, unknown> }
 
-const GROUPS = ['measures', 'coils', 'status', 'targets', 'alerts', 'result'];
+const GROUPS = ['measures', 'coils', 'status', 'targets', 'alert', 'result'];
 
 export function App() {
   const [health, setHealth] = useState<Health | null>(null);
@@ -45,9 +43,9 @@ export function App() {
     socket.on('connect', () => setSocketOk(true));
     socket.on('disconnect', () => setSocketOk(false));
     for (const group of GROUPS) {
-      socket.on(`telemetry:${group}`, (data: { receivedAt: string; payload: unknown }) => {
+      socket.on(`telemetry:${group}`, (data: Record<string, unknown>) => {
         // Los ultimos 50 alcanzan para ver que llega; el historico es Mongo.
-        setEvents((previous) => [{ group, ...data }, ...previous].slice(0, 50));
+        setEvents((previous) => [{ group, data }, ...previous].slice(0, 50));
       });
     }
     return () => { socket.close(); };
@@ -57,7 +55,7 @@ export function App() {
     <main>
       <header>
         <h1>BioSoft — Monitor remoto</h1>
-        <p className="subtitle">Fase 0 — andamiaje y diagnostico de enlaces</p>
+        <p className="subtitle">Fase 1 — ingesta y persistencia</p>
       </header>
 
       <section className="cards">
@@ -66,6 +64,20 @@ export function App() {
         <Card label="Broker MQTT" ok={!!health?.mqtt.connected} detail={health?.mqtt.url ?? '—'} />
         <Card label="WebSocket" ok={socketOk} detail={socketOk ? 'en vivo' : 'sin conexion'} />
       </section>
+
+      {health?.stored && (
+        <section>
+          <h2>Guardado en Mongo</h2>
+          <ul className="counters">
+            {Object.entries(health.stored).map(([name, count]) => (
+              <li key={name}>
+                <span className="counter-value">{count}</span>
+                <span className="counter-label">{name}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section>
         <h2>Telemetria en vivo</h2>
@@ -76,10 +88,10 @@ export function App() {
         ) : (
           <ul className="events">
             {events.map((event, index) => (
-              <li key={`${event.receivedAt}-${index}`}>
+              <li key={index}>
                 <span className={`tag tag-${event.group}`}>{event.group}</span>
-                <time>{new Date(event.receivedAt).toLocaleTimeString()}</time>
-                <code>{JSON.stringify(event.payload)}</code>
+                <time>{new Date(String(event.data.ts)).toLocaleTimeString()}</time>
+                <code>{JSON.stringify(event.data)}</code>
               </li>
             ))}
           </ul>

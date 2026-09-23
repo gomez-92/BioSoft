@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { config } from '../config.js';
 import { mongoStatus } from '../db/mongo.js';
+import { Alert, CoilSample, Measure, Run, StatusSample } from '../models/index.js';
 import { mqttStatus } from '../mqtt/ingestor.js';
 import { realtimeStatus } from '../realtime/socket.js';
 
@@ -8,15 +9,28 @@ import { realtimeStatus } from '../realtime/socket.js';
 // cayo. Este endpoint la contesta sin mirar logs.
 export const healthRouter = Router();
 
-healthRouter.get('/health', (_req, res) => {
+healthRouter.get('/health', async (_req, res) => {
   const mongo = mongoStatus();
   const mqtt = mqttStatus();
+
+  // Cuantos documentos hay de cada cosa. Es la forma mas directa de ver si la
+  // ingesta esta escribiendo de verdad, y no solo recibiendo.
+  let stored: Record<string, number> | undefined;
+  if (mongo.connected) {
+    const [runs, measures, coils, statuses, alerts] = await Promise.all([
+      Run.countDocuments(), Measure.countDocuments(), CoilSample.countDocuments(),
+      StatusSample.countDocuments(), Alert.countDocuments(),
+    ]);
+    stored = { runs, measures, coils, statuses, alerts };
+  }
+
   res.json({
     ok: mongo.connected && mqtt.connected,
     deviceId: config.deviceId,
     uptimeSeconds: Math.floor(process.uptime()),
     mongo,
     mqtt,
+    stored,
     realtime: realtimeStatus(),
     topics: config.topics,
   });

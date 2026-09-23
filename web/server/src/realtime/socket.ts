@@ -1,14 +1,13 @@
 import type { Server as HttpServer } from 'node:http';
 import { Server } from 'socket.io';
-import { onTelemetry } from '../mqtt/ingestor.js';
 
 // El navegador NUNCA habla con el broker: este es el unico camino por el que
 // le llega un dato en vivo. Asi las credenciales del broker no salen del
 // servidor y lo que se ve en vivo es lo mismo que se persistio.
 //
-// FASE 0: reemite lo que llega sin persistir. A partir de la fase 1 el que
-// emite es el handler, DESPUES de guardar, para que vivo e historico no
-// puedan diferir.
+// Este modulo no escucha MQTT: emite lo que le pasa el handler de ingesta,
+// DESPUES de guardar (ver mqtt/handlers.ts). Que el orden sea ese es lo que
+// hace imposible que el tablero muestre una medicion que no quedo en la base.
 let io: Server | undefined;
 
 export function startRealtime(server: HttpServer): void {
@@ -18,17 +17,12 @@ export function startRealtime(server: HttpServer): void {
     console.log(`[socket] cliente conectado (${socket.id})`);
     socket.on('disconnect', () => console.log(`[socket] cliente desconectado (${socket.id})`));
   });
+}
 
-  onTelemetry((message) => {
-    // Un retenido no es un evento nuevo: es el ultimo estado conocido que el
-    // broker reentrega al suscribirse. Va a alimentar el `snapshot` inicial
-    // (fase 3), no el flujo en vivo.
-    if (message.retained) return;
-    io?.emit(`telemetry:${message.group}`, {
-      receivedAt: message.receivedAt.toISOString(),
-      payload: message.payload,
-    });
-  });
+export type RealtimeEvent = 'measures' | 'coils' | 'status' | 'targets' | 'alert' | 'result';
+
+export function emitTelemetry(event: RealtimeEvent, data: unknown): void {
+  io?.emit(`telemetry:${event}`, data);
 }
 
 export function realtimeStatus() {

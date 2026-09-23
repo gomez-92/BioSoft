@@ -70,6 +70,25 @@ Dos advertencias que ya costaron tiempo en este proyecto:
 
 ## Estado
 
-Fase 0 (andamiaje) lista: workspace, infraestructura local, backend que se
-conecta a Mongo y al broker, `/api/health`, Socket.IO reemitiendo lo que llega
-y una pantalla de diagnostico. **Todavia no persiste nada**: eso es la fase 1.
+Fases 0 y 1 listas.
+
+- **Fase 0** — workspace, infraestructura local, `/api/health`, Socket.IO,
+  simulador y pantalla de diagnostico.
+- **Fase 1** — modelos de Mongo e ingesta: `measures`, `coils` y `status` se
+  guardan como time-series collections y `alerts` como coleccion normal, y cada
+  una se emite en vivo **despues** de guardarse. Los retenidos no se guardan ni
+  se emiten.
+
+`targets` y `result` todavia no se persisten: definen el principio y el fin de
+una corrida, asi que se guardan dentro de `runs` en la fase 2. Por eso
+`stored.runs` sigue en 0 y las muestras quedan con `runId: null`.
+
+## Tests
+
+```
+npm test --workspace server
+```
+
+34 tests. Los de parseo corren solos; los de ingesta escriben de verdad en
+Mongo (base `biosoft_test`) y **se saltean con un aviso si el compose no esta
+levantado**, en vez de fallar como si el codigo estuviera roto.
