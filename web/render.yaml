@@ -1,0 +1,27 @@
+# Despliegue en Render.
+#
+# ATENCION: el plan gratuito de Render DUERME el servicio tras 15 minutos sin
+# visitas HTTP. Este servicio es el unico cliente MQTT que escucha la placa:
+# dormido no escucha, y como la telemetria se publica con QoS 0 y sin cola, lo
+# que pasa mientras duerme se pierde para siempre. Para monitorear experimentos
+# reales hace falta un plan que no duerma (`plan: starter`).
+#
+# El plan gratuito sirve para probar el despliegue, no para tomar datos.
+services:
+  - type: web
+    name: biosoft-monitor
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: starter
+    healthCheckPath: /api/ping
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4000
+      # El resto se cargan a mano en el panel, NO aca: son credenciales.
+      #   MONGO_URI, MQTT_URL, MQTT_USER, MQTT_PASSWORD, MQTT_CLIENT_ID,
+      #   MQTT_CA, JWT_SECRET, SEED_USER, SEED_PASSWORD
+      - key: JWT_SECRET
+        generateValue: true

@@ -1,0 +1,36 @@
+# Despliegue en Fly.io.
+#
+# LO IMPORTANTE ESTA EN min_machines_running. Este servicio no es una web que
+# solo responde cuando alguien la visita: es el unico cliente MQTT que escucha
+# la telemetria de la placa. Si la plataforma lo duerme por falta de visitas,
+# deja de escuchar, y como la placa publica con QoS 0 y sin cola, esos datos NO
+# se recuperan cuando vuelve. Un experimento de ocho horas monitoreado por un
+# servicio que duerme produce un historico con agujeros permanentes.
+app = "biosoft-monitor"
+primary_region = "eze"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "4000"
+  NODE_ENV = "production"
+
+[http_service]
+  internal_port = 4000
+  force_https = true
+  auto_stop_machines = false      # NO dormir: ver el comentario de arriba
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "20s"
+    method = "GET"
+    path = "/api/ping"
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1

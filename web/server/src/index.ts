@@ -13,11 +13,26 @@ import { connectMongo } from './db/mongo.js';
 import { initRunTracker, sweepStaleRuns } from './domain/runtracker.js';
 import { registerHandlers } from './mqtt/handlers.js';
 import { startIngestor, stopIngestor } from './mqtt/ingestor.js';
+import { cabecerasSeguras, servirCliente, verificarProduccion } from './produccion.js';
 import { startRealtime } from './realtime/socket.js';
 
+// Antes que nada: si la configuracion de produccion esta mal, mejor no
+// arrancar que arrancar a medias.
+verificarProduccion();
+
 const app = express();
-app.use(cors());
-app.use(express.json());
+
+// Detras del proxy de la plataforma, req.ip es la IP del proxy salvo que se
+// confie en X-Forwarded-For. Importa: el limite de intentos de login se cuenta
+// por IP, y con todas las peticiones viniendo de la "misma" IP, un solo
+// atacante bloquearia a todos los usuarios.
+app.set('trust proxy', 1);
+
+cabecerasSeguras(app);
+// Sin origenes configurados no se habilita CORS: en produccion el front sale
+// del mismo servidor y no hace falta.
+app.use(cors(config.corsOrigins.length > 0 ? { origin: config.corsOrigins } : { origin: false }));
+app.use(express.json({ limit: '16kb' }));
 // Lo unico publico: un latido para chequeos de disponibilidad, que no dice
 // nada del experimento ni de la infraestructura.
 app.get('/api/ping', (_req, res) => { res.json({ ok: true }); });
@@ -30,6 +45,10 @@ app.use('/api', authRouter);
 app.use('/api', requireAuth, healthRouter);
 app.use('/api', requireAuth, liveRouter);
 app.use('/api', requireAuth, runsRouter);
+
+// El front va DESPUES de las rutas de la API: su comodin atrapa todo lo que
+// no empiece con /api.
+servirCliente(app);
 
 const server = createServer(app);
 

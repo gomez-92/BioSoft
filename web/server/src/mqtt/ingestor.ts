@@ -18,6 +18,14 @@ export interface TelemetryMessage {
 
 export type MessageHandler = (message: TelemetryMessage) => void | Promise<void>;
 
+// El certificado puede venir como archivo (desarrollo) o pegado en una
+// variable de entorno (la nube, donde no hay donde poner un archivo suelto).
+function caDelBroker(): Buffer[] | undefined {
+  if (config.mqtt.caPem) return [Buffer.from(config.mqtt.caPem)];
+  if (config.mqtt.caPath) return [readFileSync(config.mqtt.caPath)];
+  return undefined;   // se usa el almacen de CAs del sistema
+}
+
 let client: MqttClient | undefined;
 let connected = false;
 const lastMessageAt = new Map<TelemetryGroup, Date>();
@@ -40,7 +48,7 @@ export function startIngestor(): void {
     // esta caido se pierde para siempre (huecos legitimos en el historico).
     clean: false,
     reconnectPeriod: 5000,
-    ca: config.mqtt.caPath ? [readFileSync(config.mqtt.caPath)] : undefined,
+    ca: caDelBroker(),
   });
 
   client.on('connect', () => {

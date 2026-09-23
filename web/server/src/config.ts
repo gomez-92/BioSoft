@@ -29,9 +29,17 @@ export const config = {
     password: process.env.MQTT_PASSWORD || undefined,
     clientId: env('MQTT_CLIENT_ID', 'biosoft-backend-dev'),
     caPath: process.env.MQTT_CA_PATH || undefined,
+    // En la nube casi nunca se puede subir un archivo suelto: el certificado
+    // se pega como variable de entorno. Se acepta cualquiera de las dos.
+    caPem: process.env.MQTT_CA || undefined,
   },
 
   deviceId: env('DEVICE_ID', 'biosoft-01'),
+
+  // Origenes permitidos para CORS. VACIO = mismo origen solamente, que es el
+  // caso de produccion (el backend sirve el front). Solo hace falta listar
+  // algo si el front se despliega en otro dominio.
+  corsOrigins: (process.env.CORS_ORIGINS ?? '').split(',').map((o) => o.trim()).filter(Boolean),
 
   auth: {
     // Sin JWT_SECRET se genera uno al azar y se avisa: el servidor arranca

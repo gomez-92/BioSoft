@@ -70,7 +70,7 @@ Dos advertencias que ya costaron tiempo en este proyecto:
 
 ## Estado
 
-Fases 0 a 5 listas.
+Fases 0 a 6 listas.
 
 - **Fase 0** — workspace, infraestructura local, `/api/health`, Socket.IO,
   simulador y pantalla de diagnostico.
@@ -101,7 +101,18 @@ Fases 0 a 5 listas.
   cerrado detras del token, **el WebSocket incluido** (es la otra puerta al
   mismo dato). Lo unico publico es `/api/ping`.
 
-Falta el despliegue (fase 6).
+- **Fase 6** — despliegue: imagen Docker con backend + front en un solo
+  contenedor y un solo origen, chequeos que hacen fallar el arranque si la
+  configuracion de produccion esta mal, y el runbook en
+  [`docs/despliegue-monitor-web.md`](../docs/despliegue-monitor-web.md).
+
+Lo que queda es la fase 7 (pulido: retencion de datos, reconexion, detalles de
+responsive) y desplegarlo de verdad, que necesita las cuentas de Atlas y de la
+plataforma.
+
+**Antes de desplegar, leer el runbook**: la primera seccion explica por que
+este servicio no puede dormir, que descarta el plan gratuito de Render para
+tomar datos reales.
 
 ### Usuarios
 
