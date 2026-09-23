@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { asincrono } from './asincrono.js';
 import { requireAuth } from '../auth/middleware.js';
 import { hashPassword, verifyPassword } from '../auth/password.js';
 import { signToken } from '../auth/tokens.js';
@@ -35,7 +36,7 @@ function anotarFallo(clave: string): void {
 // validos sin acertar una sola contraseña.
 const HASH_SEÑUELO = await hashPassword('usuario-inexistente-' + Math.random());
 
-authRouter.post('/auth/login', async (req, res) => {
+authRouter.post('/auth/login', asincrono(async (req, res) => {
   const username = typeof req.body?.username === 'string' ? req.body.username.trim().toLowerCase() : '';
   const password = typeof req.body?.password === 'string' ? req.body.password : '';
 
@@ -71,7 +72,7 @@ authRouter.post('/auth/login', async (req, res) => {
     token: signToken({ sub: user._id.toString(), username: user.username }),
     user: { username: user.username },
   });
-});
+}));
 
 // Sirve para que el cliente valide al arrancar el token que tiene guardado, en
 // vez de descubrir que vencio al primer pedido de datos.

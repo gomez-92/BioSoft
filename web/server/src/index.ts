@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 import mongoose from 'mongoose';
 import cors from 'cors';
 import express from 'express';
+import { manejadorDeErrores, requiereBase } from './api/asincrono.js';
 import { authRouter } from './api/auth.js';
 import { healthRouter } from './api/health.js';
 import { liveRouter } from './api/live.js';
@@ -12,7 +13,7 @@ import { seedInitialUser } from './auth/seed.js';
 import { connectMongo } from './db/mongo.js';
 import { initRunTracker, sweepStaleRuns } from './domain/runtracker.js';
 import { registerHandlers } from './mqtt/handlers.js';
-import { startIngestor, stopIngestor } from './mqtt/ingestor.js';
+import { mqttStatus, startIngestor, stopIngestor } from './mqtt/ingestor.js';
 import { cabecerasSeguras, servirCliente, verificarProduccion } from './produccion.js';
 import { startRealtime } from './realtime/socket.js';
 
@@ -33,22 +34,36 @@ cabecerasSeguras(app);
 // del mismo servidor y no hace falta.
 app.use(cors(config.corsOrigins.length > 0 ? { origin: config.corsOrigins } : { origin: false }));
 app.use(express.json({ limit: '16kb' }));
-// Lo unico publico: un latido para chequeos de disponibilidad, que no dice
-// nada del experimento ni de la infraestructura.
-app.get('/api/ping', (_req, res) => { res.json({ ok: true }); });
+// Lo unico publico. Ademas del latido informa si los DOS ENLACES estan
+// arriba, con booleanos y nada mas: ni URLs, ni nombres, ni cantidades.
+//
+// Que diga eso sin pedir token es a proposito. /api/health lo dice con
+// detalle, pero esta detras del login -- y cuando la base esta caida NO SE
+// PUEDE INICIAR SESION, asi que el unico endpoint capaz de explicar por que
+// nada funciona quedaba inaccesible justo cuando hacia falta. Paso en el
+// primer despliegue.
+app.get('/api/ping', (_req, res) => {
+  res.json({
+    ok: true,
+    mongo: mongoose.connection.readyState === 1,
+    mqtt: mqttStatus().connected,
+  });
+});
 
-app.use('/api', authRouter);
+app.use('/api', requiereBase, authRouter);
 
 // De aca para abajo todo exige token. /api/health incluido: dice la URL del
 // broker, el clientId y cuantos datos hay guardados -- poco para un atacante,
 // pero no hay ninguna razon para regalarlo.
 app.use('/api', requireAuth, healthRouter);
-app.use('/api', requireAuth, liveRouter);
-app.use('/api', requireAuth, runsRouter);
+app.use('/api', requireAuth, requiereBase, liveRouter);
+app.use('/api', requireAuth, requiereBase, runsRouter);
 
 // El front va DESPUES de las rutas de la API: su comodin atrapa todo lo que
 // no empiece con /api.
 servirCliente(app);
+
+app.use(manejadorDeErrores);
 
 const server = createServer(app);
 
@@ -86,6 +101,14 @@ async function shutdown(signal: string): Promise<void> {
   await stopIngestor();
   server.close(() => process.exit(0));
 }
+
+// Una promesa rechazada que nadie atrapa TERMINA el proceso en Node por
+// defecto. En un servicio que la plataforma reinicia solo, eso se convierte en
+// un bucle de reinicios cuya causa no aparece por ningun lado. Se registra y
+// se sigue: un pedido fallido es mejor que el servidor entero cayendose.
+process.on('unhandledRejection', (razon) => {
+  console.error('[app] promesa rechazada sin manejar:', razon);
+});
 
 process.on('SIGINT', () => void shutdown('SIGINT'));
 process.on('SIGTERM', () => void shutdown('SIGTERM'));

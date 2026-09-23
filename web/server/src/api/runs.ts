@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { asincrono } from './asincrono.js';
 import mongoose from 'mongoose';
 import { bucketAutomatico, parseBucket, truncarFecha, type Bucket } from '../domain/buckets.js';
 import { Alert, CoilSample, Measure, Run, StatusSample } from '../models/index.js';
@@ -14,7 +15,7 @@ function objectId(valor: string): mongoose.Types.ObjectId | null {
 }
 
 /** Lista paginada, de la mas reciente a la mas vieja. */
-runsRouter.get('/runs', async (req, res) => {
+runsRouter.get('/runs', asincrono(async (req, res) => {
   const limite = Math.min(MAX_PAGINA, Math.max(1, Number(req.query.limit ?? 20)));
   const pagina = Math.max(1, Number(req.query.page ?? 1));
 
@@ -52,10 +53,10 @@ runsRouter.get('/runs', async (req, res) => {
       alertCount: run.stats?.alertCount ?? 0,
     })),
   });
-});
+}));
 
 /** Cabecera completa de una corrida: objetivos y resultado. */
-runsRouter.get('/runs/:id', async (req, res) => {
+runsRouter.get('/runs/:id', asincrono(async (req, res) => {
   const id = objectId(req.params.id);
   if (!id) { res.status(400).json({ error: 'id invalido' }); return; }
 
@@ -72,7 +73,7 @@ runsRouter.get('/runs/:id', async (req, res) => {
     result: run.result ?? null,
     stats: run.stats ?? null,
   });
-});
+}));
 
 // Ventana de la corrida. Una corrida abierta o huerfana sin cierre se consulta
 // hasta ahora; si no, la serie terminaria antes que los datos.
@@ -90,7 +91,7 @@ function resolverBucket(req: { query: Record<string, unknown> }, desde: Date, ha
  * Serie de mediciones agregada. Cada punto lleva promedio, minimo y maximo:
  * el promedio solo escondería los picos que disparan las alertas.
  */
-runsRouter.get('/runs/:id/measures', async (req, res) => {
+runsRouter.get('/runs/:id/measures', asincrono(async (req, res) => {
   const id = objectId(req.params.id);
   if (!id) { res.status(400).json({ error: 'id invalido' }); return; }
   const rango = await ventana(id);
@@ -114,10 +115,10 @@ runsRouter.get('/runs/:id/measures', async (req, res) => {
   ]);
 
   res.json({ bucket: bucket.label, points: puntos });
-});
+}));
 
 /** Corriente y duty por bobina, agregados igual que las mediciones. */
-runsRouter.get('/runs/:id/coils', async (req, res) => {
+runsRouter.get('/runs/:id/coils', asincrono(async (req, res) => {
   const id = objectId(req.params.id);
   if (!id) { res.status(400).json({ error: 'id invalido' }); return; }
   const rango = await ventana(id);
@@ -154,10 +155,10 @@ runsRouter.get('/runs/:id/coils', async (req, res) => {
     coils: [...bobinas].sort((a, b) => a - b),
     points: [...porInstante.entries()].sort(([a], [b]) => a - b).map(([, punto]) => punto),
   });
-});
+}));
 
 /** Progreso y salud a lo largo de la corrida, sin agregar: son pocos. */
-runsRouter.get('/runs/:id/statuses', async (req, res) => {
+runsRouter.get('/runs/:id/statuses', asincrono(async (req, res) => {
   const id = objectId(req.params.id);
   if (!id) { res.status(400).json({ error: 'id invalido' }); return; }
 
@@ -169,10 +170,10 @@ runsRouter.get('/runs/:id/statuses', async (req, res) => {
       state: punto.state, megaOk: punto.megaOk,
     })),
   });
-});
+}));
 
 /** Todas las alertas de la corrida, en orden cronologico. */
-runsRouter.get('/runs/:id/alerts', async (req, res) => {
+runsRouter.get('/runs/:id/alerts', asincrono(async (req, res) => {
   const id = objectId(req.params.id);
   if (!id) { res.status(400).json({ error: 'id invalido' }); return; }
 
@@ -183,14 +184,14 @@ runsRouter.get('/runs/:id/alerts', async (req, res) => {
       count: alerta.count, limit: alerta.limit,
     })),
   });
-});
+}));
 
 /**
  * Exportacion para analisis fuera del monitor. Va SIN AGREGAR: quien se lleva
  * los datos a una planilla quiere las mediciones como se tomaron, no el
  * promedio que eligio el grafico.
  */
-runsRouter.get('/runs/:id/export.csv', async (req, res) => {
+runsRouter.get('/runs/:id/export.csv', asincrono(async (req, res) => {
   const id = objectId(req.params.id);
   if (!id) { res.status(400).json({ error: 'id invalido' }); return; }
   const run = await Run.findById(id).lean();
@@ -211,4 +212,4 @@ runsRouter.get('/runs/:id/export.csv', async (req, res) => {
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="${nombre}"`);
   res.send(lineas.join('\n'));
-});
+}));

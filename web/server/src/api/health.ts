@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { asincrono } from './asincrono.js';
 import { config } from '../config.js';
 import { mongoStatus } from '../db/mongo.js';
 import { getCurrentRunId } from '../domain/runtracker.js';
@@ -10,7 +11,7 @@ import { realtimeStatus } from '../realtime/socket.js';
 // cayo. Este endpoint la contesta sin mirar logs.
 export const healthRouter = Router();
 
-healthRouter.get('/health', async (_req, res) => {
+healthRouter.get('/health', asincrono(async (_req, res) => {
   const mongo = mongoStatus();
   const mqtt = mqttStatus();
 
@@ -36,4 +37,4 @@ healthRouter.get('/health', async (_req, res) => {
     realtime: realtimeStatus(),
     topics: config.topics,
   });
-});
+}));

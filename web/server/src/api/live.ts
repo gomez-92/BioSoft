@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { asincrono } from './asincrono.js';
 import mongoose from 'mongoose';
 import { buildSnapshot } from '../domain/snapshot.js';
 
@@ -7,10 +8,10 @@ import { buildSnapshot } from '../domain/snapshot.js';
 // fallback si el WebSocket no puede establecerse.
 export const liveRouter = Router();
 
-liveRouter.get('/live/snapshot', async (_req, res) => {
+liveRouter.get('/live/snapshot', asincrono(async (_req, res) => {
   if (mongoose.connection.readyState !== 1) {
     res.status(503).json({ error: 'mongo desconectado' });
     return;
   }
   res.json(await buildSnapshot());
-});
+}));
