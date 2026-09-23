@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { config } from '../config.js';
 import { mongoStatus } from '../db/mongo.js';
+import { getCurrentRunId } from '../domain/runtracker.js';
 import { Alert, CoilSample, Measure, Run, StatusSample } from '../models/index.js';
 import { mqttStatus } from '../mqtt/ingestor.js';
 import { realtimeStatus } from '../realtime/socket.js';
@@ -31,6 +32,7 @@ healthRouter.get('/health', async (_req, res) => {
     mongo,
     mqtt,
     stored,
+    currentRun: getCurrentRunId()?.toString() ?? null,
     realtime: realtimeStatus(),
     topics: config.topics,
   });

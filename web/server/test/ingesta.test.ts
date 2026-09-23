@@ -1,16 +1,6 @@
 import mongoose from 'mongoose';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-// Estos tests escriben de verdad en Mongo, contra el mismo motor que usa el
-// backend. Apuntan al Mongo del docker-compose pero a OTRA base
-// (biosoft_test), que se limpia entre tests.
-//
-// La alternativa era mongodb-memory-server, y se descarto: se descarga un
-// mongod de 780 MB para levantar lo que el compose ya tiene andando, y la
-// primera corrida de los tests se vuelve una descarga de varios minutos.
-// Si Mongo no esta arriba, la suite se SALTEA con un mensaje que dice que
-// hacer, en vez de fallar como si el codigo estuviera roto.
-const MONGO_TEST_URI = process.env.MONGO_TEST_URI ?? 'mongodb://localhost:27017/biosoft_test';
+import { connectTestDb, disconnectTestDb } from './support/db.js';
 
 // El socket se reemplaza por un espia: aca interesa QUE se emite y sobre todo
 // que no se emita nada que no se haya guardado antes.
@@ -25,20 +15,9 @@ const { handleTelemetry } = await import('../src/mqtt/handlers.js');
 const { Alert, CoilSample, Measure, StatusSample } = await import('../src/models/index.js');
 type Group = 'measures' | 'coils' | 'status' | 'targets' | 'alerts' | 'result';
 
-// Conexion en el tope del modulo (no en beforeAll) para poder decidir antes de
-// declarar los tests si hay base contra la cual correrlos.
-let hayMongo = false;
-try {
-  await mongoose.connect(MONGO_TEST_URI, { serverSelectionTimeoutMS: 3000 });
-  hayMongo = true;
-} catch {
-  console.warn(
-    `[tests] Mongo no responde en ${MONGO_TEST_URI}: se saltean los tests de ingesta. ` +
-    'Levantalo con "npm run infra:up" desde web/ y volve a correrlos.',
-  );
-}
+const hayMongo = await connectTestDb('ingesta');
 
-afterAll(async () => { if (hayMongo) await mongoose.disconnect(); });
+afterAll(async () => { await disconnectTestDb(hayMongo); });
 
 beforeEach(async () => {
   emitted.length = 0;
@@ -142,9 +121,10 @@ describe.skipIf(!hayMongo)('ingesta', () => {
     expect(await Measure.countDocuments()).toBe(0);
   });
 
-  // La fase 2 las va a asociar a su corrida; por ahora tienen que quedar
-  // explicitamente sin corrida, no con un id inventado.
-  it('deja las muestras sin corrida asignada (fase 2)', async () => {
+  // Sin corrida abierta la muestra igual se guarda: es una medicion real. Pero
+  // queda explicitamente sin corrida, no con un id inventado. (La asociacion a
+  // una corrida se prueba en corridas.test.ts.)
+  it('deja las muestras sin corrida cuando no hay ninguna abierta', async () => {
     await handleTelemetry(message('measures', { CEM1: 1.5 }));
     const stored = await Measure.find().lean();
     expect(stored[0].meta.runId).toBeNull();

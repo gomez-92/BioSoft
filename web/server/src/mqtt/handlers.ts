@@ -1,6 +1,9 @@
 import mongoose from 'mongoose';
 import { config } from '../config.js';
 import {
+  closeRun, getCurrentRunId, noteSample, openRun,
+} from '../domain/runtracker.js';
+import {
   parseAlert, parseCoils, parseMeasures, parseResult, parseStatus, parseTargets,
 } from '../domain/telemetry.js';
 import { Alert, CoilSample, Measure, StatusSample } from '../models/index.js';
@@ -11,17 +14,9 @@ import { onTelemetry, type TelemetryMessage } from './ingestor.js';
 // Socket.IO el mismo objeto que guardo. Nada se manda en vivo sin haberse
 // persistido, asi que lo que se ve en el tablero y lo que se consulta despues
 // no pueden diferir.
-//
-// FASE 1: todavia no hay correlacion de corridas, asi que todo entra con
-// runId null. La apertura y el cierre de `runs` es la fase 2; por eso
-// `currentRunId()` esta aislado aca, es el unico punto que esa fase toca.
-
-function currentRunId(): mongoose.Types.ObjectId | null {
-  return null;   // fase 2
-}
 
 function meta() {
-  return { runId: currentRunId(), deviceId: config.deviceId };
+  return { runId: getCurrentRunId(), deviceId: config.deviceId };
 }
 
 // Exportada para los tests: es el corazon de la ingesta y se puede ejercitar
@@ -30,9 +25,9 @@ export async function handleTelemetry(message: TelemetryMessage): Promise<void> 
   // Un retenido no es un evento nuevo: es el ultimo estado conocido que el
   // broker reentrega en CADA suscripcion. Guardarlo insertaria una muestra
   // duplicada con la fecha equivocada (la de entrega, no la de medicion) en
-  // cada reconexion del backend, y en la fase 2 abriria un experimento
-  // fantasma con un `targets` viejo. Va a alimentar el snapshot inicial de la
-  // fase 3, no la base ni el vivo.
+  // cada reconexion, y -- mucho peor -- un `targets` retenido abriria una
+  // corrida fantasma con los objetivos del experimento anterior, mientras un
+  // `result` retenido cerraria la que esta corriendo ahora mismo.
   if (message.retained) return;
 
   // Sin Mongo no se guarda, y entonces tampoco se emite: preferimos un
@@ -46,10 +41,29 @@ export async function handleTelemetry(message: TelemetryMessage): Promise<void> 
   const ts = message.receivedAt;
 
   switch (message.group) {
+    // targets y result son el principio y el fin de una corrida. Van primero
+    // porque de ellos depende a que corrida pertenece todo lo demas.
+    case 'targets': {
+      const parsed = parseTargets(message.payload);
+      if (!parsed) return;
+      const runId = await openRun(parsed, ts);
+      emitTelemetry('targets', { ts, runId: runId.toString(), ...parsed });
+      break;
+    }
+
+    case 'result': {
+      const parsed = parseResult(message.payload);
+      if (!parsed) return;
+      const runId = await closeRun(parsed, ts);
+      emitTelemetry('result', { ts, runId: runId.toString(), ...parsed });
+      break;
+    }
+
     case 'measures': {
       const parsed = parseMeasures(message.payload);
       if (!parsed) return;
       await Measure.create({ ts, meta: meta(), ...parsed });
+      await noteSample(ts, 'measure');
       emitTelemetry('measures', { ts, ...parsed });
       break;
     }
@@ -58,6 +72,7 @@ export async function handleTelemetry(message: TelemetryMessage): Promise<void> 
       const coils = parseCoils(message.payload);
       if (!coils) return;
       await CoilSample.create({ ts, meta: meta(), coils });
+      await noteSample(ts, 'other');
       emitTelemetry('coils', { ts, coils });
       break;
     }
@@ -66,6 +81,7 @@ export async function handleTelemetry(message: TelemetryMessage): Promise<void> 
       const parsed = parseStatus(message.payload);
       if (!parsed) return;
       await StatusSample.create({ ts, meta: meta(), ...parsed });
+      await noteSample(ts, 'other');
       emitTelemetry('status', { ts, ...parsed });
       break;
     }
@@ -73,31 +89,26 @@ export async function handleTelemetry(message: TelemetryMessage): Promise<void> 
     case 'alerts': {
       const parsed = parseAlert(message.payload);
       if (!parsed) return;
-      await Alert.create({ ts, runId: currentRunId(), deviceId: config.deviceId, ...parsed });
+      await Alert.create({ ts, runId: getCurrentRunId(), deviceId: config.deviceId, ...parsed });
+      await noteSample(ts, 'alert');
       emitTelemetry('alert', { ts, ...parsed });
-      break;
-    }
-
-    // targets y result definen el principio y el fin de una corrida, asi que
-    // en la fase 2 van a abrirla y cerrarla. Por ahora solo se reemiten en
-    // vivo: guardarlos sueltos, fuera de un `run`, seria un dato que despues
-    // habria que migrar.
-    case 'targets': {
-      const parsed = parseTargets(message.payload);
-      if (!parsed) return;
-      emitTelemetry('targets', { ts, ...parsed });
-      break;
-    }
-
-    case 'result': {
-      const parsed = parseResult(message.payload);
-      if (!parsed) return;
-      emitTelemetry('result', { ts, ...parsed });
       break;
     }
   }
 }
 
+// Los mensajes se procesan DE A UNO, en el orden en que llegaron. El ingestor
+// no espera al handler, asi que sin esto un `targets` y la primera muestra
+// posterior podrian resolverse entrelazados y la muestra caeria fuera de la
+// corrida que le corresponde. Encadenar es suficiente: el volumen es de
+// decenas de mensajes por minuto, no miles.
+let cadena: Promise<void> = Promise.resolve();
+
 export function registerHandlers(): void {
-  onTelemetry((message) => handleTelemetry(message));
+  onTelemetry((message) => {
+    cadena = cadena
+      .then(() => handleTelemetry(message))
+      .catch((error) => console.error(`[ingesta] fallo procesando ${message.group}:`, error));
+    return cadena;
+  });
 }

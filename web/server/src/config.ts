@@ -24,6 +24,15 @@ export const config = {
 
   deviceId: env('DEVICE_ID', 'biosoft-01'),
 
+  run: {
+    // Una corrida sin datos por este tiempo se da por muerta y se cierra como
+    // huerfana. Tiene que ser holgadamente mayor al intervalo de `status`
+    // (30 s por defecto), o un experimento sano con la red lenta se cerraria
+    // solo; el default son 5 minutos, 10 tandas perdidas seguidas.
+    staleAfterSeconds: Number(env('RUN_STALE_SECONDS', '300')),
+    sweepIntervalSeconds: Number(env('RUN_SWEEP_SECONDS', '60')),
+  },
+
   // El orden de las claves define el orden de la suscripcion; los nombres son
   // los que usa el resto del backend para despachar cada mensaje.
   topics: {

@@ -70,7 +70,7 @@ Dos advertencias que ya costaron tiempo en este proyecto:
 
 ## Estado
 
-Fases 0 y 1 listas.
+Fases 0, 1 y 2 listas.
 
 - **Fase 0** — workspace, infraestructura local, `/api/health`, Socket.IO,
   simulador y pantalla de diagnostico.
@@ -79,9 +79,16 @@ Fases 0 y 1 listas.
   una se emite en vivo **despues** de guardarse. Los retenidos no se guardan ni
   se emiten.
 
-`targets` y `result` todavia no se persisten: definen el principio y el fin de
-una corrida, asi que se guardan dentro de `runs` en la fase 2. Por eso
-`stored.runs` sigue en 0 y las muestras quedan con `runId: null`.
+- **Fase 2** — correlacion de corridas: `targets` abre un `run`, `result` lo
+  cierra, y cada muestra queda asociada a la corrida en curso. Una corrida sin
+  `result` (backend caido, corte de luz) se marca `orphan` y se cierra con la
+  fecha de su ultimo dato; un `result` sin corrida abierta crea igual una
+  huerfana, porque el motivo del corte no lo reporta nadie mas. Al arrancar, el
+  backend retoma la corrida que haya quedado abierta, asi que reiniciarlo a
+  mitad de un experimento no lo parte en dos.
+
+Falta la API REST de historicos (fase 4) y el tablero de verdad: la pantalla
+actual sigue siendo de diagnostico.
 
 ## Tests
 
@@ -89,6 +96,9 @@ una corrida, asi que se guardan dentro de `runs` en la fase 2. Por eso
 npm test --workspace server
 ```
 
-34 tests. Los de parseo corren solos; los de ingesta escriben de verdad en
-Mongo (base `biosoft_test`) y **se saltean con un aviso si el compose no esta
-levantado**, en vez de fallar como si el codigo estuviera roto.
+46 tests. Los de parseo corren solos; los de ingesta escriben de verdad en
+Mongo y **se saltean con un aviso si el compose no esta levantado**, en vez de
+fallar como si el codigo estuviera roto. Cada archivo usa SU PROPIA base
+(`biosoft_test_<nombre>`): vitest corre los archivos en paralelo y con una sola
+base el `deleteMany` de uno borra lo que el otro acaba de escribir, lo que da
+fallas que aparecen y desaparecen segun el orden de los workers.
