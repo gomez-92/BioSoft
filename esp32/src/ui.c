@@ -30,14 +30,23 @@ void ui_init(void)
     lv_theme_t * theme = lv_theme_default_init(dispp, lv_palette_main(LV_PALETTE_BLUE), lv_palette_main(LV_PALETTE_RED),
                                                false, LV_FONT_DEFAULT);
     lv_disp_set_theme(dispp, theme);
-    ui_PrincipalScreen_screen_init();
-    ui_ConfiguracionesScreen_screen_init();
-    ui_ResultadoScreen_screen_init();
-    ui_SplashScreen_screen_init();
-    ui_EsperandoScreen_screen_init();
-    ui_EnCursoScreen_screen_init();
+
+    // EDITADO A MANO (2do cambio sobre el export, ver CLAUDE.md).
+    //
+    // El export crea las SEIS pantallas aca y carga la primera. Ya no: las
+    // seis juntas se llevan ~176 KB de heap y viven para siempre aunque se
+    // vea una sola, y ese es el mismo heap del que sale el handshake TLS
+    // (LV_USE_STDLIB_MALLOC esta en LV_STDLIB_CLIB). Con las dos cosas a la
+    // vez no entran y LV_ASSERT_MALLOC aborta.
+    //
+    // Ahora las crea y las destruye ScreenManager segun se navega, por
+    // grupos (ver belongsToGroup). Tampoco se carga ninguna aca: la primera
+    // la carga el show() del ScreenManager. LVGL ya dejo una pantalla por
+    // defecto activa al crear el display, asi que no queda sin nada
+    // mientras tanto.
+    //
+    // Al reexportar desde SquareLine hay que volver a sacar estas llamadas.
     ui____initial_actions0 = lv_obj_create(NULL);
-    lv_disp_load_scr(ui_SplashScreen);
 }
 
 void ui_destroy(void)

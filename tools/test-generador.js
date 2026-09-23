@@ -100,6 +100,18 @@ expectError("rango critico que no contiene a ningun normal",
 expectOk("par valido aunque no todos los pares lo sean (la pantalla filtra)",
   s => { s.menus.temperatureNormal.push({label:"10~70 C", min:10, max:70});
          s.menus.temperatureCritical.push({label:"5~75 C", min:5, max:75}); });
+expectError("contrasena de wifi sin SSID (renglon a medio cargar)",
+  s => { s.wifi[2].ssid = ""; s.wifi[2].password = "algo"; }, "no SSID");
+expectError("puerto de broker fuera de rango",
+  s => s.broker.port = 70000, "entre 1 y 65535");
+expectWarn("puerto 1883: MQTT sin cifrar hacia un broker remoto",
+  s => s.broker.port = 1883, "texto plano");
+expectWarn("red wifi sin contrasena",
+  s => s.wifi[0].password = "", "red abierta");
+expectWarn("red wifi repetida",
+  s => s.wifi[1].ssid = s.wifi[0].ssid, "repetida");
+expectWarn("sin ninguna red wifi cargada",
+  s => s.wifi.forEach(n => { n.ssid = ""; n.password = ""; }), "quedan las compiladas");
 expectError("splashTimeout por debajo del minimo de pantalla",
   s => s.intervals.esp32.splashTimeout = 200, "no puede bajar de 1000");
 expectError("busyTimeout por debajo del minimo de pantalla",

@@ -132,6 +132,23 @@ const DEFAULTS = {
     {name:"SCT013-3",enabled:false,address:73,channel:0,ratedCurrent:5.0,ratedVoltage:1.0,calibration:0.775,sampleRate:860,integrationTimeMs:200},
     {name:"SCT013-4",enabled:false,address:73,channel:1,ratedCurrent:5.0,ratedVoltage:1.0,calibration:0.775,sampleRate:860,integrationTimeMs:200}
   ],
+  // Marcadores a proposito: este archivo se versiona en el repo y el
+  // generador lo usa de base. Las credenciales reales las escribe el
+  // operador en el formulario, nunca viajan aca.
+  wifi: [
+    {ssid:"RED_1", password:"CLAVE_1"},
+    {ssid:"RED_2", password:"CLAVE_2"},
+    {ssid:"",      password:""},
+    {ssid:"",      password:""},
+    {ssid:"",      password:""}
+  ],
+  broker: {
+    server:"broker.example.com",
+    port:8883,
+    user:"usuario_mqtt",
+    password:"password_mqtt",
+    clientId:"biosoft-esp32"
+  },
   telemetry: {
     groups:{
       measures:{enabled:true,topic:"biosoft/telemetry/measures",interval:30000,retain:true},
@@ -153,6 +170,13 @@ const DEFAULTS = {
 
 /* Topes del esquema (seccion 1.3: todo tope de memoria es de compilacion). */
 const MAX_MENU_OPTIONS = 8;
+const MAX_WIFI_NETWORKS = 5;   // WiFiConfig::MAX_NETWORKS
+const MAX_SSID = 32;
+const MAX_WIFI_PASS = 63;      // maximo de WPA2
+const MAX_BROKER_HOST = 63;
+const MAX_BROKER_USER = 31;
+const MAX_BROKER_PASS = 63;
+const MAX_BROKER_CLIENTID = 31;
 const MAX_LABEL  = 15;   // label de menu, name de bobina, de sensor y de campo
 const MAX_TOPIC  = 63;
 const MQTT_BUFFER = 384; // Topics::MaxPayloadLength, el buffer de MySystem::_publishTelemetry()
@@ -270,7 +294,8 @@ const TELEMETRY_FIELDS = [
  * =========================================================================== */
 function render(){
   document.getElementById("app").innerHTML =
-    sMenus() + sIntervals() + sControl() + sCoils() + sDetector() + sCurrent() + sTelemetry() + sPreview();
+    sMenus() + sIntervals() + sControl() + sCoils() + sDetector() + sCurrent() + sTelemetry() +
+    sWifi() + sBroker() + sPreview();
   validate();
 }
 
@@ -436,6 +461,38 @@ function sTelemetry(){
       '<td style="color:var(--muted)">' + group + '</td></tr>';
   });
   return h + '</table></div></section>';
+}
+
+function sWifi(){
+  let h = '<section><h2>8 &middot; Redes WiFi</h2>' +
+    '<p class="hint"><b>Este archivo va a llevar contrasenas en texto plano</b> en una tarjeta que ' +
+    'entra y sale de la PC. Tenelo presente antes de dejarla en cualquier lado. Las redes de aca ' +
+    '<b>reemplazan</b> a las compiladas en <code>secrets.h</code>: no se suman, porque si no una red ' +
+    'vieja no se podria sacar nunca desde la tarjeta. Dejar todas vacias equivale a no poner la ' +
+    'seccion, y quedan las compiladas. Se prueban en orden hasta que una conecte. Solo ESP32.</p>' +
+    '<div class="tablewrap"><table><tr><th>#</th><th>SSID</th><th>Contrasena</th></tr>';
+  for (let i = 0; i < MAX_WIFI_NETWORKS; i++) {
+    h += '<tr><td>' + (i + 1) + '</td>' +
+      '<td style="width:260px">' + txt("wifi." + i + ".ssid", "", MAX_SSID) + '</td>' +
+      '<td style="width:260px">' + txt("wifi." + i + ".password", "", MAX_WIFI_PASS) + '</td></tr>';
+  }
+  return h + '</table></div></section>';
+}
+
+function sBroker(){
+  return '<section><h2>9 &middot; Broker MQTT</h2>' +
+    '<p class="hint">Conexion al broker por donde sale la telemetria. A diferencia de las redes, ' +
+    'aca <b>cada clave pisa por separado</b> a la de <code>secrets.h</code>: lo que se deje vacio se ' +
+    'queda con el valor compilado, asi se puede cambiar solo el host. <b>El certificado del broker NO ' +
+    'esta aca</b>: un PEM dentro de un JSON obliga a escapar cada salto de linea, asi que sigue ' +
+    'compilado en <code>SoftEsp32.ino</code>. Solo ESP32.</p>' +
+    '<div class="grid">' +
+      txt("broker.server", "Host", MAX_BROKER_HOST) +
+      num("broker.port", INT, "Puerto") +
+      txt("broker.user", "Usuario", MAX_BROKER_USER) +
+      txt("broker.password", "Contrasena", MAX_BROKER_PASS) +
+      txt("broker.clientId", "Client ID", MAX_BROKER_CLIENTID) +
+    '</div></section>';
 }
 
 function sPreview(){
@@ -698,6 +755,52 @@ function validate(){
            "comparten: gana el ultimo que se configura, en silencio.");
   });
 
+  /* --- 8. wifi --- */
+  const redes = state.wifi.filter(n => n.ssid.trim());
+  if (redes.length === 0) {
+    warn("Ninguna red WiFi cargada: la seccion no se escribe y quedan las compiladas en secrets.h.");
+  }
+  state.wifi.forEach((n, i) => {
+    const tag = "Red WiFi " + (i + 1);
+    if (!n.ssid.trim()) {
+      // Fila vacia: es lo normal en las que sobran. Pero una clave sin SSID
+      // es casi seguro un renglon a medio cargar.
+      if (n.password.trim()) err(tag + ": tiene contrasena pero no SSID.");
+      return;
+    }
+    if (n.ssid.length > MAX_SSID) err(tag + ': el SSID no puede pasar de ' + MAX_SSID + " caracteres.");
+    if (n.password.length > MAX_WIFI_PASS)
+      err(tag + ": la contrasena no puede pasar de " + MAX_WIFI_PASS + " caracteres (tope de WPA2).");
+    if (!n.password.trim())
+      warn(tag + ' ("' + n.ssid + '"): sin contrasena, se conectaria como red abierta.');
+  });
+  const ssids = redes.map(n => n.ssid.trim());
+  ssids.forEach((ssid, i) => {
+    if (ssids.indexOf(ssid) !== i)
+      warn('Red WiFi "' + ssid + '" repetida: la segunda entrada nunca se llega a probar.');
+  });
+  if (redes.length > MAX_WIFI_NETWORKS)
+    err("No entran mas de " + MAX_WIFI_NETWORKS + " redes (WiFiConfig::MAX_NETWORKS).");
+
+  /* --- 9. broker --- */
+  if (!state.broker.server.trim())
+    warn("Broker sin host: se usa el compilado en secrets.h.");
+  else if (state.broker.server.length > MAX_BROKER_HOST)
+    err("El host del broker no puede pasar de " + MAX_BROKER_HOST + " caracteres.");
+  if (!isInt(state.broker.port) || state.broker.port <= 0 || state.broker.port > 65535)
+    err("El puerto del broker tiene que ser un entero entre 1 y 65535.");
+  // El dashboard esta fuera de la red del equipo: sin TLS las credenciales y
+  // los datos del experimento viajan en claro por internet.
+  else if (state.broker.port === 1883)
+    warn("Puerto 1883: es MQTT sin cifrar. Con el broker fuera de la red local, las credenciales y " +
+         "la telemetria viajarian en texto plano. El puerto con TLS suele ser 8883.");
+  if (state.broker.user.length > MAX_BROKER_USER)
+    err("El usuario del broker no puede pasar de " + MAX_BROKER_USER + " caracteres.");
+  if (state.broker.password.length > MAX_BROKER_PASS)
+    err("La contrasena del broker no puede pasar de " + MAX_BROKER_PASS + " caracteres.");
+  if (state.broker.clientId.length > MAX_BROKER_CLIENTID)
+    err("El clientId no puede pasar de " + MAX_BROKER_CLIENTID + " caracteres.");
+
   /* --- 7. telemetry --- */
   const topicsUsados = new Map();
   TELEMETRY_GROUPS.forEach(([k, lbl, desc, periodic]) => {
@@ -803,7 +906,11 @@ function buildJson(){
     coils: state.coils,
     detector: state.detector,
     currentSensors: state.currentSensors,
-    telemetry: state.telemetry
+    telemetry: state.telemetry,
+    // Las filas sin SSID son lugares vacios del formulario, no redes: se
+    // descartan en vez de escribir entradas que el firmware ignoraria.
+    wifi: state.wifi.filter(n => n.ssid.trim()),
+    broker: state.broker
   };
 }
 

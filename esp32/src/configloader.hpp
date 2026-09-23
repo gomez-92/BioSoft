@@ -72,6 +72,33 @@ namespace ConfigLoader {
     bool enabled = true;
   };
 
+  // Credenciales de conectividad. Tope de redes igual al de
+  // WiFiConfig::MAX_NETWORKS, que es privado y no se puede leer desde aca.
+  constexpr uint8_t MaxWifiNetworks = 5;
+  constexpr uint8_t MaxSsidLength = 33;        // 32 caracteres + terminador
+  constexpr uint8_t MaxWifiPassLength = 64;    // 63 (maximo WPA2) + terminador
+  constexpr uint8_t MaxBrokerHostLength = 64;
+  constexpr uint8_t MaxBrokerUserLength = 32;
+  constexpr uint8_t MaxBrokerPassLength = 64;
+  constexpr uint8_t MaxBrokerClientIdLength = 32;
+
+  // Las cadenas se COPIAN a estos buffers y no se apuntan al JsonDocument:
+  // WiFiConfig y MqttConfig guardan punteros, no copias, y el documento
+  // muere al terminar de parsear. Los buffers son de duracion estatica
+  // (namespace inline), asi que sobreviven todo lo que dura el programa.
+  struct WifiNetworkConfig {
+    char ssid[MaxSsidLength] = "";
+    char password[MaxWifiPassLength] = "";
+  };
+
+  struct BrokerConfig {
+    char server[MaxBrokerHostLength] = "";
+    uint16_t port = 0;
+    char user[MaxBrokerUserLength] = "";
+    char password[MaxBrokerPassLength] = "";
+    char clientId[MaxBrokerClientIdLength] = "";
+  };
+
   constexpr uint8_t MaxDetectorSources = 2;   // CEM1 y TEMP1, fijas por diseño
   constexpr uint8_t MaxSensorNameLength = 16;
   constexpr uint8_t MaxCurrentSensors = 4;    // 2 pares diferenciales x 2 modulos ADS1115
@@ -150,6 +177,9 @@ namespace ConfigLoader {
   inline uint8_t _sourceConfigCount = 0;
   inline CurrentSensorConfigEntry _currentSensorConfigs[MaxCurrentSensors];
   inline uint8_t _currentSensorConfigCount = 0;
+  inline WifiNetworkConfig _wifiNetworks[MaxWifiNetworks];
+  inline uint8_t _wifiNetworkCount = 0;
+  inline BrokerConfig _brokerConfig;
 
   // MySystem los lee para armar los frames config_intervals/config_control/
   // config_coil al reconectar (ver mysystem.hpp::_sendMegaConfig()).
@@ -161,6 +191,12 @@ namespace ConfigLoader {
   inline uint8_t sourceConfigCount() { return _sourceConfigCount; }
   inline const CurrentSensorConfigEntry* currentSensorConfigs() { return _currentSensorConfigs; }
   inline uint8_t currentSensorConfigCount() { return _currentSensorConfigCount; }
+
+  // Los lee SoftEsp32.ino al armar WiFiConfig y MqttConfig. Con 0 redes o
+  // con un campo vacio, el sketch se queda con lo compilado en secrets.h.
+  inline const WifiNetworkConfig* wifiNetworks() { return _wifiNetworks; }
+  inline uint8_t wifiNetworkCount() { return _wifiNetworkCount; }
+  inline const BrokerConfig& brokerConfig() { return _brokerConfig; }
 
   namespace {
 
@@ -613,6 +649,82 @@ namespace ConfigLoader {
       }
     }
 
+    // Copia una cadena del JSON a un buffer propio, truncando si no entra.
+    // Devuelve false si la clave no estaba o no era texto, para que el
+    // llamador sepa que ese campo se queda con el valor compilado.
+    inline bool copyString(JsonVariantConst value, char* dest, size_t size) {
+      if (!value.is<const char*>()) return false;
+      const char* text = value.as<const char*>();
+      if (text == nullptr) return false;
+      strncpy(dest, text, size - 1);
+      dest[size - 1] = '\0';
+      return true;
+    }
+
+    // Las redes del archivo REEMPLAZAN a las compiladas, no se suman: si se
+    // sumaran, una red vieja que quedo en secrets.h no se podria sacar
+    // nunca desde la tarjeta. Una lista vacia se trata como ausente (mismo
+    // criterio que menuIsUsable) y deja las compiladas en pie -- quedarse
+    // sin ninguna red seria peor que ignorar la seccion.
+    inline void loadWifi(JsonArrayConst networks) {
+      _wifiNetworkCount = 0;
+
+      if (networks.isNull()) {
+        DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] sin seccion 'wifi': se usan las redes compiladas"));
+        return;
+      }
+
+      for (JsonObjectConst network : networks) {
+        if (_wifiNetworkCount >= MaxWifiNetworks) {
+          DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] mas redes que lugares: se ignoran las sobrantes"));
+          break;
+        }
+
+        WifiNetworkConfig& entry = _wifiNetworks[_wifiNetworkCount];
+        if (!copyString(network["ssid"], entry.ssid, MaxSsidLength) || entry.ssid[0] == '\0') {
+          DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] red sin ssid: se ignora"));
+          continue;
+        }
+        // Una red abierta es legitima: password ausente queda en vacio.
+        copyString(network["password"], entry.password, MaxWifiPassLength);
+        _wifiNetworkCount++;
+      }
+
+      if (_wifiNetworkCount == 0) {
+        DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] 'wifi' vacia o invalida: se usan las redes compiladas"));
+        return;
+      }
+
+      DEBUG_PRINT(DEBUG_CONFIGLOADER, F("[CONFIG] redes wifi cargadas: "));
+      DEBUG_PRINTLN(DEBUG_CONFIGLOADER, _wifiNetworkCount);
+    }
+
+    // A diferencia de wifi, el broker se aplica clave por clave: cada una
+    // que venga pisa a la compilada y el resto se mantiene. Asi se puede
+    // cambiar solo el host sin tener que repetir usuario y contrasena.
+    inline void loadBroker(JsonObjectConst broker) {
+      if (broker.isNull()) {
+        DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] sin seccion 'broker': se usan los datos compilados"));
+        return;
+      }
+
+      copyString(broker["server"], _brokerConfig.server, MaxBrokerHostLength);
+      copyString(broker["user"], _brokerConfig.user, MaxBrokerUserLength);
+      copyString(broker["password"], _brokerConfig.password, MaxBrokerPassLength);
+      copyString(broker["clientId"], _brokerConfig.clientId, MaxBrokerClientIdLength);
+
+      // 0 no es un puerto valido, asi que sirve de "no vino" sin necesidad
+      // de un flag aparte.
+      if (broker["port"].is<uint16_t>()) {
+        uint16_t port = broker["port"].as<uint16_t>();
+        if (port > 0) _brokerConfig.port = port;
+        else DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] broker.port en 0: se ignora"));
+      }
+
+      DEBUG_PRINT(DEBUG_CONFIGLOADER, F("[CONFIG] broker: "));
+      DEBUG_PRINTLN(DEBUG_CONFIGLOADER, _brokerConfig.server[0] != '\0' ? _brokerConfig.server : "(compilado)");
+    }
+
     inline void loadTelemetry(JsonObjectConst telemetry) {
       if (telemetry.isNull()) {
         DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] sin seccion 'telemetry': se conservan los defaults"));
@@ -749,6 +861,8 @@ namespace ConfigLoader {
     loadDetectorSources(doc["detector"]);
     loadCurrentSensors(doc["currentSensors"]);
     loadTelemetry(doc["telemetry"]);
+    loadWifi(doc["wifi"]);
+    loadBroker(doc["broker"]);
 
     DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] configuracion aplicada"));
     DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] ----------------------------------------"));

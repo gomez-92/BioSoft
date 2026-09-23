@@ -46,6 +46,13 @@ public:
 class IScreen {
 public:
     virtual ~IScreen() {}
+    // Crea los objetos LVGL de la pantalla (y la cablea) si todavia no
+    // existen; destroy() los libera. Las pantallas se crean y se destruyen
+    // segun se navega, no todas al arrancar: las seis juntas se llevan
+    // ~176 KB de heap, el mismo del que sale el handshake TLS.
+    virtual void create() = 0;
+    virtual void destroy() = 0;
+    virtual bool isCreated() const = 0;
     virtual void init() = 0;
     virtual void show() = 0;
     virtual void hide() = 0;

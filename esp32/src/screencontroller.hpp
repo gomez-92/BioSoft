@@ -90,15 +90,49 @@ struct StatusIconsCache {
 /* ============================================================
  *  BASE CONTROLLER
  * ============================================================ */
+// Las dos funciones que SquareLine genera por pantalla:
+// ui_XxxScreen_screen_init() y ui_XxxScreen_screen_destroy().
+typedef void (*ScreenBuilder)(void);
+
 class BaseScreenController : public IScreen {
   public:
-    BaseScreenController(lv_obj_t* root, ScreenType type, const char* name) : _root(root), _type(type), _name(name) {}
+    // `rootRef` es la direccion del global ui_XxxScreen, NO su valor. Tiene
+    // que ser asi porque ese global cambia cada vez que la pantalla se
+    // destruye (queda en NULL) y se vuelve a crear (apunta a objetos
+    // nuevos): un puntero copiado en el constructor quedaria colgado en
+    // cuanto la pantalla se recicle por primera vez.
+    BaseScreenController(lv_obj_t** rootRef, ScreenBuilder builder, ScreenBuilder destroyer,
+                         ScreenType type, const char* name)
+      : _rootRef(rootRef), _builder(builder), _destroyer(destroyer), _type(type), _name(name) {}
+
+    // Crear implica SIEMPRE volver a cablear: los objetos son nuevos, asi
+    // que los callbacks de evento, las listas de los dropdowns y los caches
+    // de "lo ya pintado" que guarde el controlador apuntan o describen
+    // widgets que ya no existen. Por eso init() va aca adentro y no lo llama
+    // el ScreenManager por su cuenta.
+    void create() override {
+      if (isCreated()) return;
+      _builder();
+      init();
+    }
+
+    void destroy() override {
+      if (!isCreated()) return;
+      // La funcion generada borra el arbol y deja en NULL el global de la
+      // pantalla Y el de cada widget, que es justo lo que hace falta para
+      // que nadie quede con punteros viejos.
+      _destroyer();
+    }
+
+    bool isCreated() const override {
+      return *_rootRef != nullptr;
+    }
 
     void init() override {}
 
     void show() override {
-      if (_root) {
-        lv_disp_load_scr(_root);
+      if (isCreated()) {
+        lv_disp_load_scr(*_rootRef);
       }
     }
 
@@ -107,7 +141,7 @@ class BaseScreenController : public IScreen {
     void update() override {}
 
     lv_obj_t* getRoot() override {
-      return _root;
+      return *_rootRef;
     }
 
     ScreenType getType() const override {
@@ -123,7 +157,9 @@ class BaseScreenController : public IScreen {
     }
 
   protected:
-    lv_obj_t* _root = nullptr;
+    lv_obj_t** _rootRef = nullptr;
+    ScreenBuilder _builder = nullptr;
+    ScreenBuilder _destroyer = nullptr;
     IScreenListener* _listener = nullptr;
     ScreenType _type;
     const char* _name;
@@ -143,7 +179,7 @@ class SplashController : public BaseScreenController {
     bool _launched = false;
 };
 
-inline SplashController::SplashController() : BaseScreenController(ui_SplashScreen, ScreenType::SPLASH, "splash") {}
+inline SplashController::SplashController() : BaseScreenController(&ui_SplashScreen, ui_SplashScreen_screen_init, ui_SplashScreen_screen_destroy, ScreenType::SPLASH, "splash") {}
 
 inline void SplashController::show() {
   BaseScreenController::show();
@@ -181,9 +217,15 @@ class PrincipalController : public BaseScreenController {
     void _updateStatusIcons();
 };
 
-inline PrincipalController::PrincipalController(SystemData& data) : BaseScreenController(ui_PrincipalScreen, ScreenType::PRINCIPAL, "principal"), _data(data) {}
+inline PrincipalController::PrincipalController(SystemData& data) : BaseScreenController(&ui_PrincipalScreen, ui_PrincipalScreen_screen_init, ui_PrincipalScreen_screen_destroy, ScreenType::PRINCIPAL, "principal"), _data(data) {}
 
 inline void PrincipalController::init() {
+  // init() corre en cada create(), o sea cada vez que la pantalla se
+  // recicla. Los widgets son nuevos y traen los valores del export, asi que
+  // el cache de "lo ya pintado" tiene que volver a cero o los indicadores
+  // se quedarian mostrando el estado de maqueta (los cuatro en rojo).
+  _statusIcons = StatusIconsCache();
+
   lv_obj_add_event_cb(ui_ButtonPrincipalIniciar, btnPrincipalGoToRunningClick, LV_EVENT_CLICKED, this);
   lv_obj_add_event_cb(ui_ButtonPrincipalConfigurar, btnPrincipalGoToConfigClick, LV_EVENT_CLICKED, this);
 }
@@ -313,7 +355,7 @@ class ConfigurationController : public BaseScreenController {
                           const ConfigurationOptions::OptionRangeTemperature& critical);
 };
 
-inline ConfigurationController::ConfigurationController(SystemData& data) : BaseScreenController(ui_ConfiguracionesScreen, ScreenType::CONFIG, "configuration"), _data(data) {}
+inline ConfigurationController::ConfigurationController(SystemData& data) : BaseScreenController(&ui_ConfiguracionesScreen, ui_ConfiguracionesScreen_screen_init, ui_ConfiguracionesScreen_screen_destroy, ScreenType::CONFIG, "configuration"), _data(data) {}
 
 inline void ConfigurationController::show() {
   BaseScreenController::show();
@@ -617,10 +659,19 @@ class RunningController : public BaseScreenController {
     void _applyCoilVisibility();
 };
 
-inline RunningController::RunningController(SystemData& data) : BaseScreenController(ui_EnCursoScreen, ScreenType::RUNNING, "running"), _data(data) {}
+inline RunningController::RunningController(SystemData& data) : BaseScreenController(&ui_EnCursoScreen, ui_EnCursoScreen_screen_init, ui_EnCursoScreen_screen_destroy, ScreenType::RUNNING, "running"), _data(data) {}
 
 inline void RunningController::init() {
   BaseScreenController::init();
+
+  // Mismo motivo que en Principal: widgets nuevos, caches viejos. Ademas
+  // _visibleCoils vuelve al centinela 0xFF para que _applyCoilVisibility()
+  // aplique si o si -- el export deja las 4 filas visibles.
+  _statusIcons = StatusIconsCache();
+  _visibleCoils = 0xFF;
+  _shownMagneticField = NAN;
+  _shownTemperature = NAN;
+
   lv_obj_add_event_cb(ui_ButtonDetener, btnRunningDetenerClick, LV_EVENT_CLICKED, this);
 
   // Los 3 chips de salud se exportan visibles uno al lado del otro; arrancan
@@ -937,10 +988,12 @@ class ResultadoController : public BaseScreenController {
     void _buildCriticalTexts(char* headline, size_t headlineSize, char* detail, size_t detailSize) const;
 };
 
-inline ResultadoController::ResultadoController(SystemData& data) : BaseScreenController(ui_ResultadoScreen, ScreenType::RESULT, "result"), _data(data) {}
+inline ResultadoController::ResultadoController(SystemData& data) : BaseScreenController(&ui_ResultadoScreen, ui_ResultadoScreen_screen_init, ui_ResultadoScreen_screen_destroy, ScreenType::RESULT, "result"), _data(data) {}
 
 inline void ResultadoController::init() {
   BaseScreenController::init();
+  _statusIcons = StatusIconsCache();
+
   lv_obj_add_event_cb(ui_ButtonResultadoPrincipal, btnResultadoVolverClick, LV_EVENT_CLICKED, this);
   lv_obj_add_event_cb(ui_ButtonResultadoRepetir, btnResultadoRepetirClick, LV_EVENT_CLICKED, this);
 
@@ -1136,7 +1189,7 @@ class BusyController : public BaseScreenController {
     SystemData& _data;
 };
 
-inline BusyController::BusyController(SystemData& data) : BaseScreenController(ui_EsperandoScreen, ScreenType::BUSY, "busy"), _data(data) {}
+inline BusyController::BusyController(SystemData& data) : BaseScreenController(&ui_EsperandoScreen, ui_EsperandoScreen_screen_init, ui_EsperandoScreen_screen_destroy, ScreenType::BUSY, "busy"), _data(data) {}
 
 inline void BusyController::show() {
   lv_label_set_text(ui_EsperandoMensaje, _data.busy.messageProcess);

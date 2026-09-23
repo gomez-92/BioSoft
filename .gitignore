@@ -8,6 +8,12 @@
 
 esp32/include/secrets.h
 
+# Copias de trabajo de lo que va en la tarjeta SD. El config.json real lleva
+# el SSID, la clave del WiFi y las credenciales del broker EN TEXTO PLANO
+# (ver docs/config-schema.md secciones 13-14), asi que no puede entrar al
+# repo. El que si se versiona es docs/config.example.json, con marcadores.
+esp32/docs/
+
 *.o
 *.elf
 *.bin

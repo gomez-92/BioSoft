@@ -553,6 +553,57 @@ and `StateListener` (own app state, from `SystemData`).
   `esp32/src/ui_*.c/.h` + matching `*controller` files), switches the active one
   via `show(ScreenType)`, and forwards `ScreenEvent`s (button taps, etc., tagged
   with a screen type and event name from `eventsname.hpp`) up to `MySystem`.
+- **Screens are created and destroyed as you navigate, not all at boot**, and
+  that is what makes MQTT over TLS possible at all. With `LV_USE_STDLIB_MALLOC`
+  set to `LV_STDLIB_CLIB`, LVGL allocates from the same heap as mbedTLS, and
+  the six screens together cost ~176 KB (measured on the board: 253 KB free at
+  boot, 77 KB once they exist, and the largest contiguous block dropping from
+  110 KB to 45 KB). `mbedtls_ssl_setup()` needs **two ~16.7 KB buffers**
+  (`CONFIG_MBEDTLS_SSL_MAX_CONTENT_LEN=16384` in the core's SDK, with neither
+  asymmetric nor variable buffers, and it cannot be changed without rebuilding
+  the IDF), so with all six alive every connect died with `-32512
+  MBEDTLS_ERR_SSL_ALLOC_FAILED`.
+  `ui_init()` therefore **no longer calls the six `_screen_init()` functions
+  nor loads a screen** — the second hand edit to the generated `ui.c`, which
+  has to be redone after every SquareLine export.
+  Which screens stay alive is `ScreenManager::belongsToGroup()`: **Principal
+  and Configuraciones live together** (you go back and forth between them and
+  recreating one two seconds later would only add latency); every other screen
+  lives alone. Splash is destroyed on reaching Principal and never rebuilt.
+  Three things this required, each of which crashed the board when it was
+  missing:
+    - **No LVGL screen operation may happen inside an LVGL event callback.**
+      `show()` only records the request; `ScreenManager::update()` performs it,
+      called from `loop()` and not from `lv_timer_handler()`. Tapping INICIAR
+      would otherwise destroy Principal while LVGL was still dispatching that
+      very button's event. `_currentIndex` still moves inside `show()` so
+      `MySystem`'s state machine does not reprocess the same transition;
+      `_previousIndex` remembers what to hide.
+    - **A blank bridge screen is loaded first** (`_blank`, one `lv_obj`, created
+      once and reused). It resolves a genuine contradiction: memory demands
+      freeing the old screens *before* creating the new one — creating En curso
+      with Principal and Config still alive does not fit and `LV_ASSERT_MALLOC`
+      aborts — but deleting the screen LVGL holds as active leaves
+      `disp->act_scr` at NULL (`obj_delete_core` in `lv_obj_tree.c`) and the
+      next draw dereferences it. `LV_USE_ASSERT_OBJ` is 0, so nothing warns.
+      With the bridge loaded, the active screen is none of ours and the order
+      becomes **bridge → destroy → create → load**. No `lv_timer_handler()`
+      runs in between, so the blank is never actually drawn.
+    - **`BaseScreenController` keeps `lv_obj_t**`, not `lv_obj_t*`.** The
+      `ui_XxxScreen` global is nulled on destroy and repointed on create, so a
+      pointer copied in the constructor dangles the first time a screen is
+      recycled. For the same reason `create()` always re-runs the controller's
+      `init()`: event callbacks, dropdown lists and the "already painted"
+      caches (`StatusIconsCache::applied`, `RunningController::_visibleCoils`,
+      `_shownMagneticField`) all describe widgets that no longer exist, and a
+      stale cache leaves the export's mock values on screen.
+  The transition is visible — En curso is ~120 widgets — but accepted.
+  `SoftEsp32.ino` also carries `CONECTAR_ANTES_DE_LA_UI`, which connects WiFi +
+  NTP + broker before building the UI (when the heap is untouched: 110 KB
+  contiguous). It works, and it is **off**: with screens recycled the ordinary
+  connect path succeeds, which also means *reconnections* succeed — something
+  connecting early never fixed, since a reconnect always finds the heap already
+  fragmented. Keep it as a documented escape hatch, not as the solution.
 - `MySystem::_processState()` is the app-level state machine (`idle` → `ready` →
   `starting`/`stopping` → `running`, from `systemdata.hpp`'s `StateData`) that
   decides which screen should be showing and mirrors state received from the Mega
@@ -607,19 +658,20 @@ and `StateListener` (own app state, from `SystemData`).
   library) and disables the chip's auto-sleep, since LVGL polls it instead
   of using INT. Switching boards means flipping `TOUCH_KIND` *and* the
   inversion flag together.
-- **MQTT/TLS is half-fixed: the CA is still wrong.** The broker is an EMQX
-  Cloud *serverless* instance (`*.emqxsl.com:8883`, host in `secrets.h`) and
-  `SoftEsp32.ino` still embeds *DigiCert Global Root G2* as `ROOT_CA_CERT`,
-  which is not who signs it, so every connect fails with `-9984 X509 -
-  Certificate verification failed`. The fix is to paste the CA downloaded from
-  the EMQX console (not from memory — only the console says who actually signs
-  that instance); the block carries a comment saying exactly that.
-  The **clock half is done**: `MySystem::_syncTime()` calls `configTime()`
-  from `onWiFiConnected()`, and `remoteUpdate()` will not let the broker even
-  try until `_timeIsValid()` (epoch past 2025). That matters because every
-  certificate carries validity dates and an ESP32 boots at 1970, so the right
-  CA alone would still be rejected as "not yet valid" — and each failed
-  attempt is a full TLS handshake burning CPU for nothing.
+- **MQTT/TLS: the CA was never the problem.** An earlier note here claimed the
+  EMQX Cloud *serverless* instance (`*.emqxsl.com:8883`, host in `secrets.h`)
+  was signed by Let's Encrypt while `SoftEsp32.ino` embedded *DigiCert Global
+  Root G2*, and blamed the `-9984 X509 - Certificate verification failed` on
+  that. It was wrong: the certificate downloaded from the EMQX console for
+  this instance is byte-identical to the compiled one (same SHA-256, verified
+  2026-09-22). The real cause was the **clock** — every certificate carries
+  validity dates and an ESP32 boots at 1970, so a perfectly good CA is
+  rejected as "not yet valid". `MySystem::_syncTime()` now calls
+  `configTime()` from `onWiFiConnected()` and `remoteUpdate()` refuses to let
+  the broker even try until `_timeIsValid()` (epoch past 2025), which also
+  stops burning a full TLS handshake every 5 s on a connection that cannot
+  succeed. Don't re-open this as a certificate problem without comparing
+  fingerprints first.
   The remote monitor is a **dashboard of the user's own**, not Datacake, and
   it is **read-only**: the board publishes and never subscribes,
   `onMessageReceived()` is empty on purpose and there are no remote commands.
@@ -648,8 +700,24 @@ and `StateListener` (own app state, from `SystemData`).
   `config_*` frames (see below). Range checks for those sections deliberately
   live on the Mega, which is the authority over its own Detector and coils;
   the ESP32 only type-checks. `telemetry` is applied locally like phase 1 (see
-  the `Topics` bullet below). **All six sections of the schema are now
-  implemented.**
+  the `Topics` bullet below). **Every section of the schema is implemented.**
+  `wifi` and `broker` (sections 13-14) are the two that are *not* applied by
+  `ConfigLoader` either: it copies them into its own buffers and
+  `SoftEsp32.ino` reads them when building `WiFiConfig`/`MqttConfig`, because
+  both of those keep `const char*` **pointers, not copies**, so the strings
+  have to outlive the `JsonDocument` they came from.
+  The two override differently on purpose. `wifi` **replaces** the compiled
+  list rather than adding to it — merging would mean a stale network left in
+  `secrets.h` could never be removed from the card — while an empty or absent
+  list falls back to the compiled ones, since having no network at all is
+  worse than ignoring the section. `broker` overrides **key by key**, so the
+  host can be changed without repeating user and password. The CA certificate
+  deliberately stays compiled: a PEM inside JSON means escaping every newline,
+  and it is the one value here that is not a single line of text.
+  **This puts WiFi and broker passwords in clear text on a card that travels
+  between machines**, where before they lived only inside the binary. That is
+  the cost of changing networks without reflashing; `docs/config.example.json`
+  therefore carries placeholders only, never real credentials.
   Note `detector.sources[].range.mode` is parsed but *not*
   forwarded: which source derives its ranges from the target and which takes
   them verbatim is fixed by design on the Mega (CEM1 derived, TEMP1 not), so
@@ -777,10 +845,11 @@ NULO"` placeholder the SquareLine export ships with.
   `lvgl@9.1.0`): an 8.3 export compiles almost everywhere thanks to
   `lv_api_map_v8.h`, but `lv_spinner_create(parent, t, angle)` and the
   `ui_img_splash_png.c` descriptor (`LV_IMG_CF_TRUE_COLOR`/`always_zero`) do
-  not. The only hand edit left in `ui.c` is the initial screen —
-  the export loads Principal, `ui_init()` loads Splash (it only costs a flash
-  of Principal at boot since `MySystem` shows SPLASH right after); re-set it
-  after re-exporting. The old `Principal2` project (`ui_Running.c` and its 11
+  not. The hand edit left in `ui.c` is that **`ui_init()` neither creates the
+  six screens nor loads one** — both the `_screen_init()` calls and the
+  `lv_disp_load_scr()` are removed, because screens are now built on demand
+  (see the ScreenManager bullet above). Redo that after every re-export; if
+  the calls come back, the board runs out of heap the moment TLS connects. The old `Principal2` project (`ui_Running.c` and its 11
   icons) is gone; the new design has no image assets besides the splash.
   New exports land in `esp32/refactor/` and get copied over `src/`; every
   widget the controllers touch is renamed per export (the `UiFinalParte1`

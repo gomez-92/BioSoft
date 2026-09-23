@@ -42,7 +42,7 @@ extern "C" {
 extern lv_obj_t * ui____initial_actions0;
 
 // IMAGES AND IMAGE SETS
-LV_IMG_DECLARE(ui_img_fiuner320_png);    // assets/fiuner320.png
+LV_IMG_DECLARE(ui_img_fiuner3201_png);    // assets/fiuner320.png
 
 // Iconos de estado de los headers de Principal y Resultado. Vienen de a
 // pares activo/fallo: el controlador muestra uno y oculta el otro, no hay
@@ -55,11 +55,6 @@ LV_IMG_DECLARE(ui_img_wifi_activo_png);    // assets/wifi_activo.png
 LV_IMG_DECLARE(ui_img_wifi_fallo_png);    // assets/wifi_fallo.png
 LV_IMG_DECLARE(ui_img_telemetry_activo_png);    // assets/telemetry_activo.png
 LV_IMG_DECLARE(ui_img_telemetry_fallo_png);    // assets/telemetry_fallo.png
-
-// Splash anterior. Ya no lo usa ninguna pantalla -- ui_SplashScreen pasó a
-// ui_img_fiuner320_png -- pero el archivo sigue en src/ y su definicion
-// necesita esta declaracion para seguir compilando.
-LV_IMG_DECLARE(ui_img_splash_png);    // assets/splash.png
 
 // UI INIT
 void ui_init(void);

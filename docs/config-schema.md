@@ -781,10 +781,78 @@ definitivos.
 
 ---
 
-## 13. Archivo de ejemplo
+## 13. Seccion `wifi` — redes a las que conectarse
+
+Reemplaza las redes compiladas en `esp32/include/secrets.h`. Solo ESP32.
+
+```json
+"wifi": [
+  { "ssid": "RED_1", "password": "CLAVE_1" },
+  { "ssid": "RED_2", "password": "CLAVE_2" }
+]
+```
+
+> **Este archivo lleva contrasenas en texto plano** en una tarjeta que entra y
+> sale de la PC. Antes, las credenciales vivian solo dentro del binario.
+> Es el precio de poder cambiar de red sin recompilar ni reflashear — util
+> cuando el equipo se muda de laboratorio — pero hay que tenerlo presente al
+> decidir donde queda la tarjeta.
+
+Se prueban **en orden** hasta que una conecte. Maximo **5** redes
+(`WiFiConfig::MAX_NETWORKS`); `ssid` hasta 32 caracteres y `password` hasta 63,
+que es el tope de WPA2.
+
+A diferencia del resto del esquema, esta seccion **reemplaza** en vez de
+completar: si trae aunque sea una red valida, las compiladas no se usan. Si se
+sumaran, una red vieja que quedo en `secrets.h` no se podria sacar nunca desde
+la tarjeta. Una lista vacia, ausente o con todas las entradas invalidas se
+trata como ausente y deja las compiladas en pie — quedarse sin ninguna red
+seria peor que ignorar la seccion.
+
+Una entrada sin `ssid` se descarta. Sin `password` se toma como red abierta,
+que es legitimo; el generador avisa por las dudas.
+
+---
+
+## 14. Seccion `broker` — conexion MQTT
+
+Reemplaza los `SECRET_MQTT_*` de `secrets.h`. Solo ESP32.
+
+```json
+"broker": {
+  "server": "broker.example.com",
+  "port": 8883,
+  "user": "usuario_mqtt",
+  "password": "password_mqtt",
+  "clientId": "biosoft-esp32"
+}
+```
+
+Al reves que `wifi`, esta seccion se aplica **clave por clave**: cada una que
+venga pisa a la compilada y el resto se mantiene, asi se puede cambiar solo el
+host sin repetir usuario y contrasena. Un `port` en 0 se ignora.
+
+Topes: `server` 63 caracteres, `user` 31, `password` 63, `clientId` 31.
+
+**El certificado del broker no esta aca.** Un PEM dentro de un JSON obliga a
+escapar cada salto de linea, y es el unico dato de esta seccion que no es una
+linea de texto; sigue compilado como `ROOT_CA_CERT` en `SoftEsp32.ino`. Cambiar
+de broker desde la tarjeta sirve mientras el certificado siga valiendo.
+
+El generador avisa si se pone el puerto **1883**: es MQTT sin cifrar, y con el
+broker fuera de la red del equipo las credenciales y la telemetria viajarian en
+texto plano.
+
+---
+
+## 15. Archivo de ejemplo
 
 `docs/config.example.json` es un archivo completo y valido cuyos valores son
-**identicos a los defaults compilados de hoy**. Cargarlo debe producir
+**identicos a los defaults compilados de hoy**, con una excepcion: las
+credenciales de `wifi` y `broker` son marcadores (`RED_1`, `CLAVE_1`,
+`broker.example.com`). Ese archivo se versiona en el repo, asi que nunca lleva
+credenciales reales — esas las escribe el operador en el generador y quedan
+solo en la tarjeta. Cargarlo debe producir
 exactamente el comportamiento actual del firmware, lo que lo hace util como:
 
 - contrato de salida para la aplicacion externa;

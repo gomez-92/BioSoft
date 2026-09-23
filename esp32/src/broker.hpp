@@ -124,7 +124,12 @@ inline BrokerManager::BrokerManager()
  *  BEGIN
  * ============================================================ */
 inline void BrokerManager::begin(const MqttConfig& config) {
-    _publishQueue = xQueueCreate(10, sizeof(PublishMessage));
+    // 4 y no 10: la cola se reserva entera al arrancar y cada entrada mide
+    // sizeof(PublishMessage), asi que 10 se llevaban ~6,4 KB de heap -- el
+    // mismo heap con el que despues compite el handshake TLS, que en esta
+    // placa entra por poco. Con 4 alcanza: la unica rafaga posible son los
+    // 3 grupos periodicos cayendo juntos, y se drenan en el tick siguiente.
+    _publishQueue = xQueueCreate(4, sizeof(PublishMessage));
     if (_publishQueue == nullptr) {
         DEBUG_PRINTLN(DEBUG_BROKER, "[BROKER] ERROR creando publish queue");
     }
@@ -209,6 +214,15 @@ inline bool BrokerManager::reconnect() {
         clientId = generatedId;
     }
 
+    // Un handshake TLS necesita del orden de 40-50 KB de heap LIBRE, y en
+    // bloques grandes y contiguos (mbedTLS pide buffers de entrada y salida
+    // de ~16 KB cada uno). Por eso se loguea tambien el bloque mayor y no
+    // solo el total: se puede tener 60 KB libres fragmentados en pedazos
+    // chicos y fallar igual con -32512 (MBEDTLS_ERR_SSL_ALLOC_FAILED).
+    DEBUG_PRINTF(DEBUG_BROKER, "[BROKER] Conectando a %s:%u -- heap libre %u, bloque mayor %u\n",
+                 _config.server ? _config.server : "(sin host)", (unsigned) _config.port,
+                 (unsigned) ESP.getFreeHeap(), (unsigned) ESP.getMaxAllocHeap());
+
     bool connected;
 
     if (_config.user && strlen(_config.user) > 0) {
@@ -218,10 +232,15 @@ inline bool BrokerManager::reconnect() {
     }
 
     if (connected) {
+        DEBUG_PRINTLN(DEBUG_BROKER, "[BROKER] Conectado");
         subscribeAll();
         return true;
     }
 
+    // state() es el codigo de PubSubClient, no el de TLS: el -32512 o el
+    // -9984 los imprime mbedTLS por su cuenta arriba de esta linea.
+    DEBUG_PRINTF(DEBUG_BROKER, "[BROKER] Fallo la conexion (state=%d, heap libre %u)\n",
+                 _client.state(), (unsigned) ESP.getFreeHeap());
     return false;
 }
 

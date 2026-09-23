@@ -1194,7 +1194,14 @@ inline void MySystem::onBrokerDisconnected() {
 
 inline void MySystem::onMessageReceived(const char* topic, const char* payload) {}
 
-inline void MySystem::onScreenChanged(ScreenType from, ScreenType to) {}
+inline void MySystem::onScreenChanged(ScreenType from, ScreenType to) {
+  // Las pantallas se crean y se destruyen al navegar (ver ScreenManager),
+  // asi que el heap se mueve en cada transicion. Este log es la forma de
+  // ver que efectivamente se libera y que el bloque contiguo se mantiene
+  // grande -- que es lo que necesita el handshake TLS.
+  DEBUG_PRINTF(DEBUG_MYSYSTEM, "[HEAP] pantalla -> libre %u, bloque mayor %u\n",
+               (unsigned) ESP.getFreeHeap(), (unsigned) ESP.getMaxAllocHeap());
+}
 
 inline void MySystem::onScreenEvent(ScreenEvent e) {
   DEBUG_PRINT(DEBUG_MYSYSTEM, "Screen event: ");

@@ -304,5 +304,22 @@
         "name": "ELAPSED_TIME"
       }
     }
+  },
+  "wifi": [
+    {
+      "ssid": "RED_1",
+      "password": "CLAVE_1"
+    },
+    {
+      "ssid": "RED_2",
+      "password": "CLAVE_2"
+    }
+  ],
+  "broker": {
+    "server": "broker.example.com",
+    "port": 8883,
+    "user": "usuario_mqtt",
+    "password": "password_mqtt",
+    "clientId": "biosoft-esp32"
   }
 }
