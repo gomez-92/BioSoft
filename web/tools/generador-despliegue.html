@@ -1,0 +1,417 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Asistente de despliegue — BioSoft</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#ffffff; --ink:#16191d; --muted:#5f6873; --line:#dfe3e8;
+    --accent:#1f6feb; --err:#b3261e; --errbg:#fdeceb; --warn:#8a5a00; --warnbg:#fff6e0;
+    --ok:#136a3a; --okbg:#e8f5ee; --code:#f2f4f7;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#14171b; --panel:#1b1f24; --ink:#e6e9ee; --muted:#9aa4b0; --line:#2c333b;
+      --accent:#6ea8ff; --err:#ff8a80; --errbg:#3a1f1d; --warn:#ffcf70; --warnbg:#3a2f16;
+      --ok:#7ee0a8; --okbg:#17301f; --code:#12151a;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  header{position:sticky;top:0;z-index:10;background:var(--panel);
+         border-bottom:1px solid var(--line);padding:12px 20px}
+  .bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;max-width:980px;margin:0 auto}
+  h1{font-size:16px;margin:0;flex:1;min-width:240px}
+  h1 small{display:block;font-weight:400;color:var(--muted);font-size:12px}
+  main{max-width:980px;margin:0 auto;padding:20px}
+  button{font:inherit;padding:7px 13px;border-radius:6px;border:1px solid var(--line);
+         background:var(--panel);color:var(--ink);cursor:pointer}
+  button:hover{border-color:var(--accent)}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+  button.primary:disabled{opacity:.45;cursor:not-allowed}
+  button.mini{padding:3px 8px;font-size:12px}
+  section{background:var(--panel);border:1px solid var(--line);border-radius:8px;
+          padding:16px 18px;margin-bottom:16px}
+  section > h2{font-size:15px;margin:0 0 4px}
+  .hint{color:var(--muted);font-size:12.5px;margin:0 0 14px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+  label.f{display:block}
+  label.f > span:first-child{display:block;font-size:12px;color:var(--muted);margin-bottom:3px}
+  input[type=text],input[type=password],select,textarea{width:100%;padding:6px 8px;border-radius:5px;
+    border:1px solid var(--line);background:var(--bg);color:var(--ink);font:inherit}
+  textarea{min-height:90px;font-family:ui-monospace,Consolas,monospace;font-size:12px}
+  .wide{grid-column:1/-1}
+  .chk{display:flex;gap:7px;align-items:flex-start;margin-top:10px;font-size:13px}
+  .msgs{max-width:980px;margin:0 auto}
+  .msg{padding:8px 12px;border-radius:6px;margin-top:8px;font-size:13px}
+  .msg ul{margin:6px 0 0;padding-left:20px}
+  .msg.e{background:var(--errbg);color:var(--err);border:1px solid var(--err)}
+  .msg.w{background:var(--warnbg);color:var(--warn);border:1px solid var(--warn)}
+  .msg.o{background:var(--okbg);color:var(--ok);border:1px solid var(--ok)}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:6px;
+      padding:12px 14px;overflow-x:auto;font-size:12.5px;margin:0}
+  .salida h3{font-size:13.5px;margin:18px 0 6px;display:flex;align-items:center;gap:10px}
+  .salida h3:first-child{margin-top:0}
+  ol.pasos{margin:0;padding-left:20px}
+  ol.pasos li{margin-bottom:10px}
+  .nota{font-size:12.5px;color:var(--muted);margin:6px 0 0}
+  .aviso-privacidad{font-size:12.5px;color:var(--muted);border-left:3px solid var(--accent);
+                    padding-left:10px;margin:0 0 16px}
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <h1>Asistente de despliegue del monitor
+      <small>Arma el archivo de variables y los comandos exactos. No ejecuta nada.</small></h1>
+    <button id="btnGen" class="primary">Generar</button>
+  </div>
+  <div class="msgs" id="msgs"></div>
+</header>
+
+<main>
+  <p class="aviso-privacidad">
+    Todo pasa dentro de esta pagina: <strong>nada de lo que escribas sale de tu
+    maquina</strong>, no hay ningun pedido de red. Se abre con doble clic y
+    funciona sin internet. El archivo que genera lleva contraseñas en texto
+    plano, asi que no va al repositorio (<code>web/.gitignore</code> ya ignora
+    <code>*.env</code>).
+  </p>
+
+  <section>
+    <h2>Plataforma</h2>
+    <p class="hint">Cambia los comandos del final. El archivo de variables es el mismo.</p>
+    <div class="grid">
+      <label class="f"><span>Donde se despliega</span>
+        <select id="plataforma">
+          <option value="fly">Fly.io</option>
+          <option value="render">Render</option>
+        </select></label>
+      <label class="f"><span>Nombre de la aplicacion</span>
+        <input type="text" id="app" value="biosoft-monitor"></label>
+      <label class="f"><span>Region (solo Fly)</span>
+        <select id="region">
+          <option value="eze">Buenos Aires (eze)</option>
+          <option value="gru">Sao Paulo (gru)</option>
+          <option value="scl">Santiago (scl)</option>
+          <option value="mia">Miami (mia)</option>
+        </select></label>
+    </div>
+  </section>
+
+  <section>
+    <h2>Base de datos (MongoDB Atlas)</h2>
+    <p class="hint">Atlas &rarr; Database &rarr; Connect &rarr; Drivers. Acordate de
+      reemplazar <code>&lt;password&gt;</code> por la clave real y de agregar
+      <code>/biosoft</code> al final.</p>
+    <div class="grid">
+      <label class="f wide"><span>URI de conexion</span>
+        <input type="text" id="mongo"
+          placeholder="mongodb+srv://usuario:clave@cluster.xxxxx.mongodb.net/biosoft"></label>
+    </div>
+  </section>
+
+  <section>
+    <h2>Broker MQTT</h2>
+    <p class="hint">El mismo al que publica la placa (<code>esp32/include/secrets.h</code>).
+      Conviene crear una credencial aparte para el backend.</p>
+    <div class="grid">
+      <label class="f wide"><span>URL del broker</span>
+        <input type="text" id="mqtt" placeholder="mqtts://xxxxxxxx.ala.sa-east-1.emqxsl.com:8883"></label>
+      <label class="f"><span>Usuario</span><input type="text" id="mqttUser"></label>
+      <label class="f"><span>Contraseña</span><input type="password" id="mqttPass"></label>
+      <label class="f"><span>Client ID del backend</span>
+        <input type="text" id="clientId" value="biosoft-backend-prod"></label>
+      <label class="f"><span>Client ID de la placa (para comparar)</span>
+        <input type="text" id="clientIdPlaca" placeholder="el de secrets.h"></label>
+      <label class="f wide"><span>Certificado CA en PEM (opcional)</span>
+        <textarea id="ca" placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"></textarea></label>
+    </div>
+  </section>
+
+  <section>
+    <h2>Sesiones y primer usuario</h2>
+    <div class="grid">
+      <label class="f wide"><span>JWT_SECRET</span>
+        <input type="text" id="jwt" placeholder="48 bytes en hexadecimal"></label>
+      <div class="wide"><button id="btnJwt" class="mini">Generar uno al azar</button>
+        <span class="nota">Se genera en el navegador con <code>crypto.getRandomValues</code>.</span></div>
+      <label class="f"><span>Usuario inicial</span><input type="text" id="seedUser" value="mario"></label>
+      <label class="f"><span>Contraseña inicial</span><input type="password" id="seedPass"></label>
+      <label class="f"><span>Identificador del equipo</span>
+        <input type="text" id="deviceId" value="biosoft-01"></label>
+    </div>
+    <label class="chk"><input type="checkbox" id="confirmaClientId">
+      <span>Confirmo que el Client ID del backend es <strong>distinto</strong> del de la
+      placa. Si fueran iguales, los dos clientes se desconectan mutuamente en un
+      bucle que desde afuera parece que el broker anda mal.</span></label>
+  </section>
+
+  <section id="salida" class="salida" style="display:none"></section>
+</main>
+
+<script>
+// Asistente de despliegue del monitor web (fase 6 del plan).
+//
+// Genera el archivo de variables de entorno y los comandos exactos para
+// desplegar. NO EJECUTA NADA, y no puede: el navegador no deja que una pagina
+// corra comandos en la maquina, lo cual esta bien -- si pudiera, cualquier
+// sitio podria hacerlo.
+//
+// La forma de entregar los secretos es un ARCHIVO, no un comando con los
+// valores adentro. `fly secrets import < archivo.env` lee las variables de la
+// entrada estandar, y asi una contraseña con $, ", ' o ! no rompe nada ni
+// queda en el historial de la terminal. Un `fly secrets set VAR="..."` con esa
+// misma contraseña se rompe o, peor, guarda un valor distinto del que se
+// escribio: el shell expande $VAR y lo que llega es otra cosa, sin ningun
+// error.
+
+let errors = [], warns = [];
+
+function val(id){ const el = document.getElementById(id); return (el && el.value || "").trim(); }
+function checked(id){ const el = document.getElementById(id); return !!(el && el.checked); }
+
+function leer(){
+  return {
+    plataforma: val("plataforma") || "fly",
+    app: val("app"),
+    region: val("region") || "eze",
+    mongo: val("mongo"),
+    mqtt: val("mqtt"),
+    mqttUser: val("mqttUser"),
+    mqttPass: val("mqttPass"),
+    clientId: val("clientId"),
+    clientIdPlaca: val("clientIdPlaca"),
+    ca: val("ca"),
+    jwt: val("jwt"),
+    seedUser: val("seedUser"),
+    seedPass: val("seedPass"),
+    deviceId: val("deviceId") || "biosoft-01",
+    confirmaClientId: checked("confirmaClientId")
+  };
+}
+
+function validate(d){
+  errors = []; warns = [];
+
+  if(!d.app) errors.push("Falta el nombre de la aplicacion.");
+
+  /* ---- Mongo ---- */
+  if(!d.mongo){
+    errors.push("Falta la URI de Atlas.");
+  } else {
+    if(!/^mongodb(\+srv)?:\/\//.test(d.mongo))
+      errors.push("La URI de Atlas tiene que empezar con mongodb+srv:// o mongodb://");
+    // El error de copiado mas comun: pegar la URI del panel sin reemplazar el
+    // marcador de la contraseña. Falla al conectar, ya desplegado.
+    if(/<password>|<db_password>|<usuario>|<username>/i.test(d.mongo))
+      errors.push("La URI todavia tiene el marcador <password>: reemplazalo por la clave real.");
+    // Sin nombre de base, Mongo usa "test" y el monitor escribe en otro lado
+    // sin decir nada.
+    const resto = d.mongo.replace(/^mongodb(\+srv)?:\/\//, "");
+    const camino = resto.indexOf("/") >= 0 ? resto.slice(resto.indexOf("/") + 1).split("?")[0] : "";
+    if(!camino)
+      errors.push("A la URI le falta el nombre de la base al final (agregale /biosoft).");
+    // Una @ o / sin escapar dentro de la contraseña parte la URI en el lugar
+    // equivocado; el driver falla con un mensaje que no menciona la clave.
+    const credenciales = resto.split("@");
+    if(credenciales.length > 2)
+      errors.push("La contraseña de la URI tiene un @ sin escapar: reemplazalo por %40.");
+  }
+
+  /* ---- Broker ---- */
+  if(!d.mqtt){
+    errors.push("Falta la URL del broker.");
+  } else if(!/^mqtts:\/\//.test(d.mqtt)){
+    // El servidor se niega a arrancar con NODE_ENV=production y un broker sin
+    // TLS, asi que esto seria un despliegue que no levanta.
+    errors.push("El broker tiene que usar mqtts:// (TLS). El servidor no arranca en produccion sin eso.");
+  }
+  if(!d.mqttUser) errors.push("Falta el usuario del broker.");
+  if(!d.mqttPass) errors.push("Falta la contraseña del broker.");
+  if(!d.clientId) errors.push("Falta el Client ID del backend.");
+
+  // LA trampa conocida de este proyecto.
+  if(d.clientId && d.clientIdPlaca && d.clientId === d.clientIdPlaca)
+    errors.push("El Client ID del backend es igual al de la placa: los dos clientes se van a desconectar mutuamente.");
+  if(!d.confirmaClientId)
+    errors.push("Falta confirmar que el Client ID es distinto del de la placa.");
+
+  if(d.ca && !/-----BEGIN CERTIFICATE-----/.test(d.ca))
+    errors.push("El certificado no parece un PEM (tiene que incluir -----BEGIN CERTIFICATE-----).");
+
+  /* ---- Sesiones ---- */
+  if(!d.jwt) errors.push("Falta JWT_SECRET.");
+  else if(d.jwt.length < 32) errors.push("JWT_SECRET tiene que tener al menos 32 caracteres.");
+
+  if(!d.seedUser) errors.push("Falta el usuario inicial.");
+  if(!d.seedPass) errors.push("Falta la contraseña inicial.");
+  else if(d.seedPass.length < 8) errors.push("La contraseña inicial tiene que tener al menos 8 caracteres.");
+
+  /* ---- Avisos: no bloquean, pero conviene saberlos ---- */
+  if(d.mongo && !/\/biosoft(\?|$)/.test(d.mongo))
+    warns.push("La base no se llama 'biosoft'. Funciona igual, pero el runbook y los ejemplos usan ese nombre.");
+  if(d.seedPass && d.seedPass === d.mqttPass)
+    warns.push("La contraseña del monitor es la misma que la del broker: si se filtra una, se filtran las dos.");
+  if(d.plataforma === "render")
+    warns.push("En Render, verifica que el plan NO sea el gratuito: duerme a los 15 minutos sin visitas y el monitor deja de escuchar la telemetria. Lo que se publique mientras duerme se pierde (QoS 0, sin cola).");
+
+  return errors.length === 0;
+}
+
+function envFile(d){
+  const lineas = [
+    "# Variables del monitor BioSoft. Generado por tools/generador-despliegue.html",
+    "# CONTIENE SECRETOS EN TEXTO PLANO: no subir al repositorio.",
+    "",
+    "NODE_ENV=production",
+    "PORT=4000",
+    "",
+    "MONGO_URI=" + d.mongo,
+    "",
+    "MQTT_URL=" + d.mqtt,
+    "MQTT_USER=" + d.mqttUser,
+    "MQTT_PASSWORD=" + d.mqttPass,
+    "MQTT_CLIENT_ID=" + d.clientId,
+    "",
+    "JWT_SECRET=" + d.jwt,
+    "JWT_EXPIRES_IN=7d",
+    "",
+    "SEED_USER=" + d.seedUser,
+    "SEED_PASSWORD=" + d.seedPass,
+    "",
+    "DEVICE_ID=" + d.deviceId
+  ];
+  // El PEM es multilinea y un archivo .env no lo admite asi: va con \n
+  // literales, que es como Node lo recibe y como el ingestor lo usa.
+  if(d.ca) lineas.push("", "MQTT_CA=" + d.ca.replace(/\r?\n/g, "\\n"));
+  return lineas.join("\n") + "\n";
+}
+
+function comandos(d){
+  if(d.plataforma === "fly"){
+    return [
+      "# 1. Crear la app sin desplegar todavia (usa el fly.toml del repo).",
+      "cd web",
+      "fly launch --no-deploy --name " + d.app + " --region " + d.region,
+      "",
+      "# 2. Cargar los secretos DESDE EL ARCHIVO.",
+      "#    Se importan asi y no con `fly secrets set VAR=\"...\"` porque una",
+      "#    contraseña con $, \" o ! la rompe el shell antes de que llegue a fly:",
+      "#    no da error, guarda otro valor.",
+      "fly secrets import < biosoft.env",
+      "",
+      "# 3. Desplegar.",
+      "fly deploy",
+      "",
+      "# 4. Comprobar.",
+      "curl https://" + d.app + ".fly.dev/api/ping     # {\"ok\":true}",
+      "curl https://" + d.app + ".fly.dev/api/runs     # 401: bien, esta cerrado"
+    ].join("\n");
+  }
+  return [
+    "# Render no necesita comandos: se conecta el repositorio desde el panel.",
+    "#",
+    "# 1. New + > Blueprint, elegi este repositorio.",
+    "#    Render lee web/render.yaml. Root Directory: web",
+    "#",
+    "# 2. En Environment, boton \"Add from .env\" y pega el contenido del",
+    "#    archivo biosoft.env que bajaste. Cargarlas una por una a mano es",
+    "#    donde se cuela un espacio al final de una clave.",
+    "#",
+    "# 3. Verifica que el plan sea Starter y no Free (ver el aviso de arriba).",
+    "#",
+    "# 4. Deploy, y despues:",
+    "curl https://" + d.app + ".onrender.com/api/ping     # {\"ok\":true}",
+    "curl https://" + d.app + ".onrender.com/api/runs     # 401: bien, esta cerrado"
+  ].join("\n");
+}
+
+function pasosPrevios(d){
+  const host = d.plataforma === "fly" ? d.app + ".fly.dev" : d.app + ".onrender.com";
+  return [
+    "En Atlas: <strong>Network Access</strong> &rarr; agregar <code>0.0.0.0/0</code>. " +
+      "Ni Fly ni Render dan IP fija en los planes chicos, asi que no hay lista blanca posible; " +
+      "lo que protege la base es la credencial.",
+    "Crear en EMQX una credencial <strong>propia del backend</strong>, distinta de la de la placa.",
+    "Guardar <code>biosoft.env</code> fuera del repositorio.",
+    "Despues del primer ingreso, <strong>cambiar la contraseña</strong>: la inicial quedo escrita " +
+      "en las variables de entorno.<br><code>npm run usuario --workspace server -- " +
+      d.seedUser + " &lt;clave-nueva&gt;</code>",
+    "Probar con una corrida real, o con el simulador apuntando al broker de produccion. " +
+      "Ojo: <strong>son datos falsos entrando al historico real</strong>, y el broker los retiene " +
+      "hasta que una corrida verdadera los pise.",
+    "Entrar a <code>https://" + host + "</code> y confirmar que el login funciona."
+  ];
+}
+
+function mostrarMensajes(){
+  const cont = document.getElementById("msgs");
+  let html = "";
+  if(errors.length)
+    html += "<div class='msg e'><strong>No se puede generar todavia:</strong><ul>" +
+            errors.map(e => "<li>" + e + "</li>").join("") + "</ul></div>";
+  if(warns.length)
+    html += "<div class='msg w'><strong>Avisos:</strong><ul>" +
+            warns.map(w => "<li>" + w + "</li>").join("") + "</ul></div>";
+  if(!errors.length)
+    html += "<div class='msg o'>Listo. El archivo y los comandos estan abajo.</div>";
+  cont.innerHTML = html;
+}
+
+function generar(){
+  const d = leer();
+  const ok = validate(d);
+  mostrarMensajes();
+
+  const salida = document.getElementById("salida");
+  if(!ok){ salida.style.display = "none"; return; }
+
+  const env = envFile(d);
+  salida.style.display = "";
+  salida.innerHTML =
+    "<h3>1. Antes de desplegar</h3><ol class='pasos'>" +
+      pasosPrevios(d).map(p => "<li>" + p + "</li>").join("") + "</ol>" +
+    "<h3>2. Archivo de variables <button class='mini' id='btnEnv'>Descargar biosoft.env</button>" +
+      "<button class='mini' id='btnCopiaEnv'>Copiar</button></h3>" +
+    "<pre id='preEnv'></pre>" +
+    "<h3>3. Comandos <button class='mini' id='btnCopiaCmd'>Copiar</button></h3>" +
+    "<pre id='preCmd'></pre>" +
+    "<p class='nota'>El archivo lleva las contraseñas en texto plano. Borralo cuando " +
+      "termines, o guardalo donde guardes el resto de tus credenciales.</p>";
+
+  // textContent y no innerHTML: una contraseña con < o & se veria mal (o
+  // peor, se interpretaria) al inyectarla como HTML.
+  document.getElementById("preEnv").textContent = env;
+  document.getElementById("preCmd").textContent = comandos(d);
+
+  document.getElementById("btnEnv").addEventListener("click", () => descargar(env, "biosoft.env"));
+  document.getElementById("btnCopiaEnv").addEventListener("click", () => copiar(env));
+  document.getElementById("btnCopiaCmd").addEventListener("click", () => copiar(comandos(d)));
+}
+
+function descargar(texto, nombre){
+  const url = URL.createObjectURL(new Blob([texto], {type:"text/plain"}));
+  const a = document.createElement("a");
+  a.href = url; a.download = nombre; a.click();
+  URL.revokeObjectURL(url);
+}
+
+function copiar(texto){
+  if(navigator.clipboard) navigator.clipboard.writeText(texto);
+}
+
+function generarJwt(){
+  const bytes = new Uint8Array(48);
+  crypto.getRandomValues(bytes);
+  document.getElementById("jwt").value =
+    Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+document.getElementById("btnGen").addEventListener("click", generar);
+document.getElementById("btnJwt").addEventListener("click", generarJwt);
+</script>
+</body>
+</html>

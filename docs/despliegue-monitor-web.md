@@ -78,6 +78,21 @@ Tres cosas, y las tres ya costaron tiempo en este proyecto:
 Conviene crear **una credencial propia para el backend** en EMQX, distinta de la
 de la placa: si alguna se filtra, se revoca una sola.
 
+## Atajo: el asistente
+
+`web/tools/generador-despliegue.html` se abre con doble clic (sin build, sin
+dependencias, sin internet) y hace los pasos 3 y 4 por vos: completás los
+campos y te da el archivo `biosoft.env` listo y los comandos exactos, con las
+validaciones que atrapan los errores que si no aparecen **recién desplegado**
+— el `<password>` sin reemplazar en la URI de Atlas, el nombre de base
+faltante, un broker sin TLS, o el Client ID repetido con el de la placa.
+
+No ejecuta nada: una página web no puede correr comandos en tu máquina, y está
+bien que no pueda. Copiás y pegás.
+
+Las secciones 1 y 2 (Atlas y broker) siguen siendo a mano, porque son cuentas
+de terceros.
+
 ## 3. Variables de entorno
 
 Todas se cargan en el panel de la plataforma. `.env` no se sube nunca.

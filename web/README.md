@@ -110,6 +110,10 @@ Lo que queda es la fase 7 (pulido: retencion de datos, reconexion, detalles de
 responsive) y desplegarlo de verdad, que necesita las cuentas de Atlas y de la
 plataforma.
 
+Para desplegar hay un asistente que arma el archivo de variables y los
+comandos: abrir `tools/generador-despliegue.html` con doble clic. Sus
+validaciones se verifican con `node tools/test-generador-despliegue.js`.
+
 **Antes de desplegar, leer el runbook**: la primera seccion explica por que
 este servicio no puede dormir, que descarta el plan gratuito de Render para
 tomar datos reales.
