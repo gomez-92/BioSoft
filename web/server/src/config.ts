@@ -1,0 +1,59 @@
+import 'dotenv/config';
+
+// Toda la configuracion del backend en un solo lugar, leida una vez al
+// arrancar. Los defaults son los de esp32/src/topics.hpp, asi que un .env
+// vacio ya habla el mismo idioma que una placa sin tarjeta SD.
+
+function env(name: string, fallback: string): string {
+  const value = process.env[name];
+  return value === undefined || value === '' ? fallback : value;
+}
+
+export const config = {
+  port: Number(env('PORT', '4000')),
+
+  mongoUri: env('MONGO_URI', 'mongodb://localhost:27017/biosoft'),
+
+  mqtt: {
+    url: env('MQTT_URL', 'mqtt://localhost:1883'),
+    username: process.env.MQTT_USER || undefined,
+    password: process.env.MQTT_PASSWORD || undefined,
+    clientId: env('MQTT_CLIENT_ID', 'biosoft-backend-dev'),
+    caPath: process.env.MQTT_CA_PATH || undefined,
+  },
+
+  deviceId: env('DEVICE_ID', 'biosoft-01'),
+
+  // El orden de las claves define el orden de la suscripcion; los nombres son
+  // los que usa el resto del backend para despachar cada mensaje.
+  topics: {
+    measures: env('TOPIC_MEASURES', 'biosoft/telemetry/measures'),
+    coils: env('TOPIC_COILS', 'biosoft/telemetry/coils'),
+    status: env('TOPIC_STATUS', 'biosoft/telemetry/status'),
+    targets: env('TOPIC_TARGETS', 'biosoft/telemetry/targets'),
+    alerts: env('TOPIC_ALERTS', 'biosoft/telemetry/alerts'),
+    result: env('TOPIC_RESULT', 'biosoft/telemetry/result'),
+  },
+
+  // Los cinco campos que la tarjeta SD puede renombrar. El resto de las claves
+  // ("c1".."d4", "REASON", "SRC"...) son estructurales: parte de la forma del
+  // mensaje, no valores que el operador elija, y por eso no se configuran.
+  fields: {
+    magneticField: env('FIELD_MAGNETIC', 'CEM1'),
+    temperature: env('FIELD_TEMPERATURE', 'TEMP1'),
+    health: env('FIELD_HEALTH', 'ESTADO'),
+    progress: env('FIELD_PROGRESS', 'PROGRESS'),
+    elapsed: env('FIELD_ELAPSED', 'ELAPSED_TIME'),
+  },
+} as const;
+
+export type TelemetryGroup = keyof typeof config.topics;
+
+// Topic -> grupo, para despachar sin comparar strings sueltos en el ingestor.
+export function groupByTopic(): Map<string, TelemetryGroup> {
+  const map = new Map<string, TelemetryGroup>();
+  for (const [group, topic] of Object.entries(config.topics)) {
+    map.set(topic, group as TelemetryGroup);
+  }
+  return map;
+}

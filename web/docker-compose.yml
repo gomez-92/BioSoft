@@ -1,0 +1,27 @@
+# Infraestructura de desarrollo local. NO es el despliegue de produccion: en la
+# nube Mongo es Atlas y el broker es el EMQX Cloud real (el mismo al que publica
+# la placa). Esto existe para poder trabajar las fases 1 y 2 sin hardware
+# encendido y sin ensuciar la base real, con el simulador publicando contra el
+# Mosquitto de aca.
+services:
+  mongo:
+    image: mongo:7
+    container_name: biosoft-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+
+  # Broker local sin TLS ni credenciales: es una red de desarrollo, y pedir
+  # certificados aca solo agregaria una forma mas de que "no llega el dato"
+  # sin que el problema sea el codigo.
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: biosoft-mosquitto
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+
+volumes:
+  mongo-data:

@@ -1,0 +1,75 @@
+/* Responsive de entrada: la pantalla que mas se va a usar es un celular
+   mirando un experimento en curso desde afuera del laboratorio. */
+:root {
+  --bg: #0f1115;
+  --panel: #171a21;
+  --border: #262b36;
+  --text: #e6e8ee;
+  --muted: #8b93a7;
+  --ok: #3ddc97;
+  --down: #ff5c5c;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 48px; }
+
+h1 { font-size: 1.5rem; margin: 0; }
+h2 { font-size: 1.1rem; margin: 32px 0 12px; }
+.subtitle { color: var(--muted); margin: 4px 0 0; font-size: 0.9rem; }
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+.card h3 { margin: 0; font-size: 0.8rem; text-transform: uppercase; color: var(--muted); letter-spacing: 0.05em; }
+.card-ok { border-left-color: var(--ok); }
+.card-down { border-left-color: var(--down); }
+.card .state { margin: 8px 0 2px; font-size: 1.3rem; font-weight: 600; }
+.card-ok .state { color: var(--ok); }
+.card-down .state { color: var(--down); }
+.card .detail { margin: 0; color: var(--muted); font-size: 0.8rem; word-break: break-all; }
+
+.empty { color: var(--muted); }
+
+.events { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.events li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+.tag {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: #2a3140;
+  border-radius: 999px;
+  padding: 2px 10px;
+}
+.tag-alerts { background: #4a2020; }
+.tag-result { background: #23402f; }
+.events time { color: var(--muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+.events code { font-size: 0.8rem; color: var(--muted); word-break: break-all; }
