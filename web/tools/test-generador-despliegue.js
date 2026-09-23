@@ -146,11 +146,31 @@ check("aplana el PEM del certificado a una sola linea",
   envCa.split("\n").filter(l => l.startsWith("MQTT_CA"))[0]);
 check("sin certificado no escribe MQTT_CA", !/MQTT_CA/.test(env));
 
+// EL FORMATO IMPORTA. `flyctl secrets import` rechaza el archivo ENTERO si
+// encuentra una linea que no sea NOMBRE=VALOR: falla con "Secrets must be
+// provided as NAME=VALUE pairs" y no carga ninguna variable. Un encabezado de
+// comentario alcanzaba para romperlo, y ya rompio una vez.
+const lineasEnv = env.split("\n").filter(l => l !== "");
+check("todas las lineas son NOMBRE=VALOR",
+  lineasEnv.every(l => /^[A-Z_]+=/.test(l)),
+  lineasEnv.filter(l => !/^[A-Z_]+=/.test(l)).join(" | "));
+check("no hay comentarios", !lineasEnv.some(l => l.trim().startsWith("#")));
+check("no hay lineas en blanco en el medio", !/\n\n/.test(env));
+// Un BOM al principio hace que la primera linea no matchee y se pierda la
+// primera variable, o falle el import entero.
+check("no empieza con BOM", env.charCodeAt(0) !== 0xFEFF);
+check("el archivo con certificado tambien es valido",
+  envCa.split("\n").filter(l => l !== "").every(l => /^[A-Z_]+=/.test(l)));
+
 console.log("\ncomandos");
 const cmdFly = T.comandos(base());
 // Los secretos se importan DESDE UN ARCHIVO: una contraseña con $ o ! la
 // rompe el shell antes de que llegue a fly, sin dar error.
-check("fly importa los secretos desde el archivo", /fly secrets import < biosoft\.env/.test(cmdFly));
+// PowerShell no soporta `<` para redirigir ("El operador '<' esta reservado
+// para uso futuro"), y esta es una maquina Windows.
+check("da el comando de PowerShell para importar",
+  /Get-Content biosoft\.env \| flyctl secrets import/.test(cmdFly));
+check("y menciona la variante de bash", /flyctl secrets import < biosoft\.env/.test(cmdFly));
 // Solo las lineas EJECUTABLES: el bloque explica por que no se usa
 // `fly secrets set`, asi que el texto aparece -- pero como comentario.
 const ejecutables = cmdFly.split("\n").filter(l => l.trim() && !l.trim().startsWith("#"));

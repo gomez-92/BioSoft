@@ -268,31 +268,31 @@ function validate(d){
 }
 
 function envFile(d){
+  // SOLO lineas NOMBRE=VALOR, sin comentarios ni lineas en blanco.
+  //
+  // No es cosmetico: `flyctl secrets import` rechaza el archivo entero si
+  // encuentra una linea que no tenga esa forma -- falla con "Secrets must be
+  // provided as NAME=VALUE pairs" y no carga NADA. Un encabezado explicando
+  // que es el archivo alcanzaba para romperlo. Lo que hay que saber sobre el
+  // archivo esta en esta pagina, no adentro de el.
   const lineas = [
-    "# Variables del monitor BioSoft. Generado por tools/generador-despliegue.html",
-    "# CONTIENE SECRETOS EN TEXTO PLANO: no subir al repositorio.",
-    "",
     "NODE_ENV=production",
     "PORT=4000",
-    "",
     "MONGO_URI=" + d.mongo,
-    "",
     "MQTT_URL=" + d.mqtt,
     "MQTT_USER=" + d.mqttUser,
     "MQTT_PASSWORD=" + d.mqttPass,
     "MQTT_CLIENT_ID=" + d.clientId,
-    "",
     "JWT_SECRET=" + d.jwt,
     "JWT_EXPIRES_IN=7d",
-    "",
     "SEED_USER=" + d.seedUser,
     "SEED_PASSWORD=" + d.seedPass,
-    "",
     "DEVICE_ID=" + d.deviceId
   ];
-  // El PEM es multilinea y un archivo .env no lo admite asi: va con \n
-  // literales, que es como Node lo recibe y como el ingestor lo usa.
-  if(d.ca) lineas.push("", "MQTT_CA=" + d.ca.replace(/\r?\n/g, "\\n"));
+  // El PEM es multilinea y un archivo de variables no lo admite asi: va
+  // con barra-ene literales, que es como Node lo recibe y como el
+  // ingestor lo usa.
+  if(d.ca) lineas.push("MQTT_CA=" + d.ca.replace(/\r?\n/g, "\\n"));
   return lineas.join("\n") + "\n";
 }
 
@@ -307,7 +307,12 @@ function comandos(d){
       "#    Se importan asi y no con `fly secrets set VAR=\"...\"` porque una",
       "#    contraseña con $, \" o ! la rompe el shell antes de que llegue a fly:",
       "#    no da error, guarda otro valor.",
-      "fly secrets import < biosoft.env",
+      "#",
+      "#    En PowerShell (Windows):",
+      "Get-Content biosoft.env | flyctl secrets import",
+      "#",
+      "#    En bash / Git Bash / Linux / macOS:",
+      "#    flyctl secrets import < biosoft.env",
       "",
       "# 3. Desplegar.",
       "fly deploy",
