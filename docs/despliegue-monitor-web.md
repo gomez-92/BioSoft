@@ -33,6 +33,18 @@ Por eso:
 El plan gratuito de Render sirve para **probar que el despliegue funciona**, no
 para tomar datos de un experimento real.
 
+**Las dos piden tarjeta para lo que sirve.** Fly terminó su período de prueba
+gratuito: sin tarjeta las máquinas se apagan a los cinco minutos y en algún
+momento deja de desplegar del todo. Render no pide tarjeta para el plan Free,
+que duerme. No hay alojamiento gratuito de un proceso encendido 24/7, porque es
+lo que cuesta plata. Las alternativas sin tarjeta, con sus contras:
+
+- **GitHub Student Developer Pack**, si se puede verificar la condición de
+  estudiante: da créditos reales de proveedores que sí alojan esto.
+- **Una PC del laboratorio + un túnel de Cloudflare**: gratis y sin tarjeta, con
+  URL pública y HTTPS. No duerme mientras esa PC esté encendida — y durante un
+  experimento lo está.
+
 ---
 
 ## 1. Base de datos — MongoDB Atlas
@@ -47,6 +59,25 @@ para tomar datos de un experimento real.
    Si más adelante el servicio queda en una IP fija, esto se puede cerrar.
 4. Copiar la URI de conexión y agregarle el nombre de la base:
    `mongodb+srv://usuario:clave@cluster.xxxxx.mongodb.net/biosoft`
+5. **Probarla antes de desplegar.** Tarda tres segundos y evita descubrir el
+   problema después de un build completo:
+
+   ```
+   node tools/probar-mongo.js "<la uri>"
+   ```
+
+   Comprueba por separado el DNS, la conexión, la credencial y el **permiso de
+   escritura**. Ese último es el que más engaña: con un usuario de sólo lectura
+   el monitor arranca, no da ningún error y no guarda nada.
+
+Dos confusiones que cuestan tiempo, las dos vistas en el primer despliegue:
+
+- **El usuario de base de datos no es la cuenta de Atlas.** Si entraste al panel
+  con Google, esa cuenta es para administrar; la que va en la URI es otra, la de
+  Database Access, con su propia contraseña.
+- **El hostname del cluster hay que copiarlo, no escribirlo.** Un carácter
+  distinto en el identificador del proyecto da `querySrv ENOTFOUND`, que parece
+  un problema de red y no lo es.
 
 **Retención.** El plan M0 son 512 MB. A 30 s por muestra, unos 8 MB por cada
 100 h de experimento — entra cómodo, pero conviene decidir cuánto se conserva
@@ -69,8 +100,15 @@ Tres cosas, y las tres ya costaron tiempo en este proyecto:
   pasar por alto.
 - **El certificado va en `MQTT_CA`**, pegado como variable de entorno (en la
   nube no hay dónde dejar un archivo suelto). Es el `.crt` que se descarga de la
-  consola de EMQX, el mismo que compila el ESP32. Si se omite se usa el almacén
-  de CAs del sistema, que para EMQX Cloud alcanza.
+  consola de EMQX, el mismo que compila el ESP32 — está en
+  [`web/emqxsl-ca.crt`](../web/emqxsl-ca.crt).
+  **No es opcional en la práctica**: sin él, el contenedor falla con
+  `unable to get local issuer certificate`, porque el almacén de CAs de una
+  imagen Alpine mínima no alcanza para completar la cadena de este broker. La
+  placa no sufre esto porque lleva el certificado compilado adentro.
+  El valor viaja con los saltos de línea escapados (`\n`), que es la única
+  forma de meter un PEM en una variable de entorno; el servidor los devuelve a
+  saltos reales al leerlo.
   Nunca deshabilitar la verificación: los fallos de TLS del ESP32 contra este
   broker eran de **reloj**, no de certificado (ver `CLAUDE.md`), y esa causa no
   existe en un servidor. Un fallo de TLS acá es un problema real.
@@ -104,7 +142,7 @@ Todas se cargan en el panel de la plataforma. `.env` no se sube nunca.
 | `MQTT_URL` | sí | `mqtts://<host>.emqxsl.com:8883` |
 | `MQTT_USER`, `MQTT_PASSWORD` | sí | credencial del broker para el backend |
 | `MQTT_CLIENT_ID` | sí | distinto del de la placa |
-| `MQTT_CA` | no | el PEM del certificado, pegado entero |
+| `MQTT_CA` | **en la práctica sí** | el PEM del certificado en una línea. Sin él: `unable to get local issuer certificate` |
 | `JWT_SECRET` | **sí** | `openssl rand -hex 48`. Sin esto el servidor no arranca en producción |
 | `JWT_EXPIRES_IN` | no | `7d` por defecto |
 | `SEED_USER`, `SEED_PASSWORD` | la primera vez | crean el primer usuario, y **solo** si la base no tiene ninguno |
@@ -126,10 +164,21 @@ tiene ningún usuario.
 
 ```
 cd web
-fly launch --no-deploy            # usa el fly.toml del repo
-fly secrets import < biosoft.env  # el archivo que arma el asistente
-fly deploy
+flyctl launch --no-deploy            # el comando es flyctl, no fly
+git checkout fly.toml                # ver la advertencia de abajo
+Get-Content biosoft.env | flyctl secrets import    # PowerShell
+flyctl deploy
 ```
+
+**`flyctl launch` reescribe `fly.toml`** con sus valores por defecto, y lo que
+pisa es justamente lo que no puede perderse: deja `auto_stop_machines = 'stop'`
+y `min_machines_running = 0`, con lo cual la máquina se apaga cuando nadie
+visita el sitio. Además borra el health check y sube la memoria a 1 GB. Por eso
+el `git checkout` inmediatamente después.
+
+En bash el import es `flyctl secrets import < biosoft.env`. **PowerShell no
+soporta `<`** («El operador '<' está reservado para uso futuro»), de ahí el
+`Get-Content`.
 
 Los secretos se importan **desde un archivo**, no con `fly secrets set VAR="..."`.
 No es preferencia: una contraseña que contenga `$`, `"`, `'` o `!` la interpreta
@@ -150,9 +199,15 @@ HTTPS lo dan las dos plataformas sin configurar nada.
 ## 5. Después de desplegar
 
 ```
-curl https://<tu-dominio>/api/ping            # {"ok":true}
-curl https://<tu-dominio>/api/runs            # 401: bien, está cerrado
+curl https://<tu-dominio>/api/ping    # {"ok":true,"mongo":true,"mqtt":true}
+curl https://<tu-dominio>/api/runs    # 401: bien, está cerrado
 ```
+
+**Los dos booleanos son la verificación, no el 200.** El servidor responde 200
+igual con los dos enlaces caídos: `ok` sólo dice que el proceso está vivo. Ese
+endpoint es público a propósito — con la base caída no se puede iniciar sesión,
+así que si el diagnóstico estuviera detrás del login sería inalcanzable justo
+cuando hace falta.
 
 Entrar con el usuario sembrado y **cambiar la contraseña enseguida**, porque la
 inicial quedó escrita en las variables de entorno:
@@ -189,6 +244,24 @@ el último mensaje de cada grupo de telemetría. En orden:
    queda con el último dato, atenuado.
 4. **Todo en verde y la pantalla vacía** → sesión vencida; el front manda al
    login solo.
+
+Y los mensajes concretos que aparecieron en el primer despliegue, con su causa:
+
+| En los logs | Qué es |
+|---|---|
+| `querySrv ENOTFOUND ...mongodb.net` | El hostname del cluster está mal |
+| `bad auth : authentication failed` | La contraseña guardada no es la del usuario de base |
+| `ETIMEDOUT` / `ServerSelection` | Falta `0.0.0.0/0` en Network Access |
+| `unable to get local issuer certificate` | Falta `MQTT_CA` |
+| `Connection refused: Not authorized` | La credencial del broker no existe o está mal |
+| `no se pudo suscribir a biosoft/...` | A esa credencial le falta permiso de *Subscribe* |
+| `Trial machine stopping` | Fly, sin tarjeta |
+
+Una advertencia sobre cargar secretos con `flyctl secrets set VAR="..."` en
+PowerShell: **las comillas dobles expanden `$`**. Si la contraseña tiene un
+`$`, se guarda un valor distinto del que escribiste, sin ningún error, y el
+síntoma es un `bad auth` que parece de Atlas. Por eso el asistente entrega un
+archivo y el runbook usa `import`.
 
 ---
 

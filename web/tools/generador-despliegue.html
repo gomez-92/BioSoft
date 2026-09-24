@@ -57,6 +57,11 @@
   ol.pasos{margin:0;padding-left:20px}
   ol.pasos li{margin-bottom:10px}
   .nota{font-size:12.5px;color:var(--muted);margin:6px 0 0}
+  table.diag{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:6px}
+  table.diag th{text-align:left;color:var(--muted);font-weight:500;padding:4px 10px 4px 0;
+                border-bottom:1px solid var(--line)}
+  table.diag td{padding:7px 10px 7px 0;border-bottom:1px solid var(--line);vertical-align:top}
+  table.diag td:first-child{width:38%}
   .aviso-privacidad{font-size:12.5px;color:var(--muted);border-left:3px solid var(--accent);
                     padding-left:10px;margin:0 0 16px}
 </style>
@@ -126,7 +131,7 @@
         <input type="text" id="clientId" value="biosoft-backend-prod"></label>
       <label class="f"><span>Client ID de la placa (para comparar)</span>
         <input type="text" id="clientIdPlaca" placeholder="el de secrets.h"></label>
-      <label class="f wide"><span>Certificado CA en PEM (opcional)</span>
+      <label class="f wide"><span>Certificado CA en PEM (pegalo: sin esto suele fallar el TLS)</span>
         <textarea id="ca" placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"></textarea></label>
     </div>
   </section>
@@ -297,65 +302,138 @@ function envFile(d){
 }
 
 function comandos(d){
+  const host = d.plataforma === "fly" ? d.app + ".fly.dev" : d.app + ".onrender.com";
+  const verificar = [
+    "# 4. Comprobar. Los DOS enlaces tienen que dar true; si alguno da false,",
+    "#    mira la tabla de diagnostico de mas abajo.",
+    "curl https://" + host + "/api/ping",
+    "#    esperado: {\"ok\":true,\"mongo\":true,\"mqtt\":true}",
+    "curl https://" + host + "/api/runs     # 401: bien, esta cerrado"
+  ];
+
   if(d.plataforma === "fly"){
     return [
-      "# 1. Crear la app sin desplegar todavia (usa el fly.toml del repo).",
+      "# El comando es `flyctl`. El instalador de winget deja ese nombre, no `fly`.",
+      "",
+      "# 1. Crear la app sin desplegar todavia.",
       "cd web",
-      "fly launch --no-deploy --name " + d.app + " --region " + d.region,
+      "flyctl launch --no-deploy --name " + d.app + " --region " + d.region,
+      "",
+      "#    ATENCION: `flyctl launch` REESCRIBE fly.toml con sus valores por",
+      "#    defecto y pisa auto_stop_machines = false y min_machines_running = 1.",
+      "#    Con los de Fly la maquina se apaga cuando nadie visita el sitio, y el",
+      "#    monitor deja de escuchar la telemetria. Restaura el archivo del repo:",
+      "git checkout fly.toml",
       "",
       "# 2. Cargar los secretos DESDE EL ARCHIVO.",
-      "#    Se importan asi y no con `fly secrets set VAR=\"...\"` porque una",
+      "#    Se importan asi y no con `flyctl secrets set VAR=\"...\"` porque una",
       "#    contraseña con $, \" o ! la rompe el shell antes de que llegue a fly:",
       "#    no da error, guarda otro valor.",
       "#",
-      "#    En PowerShell (Windows):",
+      "#    En PowerShell (Windows) -- PowerShell NO soporta el operador `<`:",
       "Get-Content biosoft.env | flyctl secrets import",
       "#",
       "#    En bash / Git Bash / Linux / macOS:",
       "#    flyctl secrets import < biosoft.env",
       "",
       "# 3. Desplegar.",
-      "fly deploy",
+      "flyctl deploy",
       "",
-      "# 4. Comprobar.",
-      "curl https://" + d.app + ".fly.dev/api/ping     # {\"ok\":true}",
-      "curl https://" + d.app + ".fly.dev/api/runs     # 401: bien, esta cerrado"
+      ...verificar,
+      "",
+      "# Si algo falla, los logs lo dicen:",
+      "flyctl logs"
     ].join("\n");
   }
+
   return [
-    "# Render no necesita comandos: se conecta el repositorio desde el panel.",
+    "# Render no necesita CLI: se conecta el repositorio desde el panel.",
     "#",
     "# 1. New + > Blueprint, elegi este repositorio.",
     "#    Render lee web/render.yaml. Root Directory: web",
     "#",
     "# 2. En Environment, boton \"Add from .env\" y pega el contenido del",
-    "#    archivo biosoft.env que bajaste. Cargarlas una por una a mano es",
-    "#    donde se cuela un espacio al final de una clave.",
+    "#    archivo biosoft.env. Cargarlas una por una a mano es donde se cuela",
+    "#    un espacio al final de una clave.",
     "#",
-    "# 3. Verifica que el plan sea Starter y no Free (ver el aviso de arriba).",
+    "# 3. Verifica que el plan NO sea Free (ver el aviso de arriba).",
     "#",
-    "# 4. Deploy, y despues:",
-    "curl https://" + d.app + ".onrender.com/api/ping     # {\"ok\":true}",
-    "curl https://" + d.app + ".onrender.com/api/runs     # 401: bien, esta cerrado"
+    ...verificar
   ].join("\n");
+}
+
+// Cada fila salio de un despliegue real: son los errores que efectivamente
+// ocurrieron, con el mensaje exacto que los delata. Estan aca porque el
+// sintoma que se ve (la pagina no actualiza, el login no anda) casi nunca
+// nombra la causa.
+function diagnostico(){
+  return [
+    ["<code>mongo:false</code> + <code>querySrv ENOTFOUND</code> en los logs",
+     "El hostname del cluster esta mal. Copialo de nuevo de Atlas &gt; Connect &gt; Drivers y " +
+     "probalo con <code>node tools/probar-mongo.js</code> antes de volver a desplegar."],
+    ["<code>mongo:false</code> + <code>bad auth : authentication failed</code>",
+     "La contraseña del usuario de base no es la que quedo guardada. Si la cargaste con " +
+     "<code>secrets set</code> y tiene un <code>$</code>, PowerShell se lo comio: usa comillas " +
+     "simples, o mejor el archivo."],
+    ["<code>mongo:false</code> + <code>ETIMEDOUT</code> o <code>ServerSelection</code>",
+     "Falta <code>0.0.0.0/0</code> en Network Access de Atlas. Ojo si pusiste " +
+     "<em>Add Current IP</em>: eso deja entrar a tu maquina, no al servidor."],
+    ["<code>mqtt:false</code> + <code>unable to get local issuer certificate</code>",
+     "Falta el certificado del broker. Pegalo en el campo de arriba y volve a generar el archivo."],
+    ["<code>mqtt:false</code> + <code>Connection refused: Not authorized</code>",
+     "La credencial del backend no existe en EMQX, o la clave esta mal."],
+    ["Conecta al broker pero no llega nada",
+     "Le falta permiso de <em>Subscribe</em> sobre <code>biosoft/telemetry/#</code>. En los logs " +
+     "aparece <code>no se pudo suscribir a ...</code>."],
+    ["El login no anda y la base aparece vacia en Atlas",
+     "Si nunca se conecto a Mongo, el usuario inicial no se creo: la base se crea en la primera " +
+     "escritura. Arregla la conexion primero; el login es consecuencia, no causa."],
+    ["Andaba y de golpe deja de responder",
+     "Se apago la maquina. En Fly, si <code>fly.toml</code> quedo con los valores que escribe " +
+     "<code>launch</code>, o si no hay tarjeta; en Render, si el plan es Free."]
+  ];
 }
 
 function pasosPrevios(d){
   const host = d.plataforma === "fly" ? d.app + ".fly.dev" : d.app + ".onrender.com";
-  return [
-    "En Atlas: <strong>Network Access</strong> &rarr; agregar <code>0.0.0.0/0</code>. " +
-      "Ni Fly ni Render dan IP fija en los planes chicos, asi que no hay lista blanca posible; " +
-      "lo que protege la base es la credencial.",
-    "Crear en EMQX una credencial <strong>propia del backend</strong>, distinta de la de la placa.",
-    "Guardar <code>biosoft.env</code> fuera del repositorio.",
+  const pasos = [
+    "<strong>Probar la URI de Atlas antes que nada.</strong> Tarda tres segundos y evita un ciclo " +
+      "entero de despliegue:<br><code>node tools/probar-mongo.js \"&lt;tu uri&gt;\"</code><br>" +
+      "Comprueba el DNS, la conexion, la credencial y el permiso de ESCRITURA. Ese ultimo es el " +
+      "que mas engaña: con un usuario de solo lectura el monitor arranca, no da ningun error y " +
+      "no guarda nada.",
+    "En Atlas: <strong>Network Access</strong> &rarr; <code>0.0.0.0/0</code>. Ni Fly ni Render dan " +
+      "IP fija en los planes chicos, asi que no hay lista blanca posible; lo que protege la base " +
+      "es la credencial. <em>Add Current IP</em> no alcanza: deja entrar a tu maquina, no al servidor.",
+    "En Atlas, el <strong>usuario de base de datos</strong> (Database Access) NO es tu cuenta de " +
+      "Atlas. Si entraste con Google, esa cuenta es para el panel; la de la URI es otra, con su " +
+      "propia contraseña.",
+    "En EMQX, una credencial <strong>propia del backend</strong>: <em>Subscribe</em> sobre " +
+      "<code>biosoft/telemetry/#</code> y <strong>publicacion denegada</strong>. Como no puede " +
+      "publicar, el simulador necesita otra (la de la placa, o una tercera de prueba).",
+    "Guardar <code>biosoft.env</code> <strong>fuera del repositorio</strong>."
+  ];
+
+  if(d.plataforma === "fly"){
+    pasos.push("Fly <strong>pide tarjeta</strong>: sin ella la prueba se termina y las maquinas se " +
+      "apagan a los 5 minutos. No es opcional para dejar el monitor escuchando.");
+  } else {
+    pasos.push("En Render, el plan <strong>Free duerme a los 15 minutos</strong> sin visitas, y " +
+      "dormido no escucha: esa telemetria se pierde y no vuelve.");
+  }
+
+  pasos.push(
     "Despues del primer ingreso, <strong>cambiar la contraseña</strong>: la inicial quedo escrita " +
       "en las variables de entorno.<br><code>npm run usuario --workspace server -- " +
       d.seedUser + " &lt;clave-nueva&gt;</code>",
-    "Probar con una corrida real, o con el simulador apuntando al broker de produccion. " +
-      "Ojo: <strong>son datos falsos entrando al historico real</strong>, y el broker los retiene " +
-      "hasta que una corrida verdadera los pise.",
+    "Probar con una corrida real, o con el simulador apuntando al broker de produccion:<br>" +
+      "<code>node tools/simulador.js --url " + d.mqtt + " --user &lt;usuario&gt; --pass &lt;clave&gt;</code>" +
+      "<br>Ojo: <strong>son datos falsos entrando al historico real</strong>, y el broker los " +
+      "retiene hasta que una corrida verdadera los pise.",
     "Entrar a <code>https://" + host + "</code> y confirmar que el login funciona."
-  ];
+  );
+
+  return pasos;
 }
 
 function mostrarMensajes(){
@@ -391,7 +469,11 @@ function generar(){
     "<h3>3. Comandos <button class='mini' id='btnCopiaCmd'>Copiar</button></h3>" +
     "<pre id='preCmd'></pre>" +
     "<p class='nota'>El archivo lleva las contraseñas en texto plano. Borralo cuando " +
-      "termines, o guardalo donde guardes el resto de tus credenciales.</p>";
+      "termines, o guardalo donde guardes el resto de tus credenciales.</p>" +
+    "<h3>4. Si algo no funciona</h3>" +
+    "<table class='diag'><thead><tr><th>Sintoma</th><th>Causa y arreglo</th></tr></thead><tbody>" +
+      diagnostico().map(function(f){ return "<tr><td>" + f[0] + "</td><td>" + f[1] + "</td></tr>"; }).join("") +
+    "</tbody></table>";
 
   // textContent y no innerHTML: una contraseña con < o & se veria mal (o
   // peor, se interpretaria) al inyectarla como HTML.

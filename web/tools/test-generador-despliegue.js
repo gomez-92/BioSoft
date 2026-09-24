@@ -36,7 +36,8 @@ vm.runInContext(code + `
 var __t = {
   get errors(){ return errors; },
   get warns(){ return warns; },
-  validate: validate, envFile: envFile, comandos: comandos
+  validate: validate, envFile: envFile, comandos: comandos,
+  pasosPrevios: pasosPrevios, diagnostico: diagnostico
 };`, ctx);
 const T = ctx.__t;
 
@@ -180,6 +181,59 @@ check("usa el nombre y la region elegidos", /--name biosoft-monitor --region eze
 const cmdRender = T.comandos(base({ plataforma: "render" }));
 check("render no usa la CLI", !/fly /.test(cmdRender));
 check("render menciona el Root Directory", /Root Directory/.test(cmdRender));
+
+
+// Cada una de estas fija algo que costo un ciclo de despliegue averiguar.
+console.log("\nlecciones del despliegue real");
+
+// `flyctl launch` reescribe fly.toml con sus defaults y pisa
+// auto_stop_machines=false y min_machines_running=1: la maquina se apaga sola
+// y el monitor deja de escuchar. Paso, y no hay nada que lo avise.
+check("avisa que fly launch pisa el fly.toml",
+  /REESCRIBE fly\.toml/.test(cmdFly) && /git checkout fly\.toml/.test(cmdFly));
+
+// El instalador de winget deja el comando como `flyctl`, no `fly`.
+check("usa flyctl y no fly",
+  /flyctl launch/.test(cmdFly) && !/^fly /m.test(cmdFly));
+
+// Un ping que devuelve 200 no dice nada: el servidor responde igual con los
+// dos enlaces caidos. Lo que hay que mirar son los booleanos.
+check("la verificacion mira mongo y mqtt, no solo el 200",
+  /mongo.*:true/.test(cmdFly) && /mqtt.*:true/.test(cmdFly));
+
+check("manda a los logs cuando algo falla", /flyctl logs/.test(cmdFly));
+
+const pasos = T.pasosPrevios(base()).join(" ");
+// Probar la URI antes de desplegar es lo que convierte media hora en tres
+// segundos.
+check("el primer paso es probar la URI de Atlas", /probar-mongo\.js/.test(pasos));
+// El permiso de escritura es el que mas engaña: sin el, el monitor arranca, no
+// da error y no guarda nada.
+check("menciona el permiso de escritura", /ESCRITURA/.test(pasos));
+// Confundir la cuenta de Atlas con el usuario de base frena a cualquiera.
+check("aclara que el usuario de base no es la cuenta de Atlas",
+  /NO es tu cuenta de/.test(pasos));
+// Con publicacion denegada, el simulador NO puede usar la credencial del
+// backend -- y el sintoma es que no llega nada, sin ningun error.
+check("avisa que el simulador necesita otra credencial",
+  /el simulador necesita otra/.test(pasos));
+check("advierte que Fly pide tarjeta",
+  /pide tarjeta/.test(T.pasosPrevios(base({ plataforma: "fly" })).join(" ")));
+check("advierte que el Free de Render duerme",
+  /duerme a los 15 minutos/.test(T.pasosPrevios(base({ plataforma: "render" })).join(" ")));
+
+// La tabla de diagnostico traduce sintoma -> causa. El sintoma que se ve (la
+// pagina no actualiza) nunca nombra la causa.
+const diag = T.diagnostico();
+check("la tabla de diagnostico cubre los fallos que ocurrieron",
+  diag.length >= 8
+  && diag.some(f => /ENOTFOUND/.test(f[0]))
+  && diag.some(f => /bad auth/.test(f[0]))
+  && diag.some(f => /local issuer certificate/.test(f[0]))
+  && diag.some(f => /Not authorized/.test(f[0])),
+  "filas: " + diag.length);
+check("cada fila dice que hacer, no solo que paso",
+  diag.every(f => f[1] && f[1].length > 40));
 
 /* ------------------------------ resumen ------------------------------ */
 
