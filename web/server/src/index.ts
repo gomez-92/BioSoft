@@ -71,17 +71,23 @@ connectMongo();
 startRealtime(server);   // antes del ingestor: el handler emite apenas guarda
 registerHandlers();
 
-// El tracker se reconstruye ANTES de suscribirse: si el backend se reinicio a
-// mitad de un experimento, las muestras que lleguen tienen que caer en la
-// corrida que ya estaba abierta y no en una nueva.
+// Los dos enlaces son INDEPENDIENTES y arrancan por separado.
+//
+// El ingestor solia arrancar recien despues de que Mongo conectara, para
+// reconstruir la corrida abierta antes de suscribirse. Pero eso ata una cosa a
+// la otra: con la base caida el broker ni se intentaba, y el diagnostico decia
+// "mqtt: false" sin que el broker tuviera nada malo. Peor todavia si la base
+// se cae y el broker no: no habria ninguna razon para dejar de escuchar.
+//
+// El orden sigue estando garantizado donde importa: una muestra que llega sin
+// base conectada se descarta en el handler (no se guarda ni se emite), y la
+// corrida abierta se recupera en cuanto Mongo responde.
+startIngestor();
+
 mongoose.connection.once('connected', () => {
   seedInitialUser().catch((error) => console.error('[auth] fallo la semilla:', error));
-  initRunTracker()
-    .then(() => startIngestor())
-    .catch((error) => {
-      console.error('[app] no se pudo recuperar la corrida abierta:', error);
-      startIngestor();
-    });
+  initRunTracker().catch((error) =>
+    console.error('[app] no se pudo recuperar la corrida abierta:', error));
 });
 
 // El barrido corre por intervalo, no por evento, porque el caso que atiende es
