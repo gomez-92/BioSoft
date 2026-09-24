@@ -162,6 +162,24 @@ tiene ningún usuario.
 
 ### Fly.io
 
+Primero, la CLI. **No se instala con npm** — es un binario propio, y el paquete
+llamado `fly` en npm es una librería sin relación:
+
+```
+winget install Fly-io.flyctl                  # Windows
+curl -L https://fly.io/install.sh | sh        # macOS / Linux
+```
+
+Hay que **cerrar y volver a abrir la terminal** para que tome el PATH. El
+comando queda como `flyctl`; el alias `fly` puede no estar.
+
+```
+flyctl version
+flyctl auth login        # o signup, abre el navegador
+```
+
+Y después:
+
 ```
 cd web
 flyctl launch --no-deploy            # el comando es flyctl, no fly

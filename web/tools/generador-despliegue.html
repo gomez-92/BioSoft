@@ -313,7 +313,21 @@ function comandos(d){
 
   if(d.plataforma === "fly"){
     return [
-      "# El comando es `flyctl`. El instalador de winget deja ese nombre, no `fly`.",
+      "# 0. Instalar la CLI de Fly, si no la tenes. NO se instala con npm: es un",
+      "#    binario propio, y el paquete `fly` de npm es otra cosa sin relacion.",
+      "#",
+      "#    Windows (desde PowerShell):",
+      "winget install Fly-io.flyctl",
+      "#",
+      "#    macOS / Linux:",
+      "#    curl -L https://fly.io/install.sh | sh",
+      "#",
+      "#    Despues CERRA Y ABRI la terminal, o el PATH nuevo no se toma.",
+      "#    El comando queda como `flyctl`, no como `fly`.",
+      "flyctl version",
+      "",
+      "# 0b. Entrar a la cuenta (abre el navegador).",
+      "flyctl auth login          # o `flyctl auth signup` si no tenes cuenta",
       "",
       "# 1. Crear la app sin desplegar todavia.",
       "cd web",

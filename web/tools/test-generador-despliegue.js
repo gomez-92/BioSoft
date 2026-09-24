@@ -196,6 +196,14 @@ check("avisa que fly launch pisa el fly.toml",
 check("usa flyctl y no fly",
   /flyctl launch/.test(cmdFly) && !/^fly /m.test(cmdFly));
 
+// Sin esto el primer comando falla con "command not found", que fue
+// exactamente lo que paso. Y flyctl NO se instala con npm: el paquete `fly`
+// del registro es una libreria sin relacion.
+check("incluye como instalar la CLI",
+  /winget install Fly-io\.flyctl/.test(cmdFly) && /fly\.io\/install\.sh/.test(cmdFly));
+check("avisa que hay que reabrir la terminal", /CERRA Y ABRI la terminal/.test(cmdFly));
+check("incluye el login", /flyctl auth login/.test(cmdFly));
+
 // Un ping que devuelve 200 no dice nada: el servidor responde igual con los
 // dos enlaces caidos. Lo que hay que mirar son los booleanos.
 check("la verificacion mira mongo y mqtt, no solo el 200",
