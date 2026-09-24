@@ -180,3 +180,27 @@ describe('parseResult', () => {
     expect(parseResult({ DESC: 'algo paso' })).toBeNull();
   });
 });
+
+describe('certificado del broker desde el entorno', () => {
+  // Un .env no admite valores multilinea, asi que el PEM viaja con "\n"
+  // literales. Si no se devuelven a saltos reales, TLS rechaza el certificado
+  // con el mismo error que si no estuviera cargado -- y entonces parece que el
+  // secreto no llego, cuando en realidad llego mal. Costo un despliegue.
+  it('convierte los escapes literales en saltos de linea reales', async () => {
+    const { pemDesdeEntorno } = await import('../src/mqtt/ingestor.js');
+    // Tal cual queda en un archivo .env: la barra y la ene como dos caracteres.
+    const plano = '-----BEGIN CERTIFICATE-----\\nMIIB\\nabc\\n-----END CERTIFICATE-----';
+
+    const pem = pemDesdeEntorno(plano);
+
+    expect(pem.split('\n')).toHaveLength(4);
+    expect(pem.startsWith('-----BEGIN CERTIFICATE-----\n')).toBe(true);
+    expect(pem).not.toContain('\\n');
+  });
+
+  it('deja intacto un PEM que ya viene con saltos reales', async () => {
+    const { pemDesdeEntorno } = await import('../src/mqtt/ingestor.js');
+    const pem = '-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----';
+    expect(pemDesdeEntorno(pem)).toBe(pem);
+  });
+});

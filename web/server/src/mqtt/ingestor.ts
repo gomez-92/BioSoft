@@ -20,8 +20,21 @@ export type MessageHandler = (message: TelemetryMessage) => void | Promise<void>
 
 // El certificado puede venir como archivo (desarrollo) o pegado en una
 // variable de entorno (la nube, donde no hay donde poner un archivo suelto).
+/**
+ * Un PEM que viene de una variable de entorno trae los saltos de linea como
+ * "\n" LITERALES: un archivo .env no admite valores multilinea, y ninguna
+ * plataforma deja pegar un certificado con saltos reales en un secreto.
+ *
+ * Hay que devolverlos a saltos de verdad o el certificado es texto invalido y
+ * TLS lo rechaza -- con el mismo error que si no lo hubieras cargado, asi que
+ * parece que el secreto no llego cuando en realidad llego mal.
+ */
+export function pemDesdeEntorno(valor: string): string {
+  return valor.includes('\\n') ? valor.replace(/\\n/g, '\n') : valor;
+}
+
 function caDelBroker(): Buffer[] | undefined {
-  if (config.mqtt.caPem) return [Buffer.from(config.mqtt.caPem)];
+  if (config.mqtt.caPem) return [Buffer.from(pemDesdeEntorno(config.mqtt.caPem))];
   if (config.mqtt.caPath) return [readFileSync(config.mqtt.caPath)];
   return undefined;   // se usa el almacen de CAs del sistema
 }
