@@ -10,6 +10,14 @@
 //   node tools/simulador.js --reason critical
 //   node tools/simulador.js --url mqtt://localhost:1883 --step 500
 //
+// Contra el broker real (OJO: son datos falsos entrando al historico real):
+//
+//   node tools/simulador.js --url mqtts://host:8883 --user X --pass Y
+//
+// El usuario y la clave van por separado y NO dentro de la URL: ahi cualquier
+// @ / : o # tendria que ir escapado, y una clave mal escapada no da error --
+// el broker simplemente rechaza la conexion y parece que el host esta mal.
+//
 // OJO: usa un clientId propio. Dos clientes con el mismo clientId se
 // desconectan mutuamente, asi que nunca el de la placa ni el del backend.
 
@@ -36,7 +44,14 @@ const T = {
   result: `${base}/result`,
 };
 
-const client = mqtt.connect(url, { clientId: `biosoft-simulador-${Date.now()}` });
+// El clientId lleva la marca de tiempo para no chocar nunca con el de la placa
+// ni con el del backend: dos clientes con el mismo id se desconectan
+// mutuamente.
+const client = mqtt.connect(url, {
+  clientId: `biosoft-simulador-${Date.now()}`,
+  username: arg('user', undefined),
+  password: arg('pass', undefined),
+});
 
 function publish(topic, payload, retain) {
   const json = JSON.stringify(payload);
