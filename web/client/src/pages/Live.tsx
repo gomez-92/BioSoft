@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
-  antiguedad, duracion, esViejo, horaCorta, nombreMotivo, nombreSalud, nombreTipoAlerta, numero,
+  antiguedad, duracion, esCampoNulo, esViejo, horaCorta, nombreModo, nombreMotivo,
+  nombreSalud, nombreTipoAlerta, numero,
 } from '../lib/format.js';
 import type { LiveState } from '../lib/useLive.js';
 
@@ -139,8 +140,8 @@ function Salud({ health }: { health?: string }) {
 // todo lo demas, igual que un experimento normal.
 function Modo({ mode }: { mode?: string }) {
   if (!mode) return null;
-  const esNulo = mode.toLowerCase().includes('nulo');
-  return <span className={`chip chip-modo ${esNulo ? 'chip-nulo' : ''}`}>{mode.toUpperCase()}</span>;
+  const esNulo = esCampoNulo(mode);
+  return <span className={`chip chip-modo ${esNulo ? 'chip-nulo' : ''}`}>{nombreModo(mode)}</span>;
 }
 
 function Progreso({ status, startedAt }: { status: LiveState['status']; startedAt: string }) {

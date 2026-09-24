@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { authFetch } from '../lib/auth.js';
-import { duracion, nombreMotivo } from '../lib/format.js';
+import { duracion, esCampoNulo, nombreModo, nombreMotivo } from '../lib/format.js';
 
 // Lista de corridas. Lo que se busca al recorrerla es casi siempre lo mismo:
 // que corridas fueron control (campo nulo) y cuales se cortaron solas. Por eso
@@ -55,8 +55,10 @@ export function Historial() {
         </select>
         <select value={modo} onChange={(e) => { setModo(e.target.value); setPagina(1); }}>
           <option value="">Todos los modos</option>
-          <option value="campo X">Campo X</option>
-          <option value="campo nulo">Campo nulo</option>
+          {/* Los valores son los que publica la placa ("x" / "null", el
+              campo `value` de optionsFieldMode), no las etiquetas. */}
+          <option value="x">Campo X</option>
+          <option value="null">Campo nulo</option>
         </select>
         <span className="filtros-total">{total} corrida{total === 1 ? '' : 's'}</span>
       </section>
@@ -91,7 +93,7 @@ function Fila({ run }: { run: RunRow }) {
   const segundos = run.endedAt
     ? (new Date(run.endedAt).getTime() - inicio.getTime()) / 1000
     : undefined;
-  const esNulo = run.mode?.toLowerCase().includes('nulo') ?? false;
+  const esNulo = esCampoNulo(run.mode);
 
   return (
     <li>
@@ -101,7 +103,7 @@ function Fila({ run }: { run: RunRow }) {
             {inicio.toLocaleDateString('es-AR')} {inicio.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
           </span>
           {run.mode && (
-            <span className={`chip chip-modo ${esNulo ? 'chip-nulo' : ''}`}>{run.mode.toUpperCase()}</span>
+            <span className={`chip chip-modo ${esNulo ? 'chip-nulo' : ''}`}>{nombreModo(run.mode)}</span>
           )}
           <Motivo reason={run.reason} state={run.state} />
         </div>

@@ -63,3 +63,28 @@ const NOMBRE_MOTIVO: Record<string, string> = {
 export function nombreMotivo(reason: string): string {
   return NOMBRE_MOTIVO[reason] ?? reason;
 }
+
+/**
+ * El modo de exposicion, que es lo unico que distingue el grupo tratado del
+ * grupo control. Un campo nulo se ve, en todo lo demas, igual que un
+ * experimento normal, asi que equivocarse aca no se nota mirando la pantalla.
+ *
+ * La placa NO manda la etiqueta sino el valor: "x" o "null"
+ * (`ConfigurationOptions::optionsFieldMode[...].value`, publicado por
+ * `MySystem::_publishTargets()`). Se aceptan igual las etiquetas ("Campo
+ * nulo") porque las corridas viejas del simulador las tienen guardadas asi.
+ *
+ * Esto vivia disperso en tres pantallas como `mode.includes('nulo')`, que da
+ * FALSO para el "null" que manda la placa de verdad: una corrida de control se
+ * habria mostrado como tratada.
+ */
+export function esCampoNulo(mode: string | null | undefined): boolean {
+  if (!mode) return false;
+  const valor = mode.trim().toLowerCase();
+  return valor === 'null' || valor === 'nulo' || valor.includes('nulo');
+}
+
+export function nombreModo(mode: string | null | undefined): string {
+  if (!mode) return '--';
+  return esCampoNulo(mode) ? 'CAMPO NULO' : 'CAMPO X';
+}

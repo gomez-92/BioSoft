@@ -8,6 +8,7 @@
 //
 //   node tools/simulador.js                 # corrida normal, 60 s comprimidos
 //   node tools/simulador.js --reason critical
+//   node tools/simulador.js --mode null      # grupo control
 //   node tools/simulador.js --url mqtt://localhost:1883 --step 500
 //
 // Contra el broker real (OJO: son datos falsos entrando al historico real):
@@ -33,6 +34,13 @@ const url = arg('url', 'mqtt://localhost:1883');
 const stepMs = Number(arg('step', '1000'));   // cada cuanto una tanda periodica
 const steps = Number(arg('steps', '20'));     // cuantas tandas dura la corrida
 const reason = arg('reason', 'completed');    // completed | critical | stopped
+// El MODO como lo publica la placa: el campo `value` de
+// ConfigurationOptions::optionsFieldMode, que es "x" o "null" -- NO la etiqueta
+// ("Campo X"). Este simulador mandaba la etiqueta, y por eso el monitor mostraba
+// bien los datos falsos y habria mostrado mal los reales: un campo nulo se
+// habria visto como campo X, que es la unica distincion que el experimento no
+// puede perder.
+const mode = arg('mode', 'x');                // x | null
 const base = arg('base', 'biosoft/telemetry');
 
 const T = {
@@ -75,7 +83,7 @@ const secondsPerStep = Math.round((durationMinutes * 60) / steps);
 
 async function run() {
   publish(T.targets, {
-    MODE: 'campo X', CEM: 1.5, FREQ: 50, DUR: durationMinutes, TOL: 10,
+    MODE: mode, CEM: 1.5, FREQ: 50, DUR: durationMinutes, TOL: 10,
     TNMIN: 20, TNMAX: 30, TCMIN: 15, TCMAX: 35,
   }, true);
 

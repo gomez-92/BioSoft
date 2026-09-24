@@ -5,7 +5,9 @@ import {
   type AlertaMarca, type PuntoMedicion,
 } from '../components/Graficos.js';
 import { authFetch } from '../lib/auth.js';
-import { duracion, horaCorta, nombreMotivo, nombreTipoAlerta, numero } from '../lib/format.js';
+import {
+  duracion, esCampoNulo, horaCorta, nombreModo, nombreMotivo, nombreTipoAlerta, numero,
+} from '../lib/format.js';
 import type { Targets } from '../lib/types.js';
 
 // Detalle de una corrida: que se pidio, que paso y por que termino.
@@ -58,7 +60,7 @@ export function DetalleCorrida() {
 
   const inicio = new Date(detalle.startedAt).getTime();
   const fin = detalle.endedAt ? new Date(detalle.endedAt).getTime() : Date.now();
-  const esNulo = detalle.targets?.mode?.toLowerCase().includes('nulo') ?? false;
+  const esNulo = esCampoNulo(detalle.targets?.mode);
 
   return (
     <>
@@ -66,7 +68,7 @@ export function DetalleCorrida() {
         <div className="encabezado-run">
           {detalle.targets?.mode && (
             <span className={`chip chip-modo ${esNulo ? 'chip-nulo' : ''}`}>
-              {detalle.targets.mode.toUpperCase()}
+              {nombreModo(detalle.targets.mode)}
             </span>
           )}
           {detalle.result && (
