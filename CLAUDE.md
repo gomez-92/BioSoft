@@ -9,7 +9,9 @@ controlled, low-frequency electromagnetic field for a bioengineering research
 experiment. It is a PlatformIO migration of two former Arduino IDE sketches
 (`SoftEsp32`, `SoftMega2560`).
 
-Two independent PlatformIO projects, one per board, connected by a serial link:
+Three pieces. Two independent PlatformIO projects, one per board, connected by
+a serial link — plus `web/`, which lives on the far side of the MQTT broker and
+touches no firmware:
 
 - **`esp32/`** — touchscreen HMI (LVGL + TFT_eSPI). Shows system state, lets the
   operator configure experiment parameters, and publishes telemetry over MQTT for
@@ -17,6 +19,8 @@ Two independent PlatformIO projects, one per board, connected by a serial link:
 - **`mega2560/`** — physical control. Drives the coil (signal generator + PWM),
   reads field/current/temperature sensors, and decides when to cut the experiment
   (time elapsed, danger detected, or loss of scientific rigor).
+- **`web/`** — remote monitor. Subscribes to the ESP32's telemetry, stores it in
+  MongoDB and serves a dashboard (live + history). Read-only by design.
 
 There is no shared source directory — `esp32/src/seriallink.hpp` and
 `mega2560/src/seriallink.hpp` (and `commands.hpp`, `timer.hpp`, `debugconfig.hpp`)
@@ -51,6 +55,22 @@ state machines, protocol framing) can also be unit-tested on the host,
 ```
 cd mega2560 && pio test -e native
 ```
+
+The web monitor is a separate npm workspace:
+
+```
+cd web && npm install
+npm run infra:up      # Mongo + Mosquitto in Docker, for development
+npm run dev           # backend :4000, front :5173
+npm test              # the three suites
+```
+
+Its Mongo-backed tests **skip themselves with a message** when the compose
+stack isn't up, rather than failing as if the code were broken. Each test file
+uses **its own database** (`biosoft_test_<name>`): vitest runs files in
+parallel, and with one shared database the `deleteMany` of one wipes what
+another just wrote — a failure that appears and disappears depending on worker
+order, and looks like a bug in the run correlation.
 
 The external configuration generator (`tools/`, see below) is plain JS and has
 its own host check, which needs nothing installed but node:
@@ -1023,6 +1043,86 @@ Two things there are worth knowing before touching it:
   error for a condition that cannot happen would be worse than none, so the
   generator only reports the computed size. If `MaxFieldNameLength` ever grows,
   that number is what says how much room is left.
+
+### `web/` — remote monitor
+
+Backend (Express + mqtt.js + Socket.IO + Mongoose) and frontend (React + Vite)
+in one npm workspace, deployed as **a single container**: in production the
+backend also serves the compiled front, from the same origin. Design and
+telemetry contract are in `docs/plan-monitor-web.md`; deployment in
+`docs/despliegue-monitor-web.md`.
+
+The whole thing hangs off six MQTT topics the ESP32 already publishes
+(`esp32/src/topics.hpp`). Firmware was not modified for any of this.
+
+Four decisions everything else rests on:
+
+- **Retained messages are never persisted or emitted.** Five of the six groups
+  publish with `retain`, so the broker redelivers the last one of each on
+  *every* subscribe. Treating those as new events would insert duplicate
+  samples with the delivery time instead of the measurement time on every
+  reconnect, and — far worse — a retained `targets` would open a ghost run with
+  the previous experiment's goals while a retained `result` closed the one
+  actually running. `TelemetryMessage.retained` is the guard, tested in
+  `test/ingesta.test.ts` and `test/corridas.test.ts`.
+- **Persist first, then emit.** The handler saves and only afterwards emits the
+  same object over Socket.IO, so the dashboard cannot show a measurement that
+  isn't in the database. With Mongo down it saves nothing and therefore emits
+  nothing.
+- **Runs are inferred, not reported.** The board sends no experiment id:
+  `targets` opens a run, `result` closes it, and every sample is written with
+  its `runId` already set (time-series collections aren't updated afterwards —
+  possible because `targets` always precedes the first sample). A run left
+  without a `result` is marked `orphan` and closed with the timestamp of its
+  **last data**, not of now; a `result` with no open run still creates an
+  orphan, because the cut reason is the one fact nobody else reports. An orphan
+  is not garbage: its samples are real measurements. See
+  `src/domain/runtracker.ts`.
+- **Gaps stay gaps.** The board publishes QoS 0 with no queue, so a stretch
+  without data is real. The API returns no empty buckets and the client inserts
+  an explicit null point so the chart breaks the line instead of drawing a
+  tidy straight one across minutes nobody measured.
+
+Other things worth knowing before touching it:
+
+- **`MODE` is `"x"` / `"null"`, not the label.** `_publishTargets()` sends
+  `optionsFieldMode[...].value`. The front asked `mode.includes('nulo')`, which
+  is **false** for `"null"` — a control-group run would have displayed as
+  treated, the one distinction the experiment cannot lose. It went unnoticed
+  because the simulator published the label. Now `esCampoNulo()`/`nombreModo()`
+  (`client/src/lib/format.ts`) are the single place that interprets it, and
+  `tools/simulador.js` sends what the board sends.
+- **Aggregated points carry min and max, not just the average.** A five-minute
+  bucket swallows the fifteen-second temperature spike that cut the
+  experiment — which is exactly what someone opens the chart to find.
+- **Express 4 does not catch async handler rejections**, and Node kills the
+  process on an unhandled one. With Mongo unreachable, one login attempt was
+  enough to kill the server, and the platform restarting it turned that into a
+  reboot loop whose cause appeared nowhere. `src/api/asincrono.ts` wraps the
+  handlers, answers 503 when the database is down, and a process-level guard
+  logs instead of exiting.
+- **`/api/ping` is public and reports both links** (`mongo`, `mqtt` booleans,
+  nothing else). `/api/health` says more but sits behind the login — and with
+  the database down **you cannot log in**, so the only endpoint able to explain
+  why nothing works was unreachable exactly when needed.
+- **The MQTT ingestor starts independently of Mongo.** It used to wait for the
+  database so it could restore the open run first; that coupling meant a
+  database problem also silently stopped telemetry ingestion.
+- **A PEM in an environment variable arrives with escaped newlines.** `.env`
+  files hold no multi-line values, so `MQTT_CA` carries `\n` literals and
+  `pemDesdeEntorno()` converts them back. Without that, TLS rejects the
+  certificate with the same error as if it were absent — so it looks like the
+  secret never arrived when it arrived wrong.
+- `tools/simulador.js` publishes a whole run (topics, keys and retain flags
+  identical to the board's) and is what makes the critical-alert cut
+  reproducible without provoking it on real hardware. `tools/probar-mongo.js`
+  tests a connection URI — DNS, connection, credential and **write
+  permission** — before a deploy: with a read-only user the monitor starts,
+  logs no error and stores nothing.
+
+**Nothing here has been fed by the real board yet.** Everything verified so far
+came from the simulator, which reproduces the contract as read from the
+firmware. The `MODE` bug above is what that gap looks like when it bites.
 
 ### Style notes specific to this codebase
 

@@ -391,10 +391,11 @@ table.pins tbody td{padding:7px 12px 7px 0}
       <li><a href="#s10"><span class="n">10</span> Finalización</a></li>
       <li><a href="#s11"><span class="n">11</span> Parada de emergencia</a></li>
       <li><a href="#s12"><span class="n">12</span> Monitoreo remoto</a></li>
-      <li><a href="#s13"><span class="n">13</span> La tarjeta SD</a></li>
-      <li><a href="#s14" class="flag"><span class="n">14</span> Limitaciones vigentes</a></li>
-      <li><a href="#s15"><span class="n">15</span> Diagnóstico de fallas</a></li>
-      <li><a href="#s16"><span class="n">16</span> Buenas prácticas</a></li>
+      <li><a href="#s13"><span class="n">13</span> El monitor web</a></li>
+      <li><a href="#s14"><span class="n">14</span> La tarjeta SD</a></li>
+      <li><a href="#s15" class="flag"><span class="n">15</span> Limitaciones vigentes</a></li>
+      <li><a href="#s16"><span class="n">16</span> Diagnóstico de fallas</a></li>
+      <li><a href="#s17"><span class="n">17</span> Buenas prácticas</a></li>
     </ol>
   </nav>
 
@@ -415,10 +416,10 @@ table.pins tbody td{padding:7px 12px 7px 0}
         <li><span class="n">10</span> Finalización del experimento</li>
         <li><span class="n">11</span> Parada de emergencia</li>
         <li><span class="n">12</span> Monitoreo remoto</li>
-        <li><span class="n">13</span> La tarjeta SD</li>
-        <li><span class="n">14</span> Limitaciones vigentes</li>
-        <li><span class="n">15</span> Diagnóstico de fallas</li>
-        <li><span class="n">16</span> Buenas prácticas</li>
+        <li><span class="n">14</span> La tarjeta SD</li>
+        <li><span class="n">15</span> Limitaciones vigentes</li>
+        <li><span class="n">16</span> Diagnóstico de fallas</li>
+        <li><span class="n">17</span> Buenas prácticas</li>
       </ol>
     </section>
 
@@ -511,7 +512,7 @@ table.pins tbody td{padding:7px 12px 7px 0}
         <tr><td>Etapa de potencia</td><td>Acondiciona la señal senoidal, la invierte para el campo nulo, le aplica la amplitud y la entrega a las bobinas.</td></tr>
         <tr><td>Interruptor general</td><td>Relé que corta la alimentación de toda la etapa de potencia.</td></tr>
         <tr><td>Pulsador de emergencia</td><td>Corte físico inmediato del experimento en curso.</td></tr>
-        <tr><td>Tarjeta SD</td><td>Archivo de configuración del equipo (sección 13).</td></tr>
+        <tr><td>Tarjeta SD</td><td>Archivo de configuración del equipo (sección 14).</td></tr>
       </tbody>
     </table></div>
 
@@ -544,7 +545,7 @@ table.pins tbody td{padding:7px 12px 7px 0}
         transductores. La etapa de potencia (amplificación, inversor, filtrado
         y alimentación de las bobinas) constituye una frontera cuyo diseño
         eléctrico se describe en <code>docs/coil-excitation.md</code> y cuyo
-        montaje está pendiente (sección 14). Las bobinas están caracterizadas
+        montaje está pendiente (sección 15). Las bobinas están caracterizadas
         en un trabajo previo cuyos datos no se incorporan en este manual.</p>
     </div>
 
@@ -700,7 +701,7 @@ table.pins tbody td{padding:7px 12px 7px 0}
                          ┌─► directa ─────────────────────► bobinas 1 y 3  (grupo fijo)
  AD9833 ──► senoidal ────┤
  (SPI, CS 5)             └─► inversor (op-amp) ──┐
-                                                 ├─ mux ──► bobinas 2 y 4  (grupo invertible)
+                                                 ├─ mux ──► bobinas 2 y 4  (invertible)
                          (directa) ──────────────┘   ▲
                                                      │
                                        pin 22 ── selector de modo
@@ -871,7 +872,7 @@ table.pins tbody td{padding:7px 12px 7px 0}
       <li>En cada pin PWM habilitado, una onda rectangular de 3906 Hz cuyo
         ciclo de trabajo varía lentamente mientras el regulador lleva el campo
         a la consigna. Un ciclo de trabajo fijo en 100 % indica que esa bobina
-        no alcanza la consigna (ver «recorte» en la sección 15).</li>
+        no alcanza la consigna (ver «recorte» en la sección 16).</li>
       <li>En el pin 22, nivel LOW en modo campo X y HIGH en modo campo nulo. En
         la etapa de potencia, la señal que llega a las bobinas 2 y 4 debe
         estar en fase con la de 1 y 3 en campo X y en contrafase exacta en
@@ -885,7 +886,7 @@ table.pins tbody td{padding:7px 12px 7px 0}
       <p>La cancelación debe verificarse con el magnetómetro, no inferirse del
         nivel del pin 22: el selector de modo indica lo que el firmware pidió,
         no lo que la etapa de potencia entregó. Mientras el inversor y el
-        multiplexor no estén montados (sección 14), el modo campo nulo no
+        multiplexor no estén montados (sección 15), el modo campo nulo no
         cancela nada.</p>
     </div>
 
@@ -911,7 +912,7 @@ table.pins tbody td{padding:7px 12px 7px 0}
       <li>Muestra ubicada.</li>
       <li><strong>Modo de experimento correcto</strong> para la tanda que se
         ejecutará. En el estado actual se define en el archivo de
-        configuración, no en la pantalla (sección 14).</li>
+        configuración, no en la pantalla (sección 15).</li>
     </ol>
 
     <h2 id="s6">Sección 6</h2>
@@ -1144,17 +1145,111 @@ table.pins tbody td{padding:7px 12px 7px 0}
         ese intervalo.</li>
     </ul>
 
-    <div class="callout warn">
-      <span class="tag">Estado actual</span>
-      <p>La conexión segura con el servidor de telemetría se encuentra
-        inoperante: el certificado raíz embebido en el firmware no corresponde
-        al del servidor y el reloj del equipo no se sincroniza al arrancar. Se
-        trata de una corrección pendiente de firmware (sección 14). Mientras
-        tanto, los errores de conexión que aparecen en la consola cada 10 s no
-        afectan ninguna otra función.</p>
-    </div>
+    <p>La telemetría viaja cifrada al servidor. El equipo sincroniza su reloj
+      por NTP al conectarse al WiFi y no intenta establecer la conexión segura
+      hasta haberlo hecho, porque todo certificado tiene fechas de validez y un
+      equipo recién encendido cree estar en 1970.</p>
+
+    <p>Lo publicado por el equipo se recibe, se almacena y se presenta en el
+      monitor web, descrito en la sección siguiente.</p>
 
     <h2 id="s13">Sección 13</h2>
+    <p class="h2title">El monitor web</p>
+
+    <p>El monitor web es una página a la que se accede desde cualquier
+      computadora o teléfono con internet, dentro o fuera del laboratorio.
+      Recibe lo que el equipo publica, lo conserva y permite consultar los
+      experimentos anteriores.</p>
+
+<pre class="diagram">
+   Equipo              Servidor de              Monitor web
+   (WiFi)              telemetría               (navegador)
+
+  ┌────────┐   cifrado  ┌──────────┐            ┌──────────────┐
+  │ ESP32  │───────────▶│  Broker  │───────────▶│   En curso   │
+  └────────┘            └──────────┘   guarda   │   Historial  │
+                              │        y envía  │   Detalle    │
+                              ▼                 └──────────────┘
+                        ┌──────────┐
+                        │   Base   │  histórico de experimentos
+                        └──────────┘
+</pre>
+
+    <p>El acceso requiere usuario y contraseña. La dirección y las credenciales
+      las provee quien haya instalado el monitor.</p>
+
+    <h3>Pantalla «En curso»</h3>
+
+    <p>Es la que responde la única pregunta que importa desde lejos: si el
+      experimento marcha bien. Muestra el estado general, el modo de
+      exposición, el avance, el campo y la temperatura medidos junto a sus
+      consignas, una fila por cada bobina montada y las últimas alertas.</p>
+
+    <p>Tres comportamientos conviene conocer antes de interpretarla:</p>
+
+    <ul>
+      <li><strong>Los valores envejecen a la vista.</strong> Bajo cada
+        medición se indica hace cuánto llegó, y pasado un minuto y medio el
+        recuadro se atenúa. Un número atenuado es el último dato conocido, no
+        una medición actual. Sin esta señal, una lectura de hace media hora
+        se vería idéntica a una recién tomada.</li>
+      <li><strong>Un valor ausente se muestra como «--», nunca como cero.</strong>
+        Durante un experimento, 0 mT es una medición posible.</li>
+      <li><strong>Los avisos encabezan la pantalla.</strong> Si se pierde la
+        conexión con el servidor, con el broker o entre la interfaz y la placa
+        de control, se anuncia arriba de todo, porque cambia el significado de
+        cuanto figura debajo.</li>
+    </ul>
+
+    <h3>Pantalla «Historial»</h3>
+
+    <p>Lista los experimentos registrados, del más reciente al más antiguo, con
+      su fecha, su modo de exposición, cómo terminó y cuántas alertas
+      registró. Puede filtrarse por modo y por motivo de finalización.</p>
+
+    <p>Un experimento puede figurar como <strong>«Sin cierre»</strong>: son
+      aquellos cuyo mensaje de finalización nunca llegó, por un corte de
+      energía, de red o del propio servidor. Sus mediciones son reales y
+      válidas; lo que se desconoce es cómo terminó.</p>
+
+    <h3>Pantalla de detalle</h3>
+
+    <p>Al abrir un experimento se accede a sus consignas, su resultado y los
+      gráficos de campo, temperatura, corriente y ciclo de trabajo por bobina.
+      Sobre las mediciones, líneas verticales punteadas señalan el momento de
+      cada alerta.</p>
+
+    <p>Dos criterios de lectura de los gráficos:</p>
+
+    <ul>
+      <li><strong>Cada punto muestra su banda de mínimo y máximo</strong>,
+        además del promedio. Promediar por sí solo ocultaría los picos, que
+        son justamente los que disparan las alertas y los que se va a
+        buscar.</li>
+      <li><strong>Los tramos sin datos se dibujan como huecos.</strong> Si el
+        servidor estuvo caído, esos minutos no existen y no se recuperan: unir
+        los extremos con una recta afirmaría algo que nadie midió.</li>
+    </ul>
+
+    <p>El botón <strong>Descargar CSV</strong> entrega las mediciones tal como
+      se tomaron, sin promediar, para analizarlas en una planilla.</p>
+
+    <div class="callout warn">
+      <span class="tag">Alcance del monitor</span>
+      <p><strong>Es de solo lectura, por diseño.</strong> No es posible iniciar
+        ni detener un experimento desde la web, ni lo será: hacerlo energizaría
+        las bobinas con animales en el gabinete y sin nadie en la sala,
+        mientras que la parada de emergencia solo auxilia a quien ya está
+        presente.</p>
+      <p><strong>Solo hay datos durante un experimento.</strong> Fuera de una
+        corrida la pantalla indica que no hay ninguno en curso, y ello no
+        constituye una falla.</p>
+      <p><strong>El monitor debe permanecer encendido.</strong> Es el único
+        que escucha al equipo; lo publicado mientras está detenido se pierde y
+        no se recupera. Aparece luego como un tramo sin mediciones.</p>
+    </div>
+
+    <h2 id="s14">Sección 14</h2>
     <p class="h2title">La tarjeta SD</p>
 
     <p>El equipo lee su archivo de configuración
@@ -1191,7 +1286,7 @@ table.pins tbody td{padding:7px 12px 7px 0}
         silencio y, en las listas de la pantalla, queda en cero.</p>
     </div>
 
-    <h2 id="s14">Sección 14</h2>
+    <h2 id="s15">Sección 15</h2>
     <p class="h2title">Limitaciones vigentes</p>
 
     <div class="callout stop">
@@ -1209,12 +1304,11 @@ table.pins tbody td{padding:7px 12px 7px 0}
         Hasta que se ejecute el protocolo de calibración
         (<code>docs/protocolo-calibracion-intensidad.md</code>), la
         intensidad indicada no está verificada contra el campo real.</li>
-      <li><strong>El modo de experimento no se selecciona desde la
-        pantalla.</strong> El equipo lo acepta y lo aplica, pero el selector
-        no existe aún en Configuración; se define en el archivo de la tarjeta.
-        Por defecto es <strong>campo X</strong>, nunca campo nulo, porque un
-        campo nulo accidental sería indistinguible de un experimento
-        normal.</li>
+      <li><strong>El modo de experimento se selecciona en Configuración</strong>
+        y viaja con la orden de inicio. Por defecto es <strong>campo X</strong>,
+        nunca campo nulo, porque un campo nulo accidental sería indistinguible
+        de un experimento normal. No puede cambiarse con el experimento en
+        curso: alteraría la condición experimental de animales ya expuestos.</li>
       <li><strong>La inversión de fase depende de hardware no montado.</strong>
         El inversor y el multiplexor de la etapa de potencia están diseñados
         pero no construidos. Hasta entonces, el modo campo nulo no cancela
@@ -1235,8 +1329,10 @@ table.pins tbody td{padding:7px 12px 7px 0}
       <li><strong>La corriente no interrumpe el experimento.</strong> Se mide,
         se muestra y se publica, pero por diseño no es una condición de
         corte.</li>
-      <li><strong>La telemetría segura está inoperante</strong> (sección 12)
-        hasta reemplazar el certificado raíz y sincronizar el reloj.</li>
+      <li><strong>El monitor web no se ha probado con el equipo real.</strong>
+        Cuanto se verificó hasta ahora proviene de un simulador que reproduce
+        el formato de los mensajes. La primera corrida con la placa es la que
+        confirmará el resto (secciones 12 y 13).</li>
       <li><strong>El firmware de la interfaz incluye un modo de banco</strong>
         (<code>BENCH_SIN_MEGA</code>) que permite alcanzar Principal sin placa
         de control conectada. Debe estar desactivado en la compilación de
@@ -1244,7 +1340,7 @@ table.pins tbody td{padding:7px 12px 7px 0}
         agotar el tiempo sin que exista nada que arrancar.</li>
     </ul>
 
-    <h2 id="s15">Sección 15</h2>
+    <h2 id="s16">Sección 16</h2>
     <p class="h2title">Diagnóstico de fallas</p>
 
     <div class="tablewrap"><table class="wide">
@@ -1266,7 +1362,7 @@ table.pins tbody td{padding:7px 12px 7px 0}
       </tbody>
     </table></div>
 
-    <h2 id="s16">Sección 16</h2>
+    <h2 id="s17">Sección 17</h2>
     <p class="h2title">Buenas prácticas</p>
 
     <ul>

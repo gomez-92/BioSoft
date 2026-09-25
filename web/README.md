@@ -106,9 +106,15 @@ Fases 0 a 6 listas.
   configuracion de produccion esta mal, y el runbook en
   [`docs/despliegue-monitor-web.md`](../docs/despliegue-monitor-web.md).
 
-Lo que queda es la fase 7 (pulido: retencion de datos, reconexion, detalles de
-responsive) y desplegarlo de verdad, que necesita las cuentas de Atlas y de la
-plataforma.
+**Desplegado y andando** en Fly.io desde el 2026-09-24, con MongoDB Atlas y el
+mismo broker EMQX al que publica la placa. Una corrida simulada contra el
+broker real llego de punta a punta.
+
+Lo que queda: la fase 7 (pulido -- retencion de datos, filtro por fecha en el
+Historial, avisos cuando se corta la ingesta) y, sobre todo, **la primera
+corrida con la placa real**. Todo lo verificado hasta ahora salio del
+simulador; el error de MODE (ver mas abajo) es lo que esa diferencia produce
+cuando muerde.
 
 Para desplegar hay un asistente que arma el archivo de variables y los
 comandos: abrir `tools/generador-despliegue.html` con doble clic. Sus
