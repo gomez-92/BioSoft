@@ -51,10 +51,22 @@ estructurales y fijas.
 | `biosoft/telemetry/alerts` | por evento (`flag_data`) | **no** | `{SRC, TYPE, COUNT, LIMIT}` |
 | `biosoft/telemetry/result` | 1× al cortar | sí | `{REASON, DESC, PROGRESS, ELAPSED "hh:mm:ss", MEAN?, SRC?, TYPE?, COUNT?, LIMIT?}` |
 
-Valores: `MODE` ∈ {campo X, campo nulo} (texto del menú), `REASON` ∈
-{`completed`, `critical`, `stopped`}, `TYPE` ∈ {`critical`, `streak`,
-`frequency`}, `ESTADO` ∈ {`normal`, `warning`, `critical`}, `STATE` ∈ {`idle`,
-`ready`, `starting`, `running`, `stopping`}.
+Valores: **`MODE` ∈ {`"x"`, `"null"`}**, `REASON` ∈ {`completed`, `critical`,
+`stopped`}, `TYPE` ∈ {`critical`, `streak`, `frequency`}, `ESTADO` ∈ {`normal`,
+`warning`, `critical`}, `STATE` ∈ {`idle`, `ready`, `starting`, `running`,
+`stopping`}.
+
+> **`MODE` es el valor, no la etiqueta.** `_publishTargets()` envía
+> `optionsFieldMode[...].value` — `"x"` o `"null"` —, no el texto del menú
+> («Campo X» / «Campo nulo»). Esta línea decía lo contrario, y ese error llegó
+> hasta el código: el front preguntaba `mode.includes('nulo')`, que es **falso**
+> para `"null"`, así que una corrida de campo nulo se habría mostrado como campo
+> X — el grupo control indistinguible del tratado. No lo detectó ningún test
+> porque el simulador reproducía el mismo error.
+>
+> [`config-schema.md`](config-schema.md) §9 ya lo decía bien. **Ante una duda
+> sobre el contrato de telemetría, ese documento y `esp32/src/topics.hpp` son la
+> autoridad**; esta tabla es un resumen para leer de un vistazo.
 
 ### Cinco cosas del contrato que condicionan el diseño
 
