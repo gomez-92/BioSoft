@@ -153,6 +153,7 @@
         "enabled": false,
         "sensor": "mlx90393",
         "bufferSize": 32,
+        "maxMissedSamples": 3,
         "range": {
           "mode": "derived",
           "criticalMultiplier": 1.25
@@ -191,6 +192,7 @@
         "enabled": true,
         "sensor": "ds18b20",
         "bufferSize": 32,
+        "maxMissedSamples": 3,
         "range": {
           "mode": "operator"
         },

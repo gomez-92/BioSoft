@@ -176,6 +176,7 @@ void test_config_source_header_fits(void) {
     doc["sensor"] = "mlx90393";
     doc["bufferSize"] = 32;
     doc["criticalMultiplier"] = 1.234567f;
+    doc["maxMissedSamples"] = 20;
 
     TEST_ASSERT_TRUE(survivesTransport(Commands::ConfigSource, doc));
 }

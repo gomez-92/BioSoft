@@ -117,13 +117,13 @@ const DEFAULTS = {
     {name:"BOB4",enabled:false,calibrationFactor:1.0}
   ],
   detector: { enabled: true, sources: [
-    {name:"CEM1",enabled:false,sensor:"mlx90393",bufferSize:32,
+    {name:"CEM1",enabled:false,sensor:"mlx90393",bufferSize:32,maxMissedSamples:3,
      range:{mode:"derived",criticalMultiplier:1.25},
      rules:{critical:{threshold:3,cooldown:1,maxEvents:2},
             streak:{threshold:5,cooldown:4,maxEvents:5},
             frequency:{threshold:16,cooldown:16,maxEvents:3}},
      scenario:{base:0,noise:0.1,ramp:0,stepAt:0,step:0,oscAmp:0,oscPeriod:0,dropAt:0,setpointDuty:0.5}},
-    {name:"TEMP1",enabled:true,sensor:"ds18b20",bufferSize:32,
+    {name:"TEMP1",enabled:true,sensor:"ds18b20",bufferSize:32,maxMissedSamples:3,
      range:{mode:"operator"},
      rules:{critical:{threshold:3,cooldown:1,maxEvents:2},
             streak:{threshold:5,cooldown:4,maxEvents:5},
@@ -244,7 +244,7 @@ const SCENARIO_PROFILES = [
    {cem: {oscAmp: 1.6, oscPeriod: 4, noise: 0.2}, temp: {}, cemEnabled: true}],
   ["campoFuera", "Campo fuera de rango", "CEM1 sin planta (no responde al lazo) salta a +2,5 a los 60 s. Debe cortar por critical.",
    {cem: {setpointDuty: 0, stepAt: 60, step: 2.5}, temp: {}, cemEnabled: true}],
-  ["sensorCaido", "Sensor de temperatura caido", "TEMP1 deja de dar lecturas a los 90 s. Muestra que hoy el silencio de un sensor NO corta el experimento.",
+  ["sensorCaido", "Sensor de temperatura caido", "TEMP1 deja de dar lecturas a los 90 s. Debe cortar por silencio a los ~105 s (3 lecturas de 5 s perdidas) con TEMP1 SIN LECTURAS.",
    {cem: {}, temp: {dropAt: 90}}]
 ];
 
@@ -483,7 +483,8 @@ function sDetector(){
       '<div style="align-self:end;padding-bottom:6px">' +
         chk("detector.sources." + i + ".enabled", "Vigilada por el Detector") + '</div>' +
       sel("detector.sources." + i + ".sensor", "Sensor", sensors) +
-      num("detector.sources." + i + ".bufferSize", INT, "bufferSize — ventana (8 a 32)");
+      num("detector.sources." + i + ".bufferSize", INT, "bufferSize — ventana (8 a 32)") +
+      num("detector.sources." + i + ".maxMissedSamples", INT, "Lecturas perdidas antes del corte (1 a 20)");
     if (s.sensor === "scenario" && s.scenario) {
       h += '</div><div class="grid" style="margin-top:10px">' +
         SCENARIO_KEYS.map(([k, kind, lbl]) => num("detector.sources." + i + ".scenario." + k, kind, lbl)).join("") +
@@ -853,9 +854,15 @@ function validate(){
     if (s.name === "TEMP1" && s.sensor === "sim")
       warn("TEMP1 con sensor sim: la temperatura sale de la entrada A1, no del DS18B20. No mide la " +
            "temperatura del gabinete -- nunca para un experimento con animales.");
+    const mm = s.maxMissedSamples;
+    if (!isInt(mm) || mm < 1 || mm > 20)
+      err(s.name + ": las lecturas perdidas antes del corte tienen que ser un entero entre 1 y 20. " +
+          "Fuera de rango el Mega lo ignora y se queda con 3.");
+    // Una fuente vigilada sin sensor no da lecturas, y desde la tarjeta 25 el
+    // silencio corta: el experimento se cortaria en cada corrida.
     if (s.name === "TEMP1" && s.sensor === "none" && s.enabled)
-      warn("TEMP1 vigilada sin termometro (sensor none): la fuente no recibe muestras y nunca va a " +
-           "cortar por temperatura.");
+      err("TEMP1 vigilada sin termometro (sensor none): sin lecturas, el corte por silencio la " +
+          "cortaria en cada corrida. Desmarcar 'Vigilada por el Detector' o elegir un sensor.");
     const bs = s.bufferSize;
     if (!isInt(bs) || bs < 8 || bs > 32)
       err(s.name + ": bufferSize tiene que ser un entero entre 8 y 32 (tope de RAM del Mega).");

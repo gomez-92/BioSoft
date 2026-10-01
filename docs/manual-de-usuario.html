@@ -1364,6 +1364,20 @@ table.pins tbody td{padding:7px 12px 7px 0}
         aunque la tarjeta declare corridas normales.</p>
     </div>
 
+    <h3>Sensor sin lecturas</h3>
+
+    <p>Si un sensor vigilado deja de dar lecturas durante un experimento
+      —se desconecta, se daña o falla su comunicación—, el equipo
+      <strong>corta el experimento</strong> y la pantalla de resultado indica,
+      por ejemplo, «TEMP1 SIN LECTURAS». De fábrica, el termómetro puede
+      perder tres lecturas seguidas (15 segundos) antes del corte.</p>
+
+    <p>El magnetómetro tiene una regla adicional: mientras el equipo regula la
+      intensidad del campo, <strong>su falta de lecturas siempre corta</strong>,
+      aunque no esté vigilado, porque sin él las bobinas quedarían excitadas
+      sin control. Si el magnetómetro no está conectado, todo experimento con
+      regulación activa se cortará a los pocos segundos de iniciado.</p>
+
     <div class="callout">
       <span class="tag">Edición del archivo</span>
       <p>Se recomienda emplear el generador de configuración que acompaña al

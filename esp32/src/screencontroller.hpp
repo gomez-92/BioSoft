@@ -890,7 +890,7 @@ inline void RunningController::_applyAlertDots(const char* source, lv_obj_t* con
       continue;
     }
 
-    bool critical = strcmp(history->types[i], "critical") == 0;
+    bool critical = isCriticalAlertType(history->types[i]);
     lv_obj_set_style_bg_color(dots[i],
                               critical ? lv_color_hex(0xA30000) : lv_color_hex(0xC47F08),
                               LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -1065,11 +1065,16 @@ inline void ResultadoController::_buildCriticalTexts(char* headline, size_t head
                                                      char* detail, size_t detailSize) const {
   const char* source = _data.result.source[0] != '\0' ? _data.result.source : "UNA FUENTE";
 
+  // Sensor sin lecturas (tarjeta 25): no es un limite que se alcanzo sino
+  // una fuente que dejo de medir, y asi tiene que leerse.
+  bool silence = strcmp(_data.result.type, "silence") == 0;
+
   const char* rule = "CRITICO";
   if (strcmp(_data.result.type, "streak") == 0) rule = "DE RACHA";
   else if (strcmp(_data.result.type, "frequency") == 0) rule = "DE FRECUENCIA";
 
-  snprintf(headline, headlineSize, "%s ALCANZO EL LIMITE %s", source, rule);
+  if (silence) snprintf(headline, headlineSize, "%s SIN LECTURAS", source);
+  else snprintf(headline, headlineSize, "%s ALCANZO EL LIMITE %s", source, rule);
 
   // Sin los campos crudos (Mega viejo, o frame sin ellos) queda la
   // descripcion que armo el Mega, que dice lo mismo en prosa.
@@ -1080,6 +1085,10 @@ inline void ResultadoController::_buildCriticalTexts(char* headline, size_t head
 
   char alerts[32];
   _buildAlertsClause(alerts, sizeof(alerts));
+  if (silence) {
+    snprintf(detail, detailSize, "%u lecturas perdidas - %s", _data.result.count, alerts);
+    return;
+  }
   snprintf(detail, detailSize, "%u/%u ocurrencias - %s",
            _data.result.count, _data.result.limit, alerts);
 }

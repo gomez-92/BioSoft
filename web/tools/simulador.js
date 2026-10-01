@@ -8,6 +8,7 @@
 //
 //   node tools/simulador.js                 # corrida normal, 60 s comprimidos
 //   node tools/simulador.js --reason critical
+//   node tools/simulador.js --reason silence  # TEMP1 deja de medir y corta
 //   node tools/simulador.js --mode null      # grupo control
 //   node tools/simulador.js --type normal    # marcada como experimento
 //   node tools/simulador.js --type none      # sin marca TEST (firmware viejo)
@@ -36,7 +37,7 @@ function arg(name, fallback) {
 const url = arg('url', 'mqtt://localhost:1883');
 const stepMs = Number(arg('step', '1000'));   // cada cuanto una tanda periodica
 const steps = Number(arg('steps', '20'));     // cuantas tandas dura la corrida
-const reason = arg('reason', 'completed');    // completed | critical | stopped
+const reason = arg('reason', 'completed');    // completed | critical | stopped | silence
 // El MODO como lo publica la placa: el campo `value` de
 // ConfigurationOptions::optionsFieldMode, que es "x" o "null" -- NO la etiqueta
 // ("Campo X"). Este simulador mandaba la etiqueta, y por eso el monitor mostraba
@@ -103,9 +104,12 @@ async function run() {
     const elapsed = step * secondsPerStep;
     const progress = Math.round((step / steps) * 100);
 
+    // silence: a mitad de corrida TEMP1 deja de aparecer en las mediciones,
+    // como lo publica la placa cuando el Mega ya no tiene lecturas validas.
+    const tempCaida = reason === 'silence' && step >= steps / 2;
     publish(T.measures, {
       CEM1: Number((1.5 + (Math.random() - 0.5) * 0.12).toFixed(4)),
-      TEMP1: Number((24 + step * 0.2 + Math.random()).toFixed(2)),
+      ...(tempCaida ? {} : { TEMP1: Number((24 + step * 0.2 + Math.random()).toFixed(2)) }),
     }, true);
 
     publish(T.coils, {
@@ -122,6 +126,12 @@ async function run() {
 
     // Una alerta a mitad de corrida, y si la corrida es "critical" se van
     // acumulando hasta el limite, que es lo que corta el experimento.
+    if (reason === 'silence' && step >= steps / 2 + 3) {
+      // Tres tandas sin TEMP1: el Mega corta por silencio (tarjeta 25).
+      health = 'critical';
+      publish(T.alerts, { SRC: 'TEMP1', TYPE: 'silence', COUNT: 3, LIMIT: 3 }, false);
+      break;
+    }
     if (reason === 'critical' && step >= steps / 2) {
       alerts++;
       health = 'critical';
@@ -134,7 +144,10 @@ async function run() {
   }
 
   const result =
-    reason === 'critical'
+    reason === 'silence'
+      ? { REASON: 'critical', DESC: 'TEMP1: limite de alertas silence alcanzado (3/3)',
+          SRC: 'TEMP1', TYPE: 'silence', COUNT: 3, LIMIT: 3 }
+      : reason === 'critical'
       ? { REASON: 'critical', DESC: 'TEMP1: limite de alertas critical alcanzado (4/4)',
           SRC: 'TEMP1', TYPE: 'critical', COUNT: 4, LIMIT: 4 }
       : reason === 'stopped'

@@ -364,12 +364,19 @@ inline void SystemData::pushAlert(const char* type, const char* source, int coun
 // Salud general del experimento a partir de las alertas activas: sin
 // alertas -> normal; con alguna alerta "critical" -> critical (aunque
 // tambien haya streak/frequency activas); solo streak/frequency -> warning.
+// Tipos de alerta que valen como criticos para la salud y el color: el
+// limite critico y el sensor sin lecturas (`silence`, tarjeta 25). Un sensor
+// caido es tan grave como uno fuera de rango -- de hecho corta igual.
+inline bool isCriticalAlertType(const char* type) {
+  return strcmp(type, "critical") == 0 || strcmp(type, "silence") == 0;
+}
+
 inline const char* SystemData::evaluateHealth() const {
   bool hasWarning = false;
 
   for (int i = 0; i < MAX_ALERTS; i++) {
     if (!alerts.items[i].active) continue;
-    if (strcmp(alerts.items[i].type, "critical") == 0) {
+    if (isCriticalAlertType(alerts.items[i].type)) {
       return HealthData::Critical;
     }
     hasWarning = true;

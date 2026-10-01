@@ -2,7 +2,7 @@ import {
   Area, CartesianGrid, ComposedChart, Legend, Line, ReferenceArea, ReferenceLine,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
-import { numero } from '../lib/format.js';
+import { esAlertaCritica, numero } from '../lib/format.js';
 import { aMilisegundos, bucketEnMs, insertarHuecos } from '../lib/series.js';
 import type { Targets } from '../lib/types.js';
 
@@ -77,7 +77,7 @@ function marcasDeAlerta(alertas: AlertaMarca[]) {
     <ReferenceLine
       key={`${alerta.ts}-${index}`}
       x={new Date(alerta.ts).getTime()}
-      stroke={alerta.type === 'critical' ? CRITICO : ADVERTENCIA}
+      stroke={esAlertaCritica(alerta.type) ? CRITICO : ADVERTENCIA}
       strokeDasharray="3 3"
       strokeWidth={1}
     />

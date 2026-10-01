@@ -41,6 +41,16 @@ namespace DetectorConfigBuilder {
     return bufferSize >= MinBufferSize && bufferSize <= MaxBufferSize;
   }
 
+  // Lecturas perdidas antes del corte por silencio (tarjeta 25). 1 seria
+  // cortar por un solo tick lento; mas de 20 dejaria a TEMP1 (5 s por
+  // lectura) casi dos minutos sin vigilancia.
+  constexpr uint16_t MinMaxMissedSamples = 1;
+  constexpr uint16_t MaxMaxMissedSamples = 20;
+
+  inline bool isValidMaxMissedSamples(unsigned long value) {
+    return value >= MinMaxMissedSamples && value <= MaxMaxMissedSamples;
+  }
+
   inline bool isValidCriticalMultiplier(float multiplier) {
     return multiplier >= MinCriticalMultiplier && multiplier <= MaxCriticalMultiplier;
   }

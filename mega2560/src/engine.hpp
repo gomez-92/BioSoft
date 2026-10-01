@@ -140,6 +140,12 @@ class Engine :
     unsigned long _lastTemperatureSampleSent;
     unsigned long _lastMagnetometerSampleSent;
 
+    // Ultima lectura valida de CEM1, para el corte por magnetometro caido
+    // con el lazo activo (_checkControlSilence). Vive aca y no en el
+    // Detector porque tiene que cortar aunque CEM1 no este vigilada y aunque
+    // el Detector este apagado: es seguridad del control, no deteccion.
+    unsigned long _lastMagnetometerAliveMs = 0;
+
   public:
     Engine( 
       Timer& timer, 
@@ -190,6 +196,10 @@ class Engine :
     // Aplica un float de config_scenario solo si es >= 0; si no, lo deja
     // como estaba y lo dice en el log.
     void _applyNonNegative(JsonVariantConst value, float& target, const char* key);
+    // Corte por silencio (tarjeta 25), llamado desde update() mientras hay
+    // un experimento en curso.
+    void _checkSilence();
+    void _checkControlSilence(unsigned long nowMs);
     static ScenarioRanges _scenarioRangesOf(const SourceConfig& config);
     // Registra los sensores de corriente habilitados, salteando los de un
     // modulo que no conteste en el bus. Ver su implementacion.
@@ -323,6 +333,64 @@ inline void Engine::update() {
   _timer.tick();
   _serial.update();
   _emergencyButton.update();
+  _checkSilence();
+}
+
+// Un sensor que se cae no produce muestras, y el Detector solo evalua las
+// que llegan: sin esto, un DS18B20 desconectado a mitad de corrida dejaba a
+// los animales expuestos sin control de temperatura y la corrida terminaba
+// "completed". Se chequea en cada vuelta de loop y no en una tarea del
+// Timer porque es barato (una resta por fuente) y no depende de que el
+// Timer siga sano.
+inline void Engine::_checkSilence() {
+  if (strcmp(_engineState.getState(), State::Running) != 0) return;
+  unsigned long now = millis();
+  _detector.checkSilence(now);
+  // checkSilence() puede haber cortado (_finish -> Ready): no evaluar el
+  // lazo de una corrida que ya termino.
+  if (strcmp(_engineState.getState(), State::Running) != 0) return;
+  _checkControlSilence(now);
+}
+
+// CEM1 es la realimentacion del lazo: sin lecturas, FieldController se
+// queda con el ultimo duty y sigue excitando las bobinas a ciegas. Corta
+// con el lazo activo aunque CEM1 no este vigilada y aunque el Detector este
+// apagado. Mismo limite que la regla de silencio de CEM1.
+inline void Engine::_checkControlSilence(unsigned long nowMs) {
+  SourceSettings* cem = _findSourceSettings("CEM1");
+  SourceConfig config = (cem != nullptr) ? cem->config : SourceConfig();
+  config.sampleIntervalMs = Intervals::MeasureMagneticField;
+  if (!controlSilenceExpired(_controlLoopEnabled, _isSettlingTime, nowMs,
+                             _lastMagnetometerAliveMs, config)) return;
+
+  unsigned long silent = nowMs - _lastMagnetometerAliveMs;
+
+  unsigned long missed = silent / config.sampleIntervalMs;
+  if (missed < config.maxMissedSamples) missed = config.maxMissedSamples;
+  if (missed > 65535UL) missed = 65535UL;
+
+  DEBUG_PRINTLN(DEBUG_ENGINE, F("[SILENCE] CEM1 sin lecturas con el lazo activo -> interrumpiendo experimento"));
+
+  // Mismo par flag_data + result_data que un corte del Detector, para que
+  // la pantalla y el monitor lo muestren igual.
+  JsonDocument flag;
+  flag["source"] = "CEM1";
+  flag["type"] = "silence";
+  flag["count"] = (uint16_t)missed;
+  flag["limit"] = config.maxMissedSamples;
+  _serial.sendCommand(Commands::OneFlagsData, flag);
+
+  ResultData result;
+  strncpy(result.reason, "critical", sizeof(result.reason) - 1);
+  // PSTR: el formato queda en flash, no en los 8 KB de RAM.
+  snprintf_P(result.description, sizeof(result.description),
+             PSTR("CEM1: sin lecturas del magnetometro con el lazo activo (%u/%u)"),
+             (unsigned)missed, (unsigned)config.maxMissedSamples);
+  strncpy(result.source, "CEM1", sizeof(result.source) - 1);
+  strncpy(result.type, "silence", sizeof(result.type) - 1);
+  result.count = (uint16_t)missed;
+  result.limit = config.maxMissedSamples;
+  _finish(result);
 }
 
 inline void Engine::_start() {
@@ -330,6 +398,12 @@ inline void Engine::_start() {
   _isSettlingTime = true;
   // t = 0 de los escenarios sinteticos (scenario.hpp).
   Scenario::restart(millis());
+  // t = 0 del silencio (tarjeta 25): una fuente que no da NINGUNA lectura
+  // desde el start corta al terminar la estabilizacion o al vencer su
+  // limite, lo que ocurra despues. Va despues de los configureSource() del
+  // handler de Start, que resetean las fuentes.
+  _detector.resetSilence(millis());
+  _lastMagnetometerAliveMs = millis();
   // Con un campo que no es el real, nada se energiza: ver _syntheticField.
   // Va ANTES de enableAll(), que es quien lo respeta.
   _coilChannels.setOutputsInhibited(_syntheticField);
@@ -833,6 +907,8 @@ inline void Engine::onTimer(const char* name) {
   }
   else if(strcmp(name, Tasks::SettlingTime) == 0) {
     _isSettlingTime = false;
+    // Desde aca el silencio corta, igual que el resto de las reglas.
+    _detector.armSilence();
     _timer.removeTask(Tasks::SettlingTime);
   }
   else if(strcmp(name, Tasks::Finish) == 0) {
@@ -1011,6 +1087,9 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
     // siga intacta para el proximo experimento.
     SourceSettings* cemSettings = _findSourceSettings("CEM1");
     SourceConfig configCem = cemSettings->config;
+    // Cadencia real de medicion, para el corte por silencio: la cantidad de
+    // lecturas perdidas se traduce a tiempo con esto (Source::silenceLimitMs).
+    configCem.sampleIntervalMs = Intervals::MeasureMagneticField;
     DetectorConfigBuilder::applyCemRanges(
       configCem, cemTarget, cemTol, cemSettings->criticalMultiplier);
 
@@ -1107,6 +1186,7 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
     DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Calculando configuracion de TEMP1..."));
 
     SourceConfig configTemp = _findSourceSettings("TEMP1")->config;
+    configTemp.sampleIntervalMs = Intervals::MeasureTemperature;
     DetectorConfigBuilder::applyTempRanges(
       configTemp, tempNormalMin, tempNormalMax, tempCriticalMin, tempCriticalMax);
 
@@ -1314,6 +1394,15 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
         settings->config.bufferSize = bufferSize;
       } else {
         DEBUG_PRINTLN(DEBUG_ENGINE, F("[CONFIG_SOURCE] bufferSize fuera de rango -- se ignora"));
+      }
+    }
+
+    if (params["maxMissedSamples"].is<unsigned long>()) {
+      unsigned long missed = params["maxMissedSamples"].as<unsigned long>();
+      if (DetectorConfigBuilder::isValidMaxMissedSamples(missed)) {
+        settings->config.maxMissedSamples = (uint16_t)missed;
+      } else {
+        DEBUG_PRINTLN(DEBUG_ENGINE, F("[CONFIG_SOURCE] maxMissedSamples fuera de rango (1 a 20) -- se ignora"));
       }
     }
 
@@ -1551,6 +1640,11 @@ inline void Engine::onEmergencyButtonPressed() {
 
 // Sample Sensor Callbacks
 inline void Engine::onMagnetometerSample(IMagnetometer* magnetometer) {
+  // Antes del gate de estabilizacion: el silencio cuenta desde el start.
+  unsigned long aliveAt = millis();
+  _lastMagnetometerAliveMs = aliveAt;
+  _detector.noteAlive(magnetometer->getName(), aliveAt);
+
   // Con "solo sensado" se mide y se reporta, pero no se toca el PWM: ver
   // _controlLoopEnabled.
   if (_controlLoopEnabled) {
@@ -1578,6 +1672,8 @@ inline void Engine::onMagnetometerSample(IMagnetometer* magnetometer) {
 }
 
 inline void Engine::onThermometerSample(IThermometer* thermometer) {
+  _detector.noteAlive(thermometer->getName(), millis());
+
   if(!_isSettlingTime) {
     _detector.addSample(thermometer->getName(), thermometer->getTemperature());
   }
@@ -1623,6 +1719,9 @@ inline void Engine::onFlag(SourceEvent& event) {
   }
   else if(event.type == EventType::Frequency) {
     typeStr = "frequency";
+  }
+  else if(event.type == EventType::Silence) {
+    typeStr = "silence";
   }
   sourceData["type"] = typeStr;
 

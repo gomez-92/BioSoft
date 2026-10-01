@@ -622,6 +622,160 @@ void test_detector_is_enabled_by_default(void) {
     TEST_ASSERT_TRUE(detector.isEnabled());
 }
 
+// =====================================================================
+// Silencio (tarjeta 25): una fuente vigilada que deja de dar lecturas
+// corta. Antes el Detector solo evaluaba muestras que llegaban, y un
+// DS18B20 desconectado dejaba correr el experimento hasta "completed".
+// =====================================================================
+
+class SilenceListener : public DetectorListener {
+  public:
+    uint8_t count = 0;
+    EventType lastType = EventType::Critical;
+    uint16_t lastCount = 0;
+    uint16_t lastLimit = 0;
+    void onFlag(SourceEvent& event) override {
+        count++;
+        lastType = event.type;
+        lastCount = event.count;
+        lastLimit = event.limit;
+    }
+};
+
+// TEMP1 de fabrica: una lectura cada 5 s, 3 perdidas => 15 s.
+static void setUpSilentTemp1(Detector& detector, SilenceListener& listener) {
+    detector.setListener(&listener);
+    detector.addSource("TEMP1");
+    SourceConfig config = makeRealTemp1Config();
+    config.sampleIntervalMs = 5000;
+    config.maxMissedSamples = 3;
+    detector.configureSource("TEMP1", config);
+    detector.resetSilence(0);
+}
+
+void test_silence_cuts_after_maxMissedSamples_and_not_before(void) {
+    Detector detector;
+    SilenceListener listener;
+    setUpSilentTemp1(detector, listener);
+    detector.armSilence();
+
+    detector.checkSilence(14999);
+    TEST_ASSERT_EQUAL_UINT8(0, listener.count);
+
+    detector.checkSilence(15000);
+    TEST_ASSERT_EQUAL_UINT8(1, listener.count);
+    TEST_ASSERT_TRUE(listener.lastType == EventType::Silence);
+    // Llega ya en su limite: Engine corta con count >= limit.
+    TEST_ASSERT_TRUE(listener.lastCount >= listener.lastLimit);
+    TEST_ASSERT_EQUAL_UINT16(3, listener.lastLimit);
+}
+
+void test_silence_resets_with_every_valid_reading(void) {
+    Detector detector;
+    SilenceListener listener;
+    setUpSilentTemp1(detector, listener);
+    detector.armSilence();
+
+    detector.noteAlive("TEMP1", 10000);
+    detector.checkSilence(24999);
+    TEST_ASSERT_EQUAL_UINT8(0, listener.count);
+    detector.checkSilence(25000);
+    TEST_ASSERT_EQUAL_UINT8(1, listener.count);
+}
+
+// Durante la estabilizacion no corta, igual que el resto de las reglas;
+// pero el reloj corre desde el start, asi que un sensor que nunca dio una
+// lectura corta apenas se arma, sin esperar otro limite entero.
+void test_silence_does_not_cut_before_being_armed(void) {
+    Detector detector;
+    SilenceListener listener;
+    setUpSilentTemp1(detector, listener);
+
+    detector.checkSilence(60000);
+    TEST_ASSERT_EQUAL_UINT8(0, listener.count);
+
+    detector.armSilence();
+    detector.checkSilence(60000);
+    TEST_ASSERT_EQUAL_UINT8(1, listener.count);
+}
+
+void test_silence_reports_only_once(void) {
+    Detector detector;
+    SilenceListener listener;
+    setUpSilentTemp1(detector, listener);
+    detector.armSilence();
+
+    detector.checkSilence(15000);
+    detector.checkSilence(30000);
+    detector.checkSilence(90000);
+    TEST_ASSERT_EQUAL_UINT8(1, listener.count);
+}
+
+void test_silence_respects_the_master_switch(void) {
+    Detector detector;
+    SilenceListener listener;
+    setUpSilentTemp1(detector, listener);
+    detector.armSilence();
+    detector.setEnabled(false);
+
+    detector.checkSilence(60000);
+    TEST_ASSERT_EQUAL_UINT8(0, listener.count);
+}
+
+// CEM1: 3 x 500 ms = 1.5 s, pero el piso es 5 s -- el DS18B20 bloquea
+// ~750 ms por medicion y un tick lento no puede contar como sensor caido.
+void test_silence_limit_has_a_floor(void) {
+    SourceConfig config;
+    config.maxMissedSamples = 3;
+    config.sampleIntervalMs = 500;
+    TEST_ASSERT_EQUAL_UINT32(5000, Source::silenceLimitMs(config));
+    config.sampleIntervalMs = 5000;
+    TEST_ASSERT_EQUAL_UINT32(15000, Source::silenceLimitMs(config));
+}
+
+// Sin cadencia (una Source configurada sin pasar por Engine) no hay corte.
+void test_silence_is_off_without_interval(void) {
+    SourceConfig config;
+    config.maxMissedSamples = 3;
+    config.sampleIntervalMs = 0;
+    TEST_ASSERT_EQUAL_UINT32(0, Source::silenceLimitMs(config));
+}
+
+// Reconfigurar la fuente (cada start) desarma el silencio: la corrida
+// nueva no puede heredar el armado de la anterior.
+void test_reconfiguring_disarms_silence(void) {
+    Detector detector;
+    SilenceListener listener;
+    setUpSilentTemp1(detector, listener);
+    detector.armSilence();
+
+    SourceConfig config = makeRealTemp1Config();
+    config.sampleIntervalMs = 5000;
+    detector.configureSource("TEMP1", config);
+    detector.checkSilence(60000);
+    TEST_ASSERT_EQUAL_UINT8(0, listener.count);
+}
+
+// CEM1 caido con el lazo activo: corta aunque CEM1 no este vigilada y
+// aunque el Detector este apagado (no recibe un Detector: no depende de el).
+void test_control_silence_cuts_cem1_even_unwatched(void) {
+    SourceConfig cem;                  // maxMissedSamples = 3 por defecto
+    cem.sampleIntervalMs = 500;        // -> piso de 5 s
+
+    TEST_ASSERT_FALSE(controlSilenceExpired(true, false, 4999, 0, cem));
+    TEST_ASSERT_TRUE(controlSilenceExpired(true, false, 5000, 0, cem));
+}
+
+void test_control_silence_needs_the_loop_active_and_settling_over(void) {
+    SourceConfig cem;
+    cem.sampleIntervalMs = 500;
+
+    // "Solo sensado" (control.enabled = false): no hay bobinas a ciegas.
+    TEST_ASSERT_FALSE(controlSilenceExpired(false, false, 60000, 0, cem));
+    // Durante la estabilizacion tampoco, igual que el resto.
+    TEST_ASSERT_FALSE(controlSilenceExpired(true, true, 60000, 0, cem));
+}
+
 int main(int argc, char** argv) {
     UNITY_BEGIN();
 
@@ -656,6 +810,16 @@ int main(int argc, char** argv) {
     RUN_TEST(test_detector_disabled_never_flags);
     RUN_TEST(test_detector_reenabled_keeps_sources_and_config);
     RUN_TEST(test_detector_is_enabled_by_default);
+    RUN_TEST(test_silence_cuts_after_maxMissedSamples_and_not_before);
+    RUN_TEST(test_silence_resets_with_every_valid_reading);
+    RUN_TEST(test_silence_does_not_cut_before_being_armed);
+    RUN_TEST(test_silence_reports_only_once);
+    RUN_TEST(test_silence_respects_the_master_switch);
+    RUN_TEST(test_silence_limit_has_a_floor);
+    RUN_TEST(test_silence_is_off_without_interval);
+    RUN_TEST(test_reconfiguring_disarms_silence);
+    RUN_TEST(test_control_silence_cuts_cem1_even_unwatched);
+    RUN_TEST(test_control_silence_needs_the_loop_active_and_settling_over);
 
     return UNITY_END();
 }

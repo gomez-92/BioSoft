@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { esCampoNulo, etiquetaTipoCorrida, nombreModo, tipoDesdeMarca } from './format.js';
+import {
+  esAlertaCritica, esCampoNulo, etiquetaTipoCorrida, nombreModo, nombreTipoAlerta, tipoDesdeMarca,
+} from './format.js';
 
 // El modo de exposicion es lo unico que distingue el grupo tratado del grupo
 // control. Equivocarse no se nota mirando la pantalla: un campo nulo se ve, en
@@ -56,5 +58,20 @@ describe('tipo de corrida', () => {
     expect(etiquetaTipoCorrida('unknown')).toBe('SIN MARCA');
     expect(etiquetaTipoCorrida(undefined)).toBe('SIN MARCA');
     expect(etiquetaTipoCorrida('normal')).toBeNull();
+  });
+});
+
+// Un sensor caido corta igual que un limite critico (tarjeta 25): no puede
+// mostrarse con el color de una advertencia ni con la clave cruda.
+describe('alerta de sensor sin lecturas', () => {
+  it('tiene nombre propio', () => {
+    expect(nombreTipoAlerta('silence')).toBe('sin lecturas');
+  });
+
+  it('cuenta como critica', () => {
+    expect(esAlertaCritica('silence')).toBe(true);
+    expect(esAlertaCritica('critical')).toBe(true);
+    expect(esAlertaCritica('streak')).toBe(false);
+    expect(esAlertaCritica(undefined)).toBe(false);
   });
 });

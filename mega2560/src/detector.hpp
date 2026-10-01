@@ -228,8 +228,19 @@ inline uint16_t Rule::getCooldown() const {
 // SOURCE STATE
 // ===== ===== ===== ===== ===== ===== ===== ===== ===== =====
 
+// Lecturas que puede perder una fuente antes de que su silencio corte el
+// experimento, y piso en ms para ese silencio. El piso existe porque el
+// DS18B20 bloquea ~750 ms por medicion y eso le mete retraso a la cadencia
+// de todo lo demas: con 3 x 500 ms, CEM1 "se caeria" por un tick lento.
+constexpr unsigned long MinSilenceMs = 5000;
+
 struct SourceConfig {
   size_t bufferSize = 32;
+  // Silencio (tarjeta 25). sampleIntervalMs = cada cuanto se mide esta
+  // fuente; lo pone Engine en cada start desde Intervals. Con cualquiera de
+  // los dos en 0 no hay corte por silencio.
+  uint16_t maxMissedSamples = 3;
+  unsigned long sampleIntervalMs = 0;
   float normalMin;
   float normalMax;
   float criticalMin;
@@ -328,7 +339,10 @@ inline uint16_t SourceState::getOutStreak() const {
 enum class EventType {
   Critical,
   Streak,
-  Frequency
+  Frequency,
+  // La fuente dejo de dar lecturas (tarjeta 25). count = lecturas perdidas,
+  // limit = maxMissedSamples: llega ya en el limite, asi que corta.
+  Silence
 };
 
 struct SourceEvent {
@@ -376,6 +390,22 @@ class Source {
     bool hasCriticalFlags() const;
     float score() const;
     void setListener(SourceListener* listener);
+
+    // Silencio (tarjeta 25): una fuente vigilada que deja de dar lecturas
+    // corta el experimento. Las lecturas invalidas (DS18B20 en -127, MLX que
+    // falla por I2C) ya las descartan los managers, asi que "sin lecturas" es
+    // "noteAlive() no se llamo".
+    //   resetSilence(now) -- al arrancar: el reloj del silencio empieza aca
+    //   noteAlive(now)    -- cada lectura valida, incluso en estabilizacion
+    //   armSilence()      -- al terminar la estabilizacion: recien ahi corta
+    //   checkSilence(now) -- periodico; emite UN evento Silence y no repite
+    void resetSilence(unsigned long nowMs);
+    void noteAlive(unsigned long nowMs);
+    void armSilence();
+    void checkSilence(unsigned long nowMs);
+    // ms de silencio que cortan: maxMissedSamples x sampleIntervalMs, con
+    // piso MinSilenceMs. 0 = sin corte por silencio.
+    static unsigned long silenceLimitMs(const SourceConfig& config);
   private:
     void evaluate();
     void evaluateRule(Rule& rule, EventType type, uint16_t value);
@@ -389,9 +419,14 @@ class Source {
     SourceConfig _config;
     SourceState _state;
     SourceListener* _listener;
+    unsigned long _lastAliveMs;
+    bool _silenceArmed;
+    bool _silenceReported;
 };
 
-inline Source::Source(const char* name) : _name(name), _configured(false), _processedSamples(0), _listener(nullptr) {}
+inline Source::Source(const char* name)
+  : _name(name), _configured(false), _processedSamples(0), _listener(nullptr),
+    _lastAliveMs(0), _silenceArmed(false), _silenceReported(false) {}
 
 inline const char* Source::getName() const {
   return _name;
@@ -415,6 +450,66 @@ inline void Source::reset() {
   _buffer.resize(_config.bufferSize);
   _state.reset();
   _processedSamples = 0;
+  _silenceArmed = false;
+  _silenceReported = false;
+}
+
+// Corte por CEM1 caido con el lazo activo (tarjeta 25). Es seguridad del
+// control, no deteccion: NO mira si CEM1 esta vigilada ni si el Detector
+// esta encendido. Funcion libre y pura para poder probarla en native; quien
+// la usa es Engine::_checkControlSilence(). `cemConfig` trae
+// maxMissedSamples y la cadencia del magnetometro.
+inline bool controlSilenceExpired(bool loopEnabled, bool settling, unsigned long nowMs,
+                                  unsigned long lastAliveMs, const SourceConfig& cemConfig);
+
+inline unsigned long Source::silenceLimitMs(const SourceConfig& config) {
+  if (config.maxMissedSamples == 0 || config.sampleIntervalMs == 0) return 0;
+  unsigned long limit = (unsigned long)config.maxMissedSamples * config.sampleIntervalMs;
+  return limit < MinSilenceMs ? MinSilenceMs : limit;
+}
+
+inline bool controlSilenceExpired(bool loopEnabled, bool settling, unsigned long nowMs,
+                                  unsigned long lastAliveMs, const SourceConfig& cemConfig) {
+  if (!loopEnabled || settling) return false;
+  unsigned long limit = Source::silenceLimitMs(cemConfig);
+  if (limit == 0) return false;
+  return nowMs - lastAliveMs >= limit;
+}
+
+inline void Source::resetSilence(unsigned long nowMs) {
+  _lastAliveMs = nowMs;
+  _silenceArmed = false;
+  _silenceReported = false;
+}
+
+inline void Source::noteAlive(unsigned long nowMs) {
+  _lastAliveMs = nowMs;
+}
+
+inline void Source::armSilence() {
+  _silenceArmed = true;
+}
+
+inline void Source::checkSilence(unsigned long nowMs) {
+  if (!_configured || !_silenceArmed || _silenceReported) return;
+  unsigned long limit = silenceLimitMs(_config);
+  if (limit == 0) return;
+  unsigned long silent = nowMs - _lastAliveMs;
+  if (silent < limit) return;
+
+  // Una sola vez: el evento ya llega en su limite y corta el experimento.
+  _silenceReported = true;
+  unsigned long missed = silent / _config.sampleIntervalMs;
+  if (missed > 65535UL) missed = 65535UL;
+  // Con el piso de 5 s, las lecturas perdidas pueden superar el
+  // maxMissedSamples configurado; nunca quedar por debajo, o Engine no
+  // cortaria (corta con count >= limit).
+  if (missed < _config.maxMissedSamples) missed = _config.maxMissedSamples;
+
+  if (_listener) {
+    SourceEvent event{EventType::Silence, this, (uint16_t)missed, _config.maxMissedSamples};
+    _listener->onSourceEvent(event);
+  }
 }
 
 inline void Source::addSample(float sample) {
@@ -597,6 +692,15 @@ class Detector : public SourceListener {
     // ni se reconfiguran -- volver a encenderlo las encuentra como estaban.
     void setEnabled(bool enabled);
     bool isEnabled() const;
+
+    // Silencio (ver Source). checkSilence() respeta el interruptor general:
+    // con el Detector apagado nada corta, tampoco el silencio. El corte por
+    // CEM1 caido con el lazo activo NO vive aca, vive en Engine, porque
+    // tiene que actuar aun con el Detector apagado.
+    void resetSilence(unsigned long nowMs);
+    bool noteAlive(const char* name, unsigned long nowMs);
+    void armSilence();
+    void checkSilence(unsigned long nowMs);
   public:
     void onSourceEvent(SourceEvent& event) override;
   private:
@@ -688,6 +792,32 @@ inline bool Detector::addSample(const char* name, float sample) {
   if (source == nullptr) return false;
   source->addSample(sample);
   return true;
+}
+
+inline void Detector::resetSilence(unsigned long nowMs) {
+  for (uint8_t i = 0; i < _count; i++) {
+    if (_sources[i]) _sources[i]->resetSilence(nowMs);
+  }
+}
+
+inline bool Detector::noteAlive(const char* name, unsigned long nowMs) {
+  Source* source = findSource(name);
+  if (source == nullptr) return false;
+  source->noteAlive(nowMs);
+  return true;
+}
+
+inline void Detector::armSilence() {
+  for (uint8_t i = 0; i < _count; i++) {
+    if (_sources[i]) _sources[i]->armSilence();
+  }
+}
+
+inline void Detector::checkSilence(unsigned long nowMs) {
+  if (!_enabled) return;
+  for (uint8_t i = 0; i < _count; i++) {
+    if (_sources[i]) _sources[i]->checkSilence(nowMs);
+  }
 }
 
 inline void Detector::setEnabled(bool enabled) {

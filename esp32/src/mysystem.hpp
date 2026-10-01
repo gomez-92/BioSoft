@@ -498,6 +498,7 @@ inline void MySystem::_buildConfigScenarioDoc(JsonDocument& doc, const ConfigLoa
 inline void MySystem::_buildConfigSourceDoc(JsonDocument& doc, const ConfigLoader::SourceConfigEntry& source) {
   doc["name"] = source.name;
   if (source.hasEnabled) doc["enabled"] = source.enabled;
+  if (source.hasMaxMissedSamples) doc["maxMissedSamples"] = source.maxMissedSamples;
   if (source.hasSensor) doc["sensor"] = source.sensor;
   if (source.hasBufferSize) doc["bufferSize"] = source.bufferSize;
   if (source.hasCriticalMultiplier) doc["criticalMultiplier"] = source.criticalMultiplier;

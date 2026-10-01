@@ -338,6 +338,7 @@ reglas.
       "enabled": true,
       "sensor": "ds18b20",
       "bufferSize": 32,
+      "maxMissedSamples": 3,
       "range": { "mode": "operator" },
       "rules": {
         "critical":  { "threshold": 3,  "cooldown": 1,  "maxEvents": 2 },
@@ -469,12 +470,45 @@ recien al terminar la ventana.
 
 El generador trae perfiles listos (todo normal, temperatura alta, temperatura
 que sube, campo inestable, campo fuera de rango, sensor de temperatura caido)
-que completan los numeros de las dos fuentes. "Sensor caido" documenta un
-hueco real: hoy el silencio de un sensor **no** corta el experimento.
+que completan los numeros de las dos fuentes. "Sensor caido" es la prueba de
+banco del corte por silencio (`maxMissedSamples`, arriba): TEMP1 deja de medir
+a los 90 s y la corrida corta a los ~105 s.
 
 Por serie viaja en `config_scenario` (seccion 10.1) con claves cortas
 (`b n r sa s oa op da d`) porque una fuente con las 9 apenas entra en 256
 bytes.
+
+### `maxMissedSamples` — corte por sensor sin lecturas
+
+Cuantas lecturas seguidas puede perder una fuente **vigilada** antes de que su
+silencio corte el experimento (entero, 1 a 20, default 3). Se traduce a tiempo
+con la cadencia de medicion de esa fuente (`intervals.mega`), con un **piso de
+5 s**: de fabrica TEMP1 corta a los 15 s (3 x 5 s) y CEM1 a los 5 s (3 x 500 ms
+daria 1,5 s, pero el DS18B20 bloquea ~750 ms por medicion y un tick lento no
+puede contar como sensor caido).
+
+Antes de esto el Detector solo evaluaba las muestras que llegaban: un DS18B20
+desconectado a mitad de corrida dejaba a los animales expuestos sin control de
+temperatura, y la corrida terminaba `completed`. Cuenta como silencio todo lo
+que no llega como lectura valida: un sensor que no contesta, el `-127` del
+DS18B20 desconectado, un MLX90393 que falla por I2C.
+
+- El reloj corre desde el start, pero el corte recien se habilita al terminar
+  la estabilizacion (10 s), como el resto de las reglas. Una fuente que nunca
+  dio una lectura corta en cuanto termina la estabilizacion o vence su limite,
+  lo que ocurra despues.
+- Corta con un `flag_data` de tipo **`silence`** y el mismo `result_data` que un
+  limite critico: Resultado muestra "TEMP1 SIN LECTURAS" y el monitor web
+  "sin lecturas". Para la salud y el color de las alertas cuenta como critico.
+- No corta con `detector.enabled: false` ni para una fuente no vigilada,
+  **salvo CEM1 con el lazo de control activo**: es la realimentacion del lazo,
+  y sin ella las bobinas seguirian excitandose con el ultimo duty, a ciegas.
+  Ese corte es seguridad del control, no deteccion, y actua aunque CEM1 no
+  este vigilada y aunque el Detector este apagado. Consecuencia en banco: con
+  el MLX90393 sin cablear y `control.enabled: true`, toda corrida corta a los
+  ~15 s; se esquiva con `control.enabled: false` o con CEM1 en `sim`/`scenario`.
+- TEMP1 vigilada con `sensor: "none"` cortaria en cada corrida, asi que el
+  generador lo rechaza.
 
 ### `range`
 
@@ -766,7 +800,7 @@ trajo. Por eso la configuracion se envia **fragmentada** y
 | 1 | `config_intervals` | las 9 claves de `intervals.mega` |
 | 2 | `config_control` | las 4 claves de `control` |
 | 3..6 | `config_coil` | un canal de `coils` cada uno (nombre, enabled, factor) |
-| 7..8 | `config_source` | la CABECERA de una fuente (nombre, enabled, sensor, bufferSize, criticalMultiplier) |
+| 7..8 | `config_source` | la CABECERA de una fuente (nombre, enabled, sensor, bufferSize, maxMissedSamples, criticalMultiplier) |
 | 9..14 | `config_rule` | una regla de una fuente (`source`, `rule`, threshold, cooldown, maxEvents) |
 | 15..18 | `config_current` | un canal de `currentSensors` cada uno, identificado por (`address`, `channel`) |
 | 19 | `config_detector` | `enabled` (el interruptor general del Detector), solo si el archivo lo trae |

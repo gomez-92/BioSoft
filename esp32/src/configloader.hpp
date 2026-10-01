@@ -167,6 +167,10 @@ namespace ConfigLoader {
     unsigned long bufferSize = 0;
     bool hasCriticalMultiplier = false;
     float criticalMultiplier = 0.0f;
+    // Lecturas perdidas antes del corte por silencio (tarjeta 25). El rango
+    // 1-20 lo valida el Mega.
+    bool hasMaxMissedSamples = false;
+    unsigned long maxMissedSamples = 0;
     RuleConfig critical;
     RuleConfig streak;
     RuleConfig frequency;
@@ -609,6 +613,10 @@ namespace ConfigLoader {
           entry.hasSensor = true;
           strncpy(entry.sensor, source["sensor"].as<const char*>(), MaxSensorNameLength - 1);
           entry.sensor[MaxSensorNameLength - 1] = '\0';
+        }
+        if (source["maxMissedSamples"].is<unsigned long>()) {
+          entry.hasMaxMissedSamples = true;
+          entry.maxMissedSamples = source["maxMissedSamples"].as<unsigned long>();
         }
         if (source["bufferSize"].is<unsigned long>()) {
           entry.hasBufferSize = true;

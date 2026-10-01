@@ -35,6 +35,16 @@ void test_bufferSize_rejects_outside_the_range(void) {
     TEST_ASSERT_FALSE(DetectorConfigBuilder::isValidBufferSize(0));
 }
 
+// maxMissedSamples (tarjeta 25): 1 a 20. Con 0 una fuente nunca cortaria
+// por silencio; con mas de 20, TEMP1 quedaria casi dos minutos ciega.
+void test_maxMissedSamples_accepts_1_to_20_only(void) {
+    TEST_ASSERT_TRUE(DetectorConfigBuilder::isValidMaxMissedSamples(1));
+    TEST_ASSERT_TRUE(DetectorConfigBuilder::isValidMaxMissedSamples(3));
+    TEST_ASSERT_TRUE(DetectorConfigBuilder::isValidMaxMissedSamples(20));
+    TEST_ASSERT_FALSE(DetectorConfigBuilder::isValidMaxMissedSamples(0));
+    TEST_ASSERT_FALSE(DetectorConfigBuilder::isValidMaxMissedSamples(21));
+}
+
 void test_criticalMultiplier_accepts_the_documented_range(void) {
     TEST_ASSERT_TRUE(DetectorConfigBuilder::isValidCriticalMultiplier(1.0f));
     TEST_ASSERT_TRUE(DetectorConfigBuilder::isValidCriticalMultiplier(1.25f));
@@ -197,6 +207,7 @@ int main(int argc, char** argv) {
     RUN_TEST(test_bufferSize_accepts_the_documented_range);
     RUN_TEST(test_bufferSize_rejects_outside_the_range);
     RUN_TEST(test_criticalMultiplier_accepts_the_documented_range);
+    RUN_TEST(test_maxMissedSamples_accepts_1_to_20_only);
     RUN_TEST(test_criticalMultiplier_rejects_outside_the_range);
 
     RUN_TEST(test_rule_accepts_valid_values);

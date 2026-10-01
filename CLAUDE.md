@@ -401,13 +401,32 @@ Key collaborators:
   notice — fabricated data never enters the history as an experiment.
   RAM cost on the Mega is ~320 bytes (two signal templates + two sensors),
   leaving it at ~76%.
-  **Known gap, made visible by the "sensor caido" profile (`dropAt`): a
-  watched source that goes silent never cuts the run** — the Detector only
-  evaluates samples that arrive, so a DS18B20 unplugged mid-run lets the
-  experiment finish as `completed`. Trello card 25 (silence cut, plus cutting
-  on CEM1 silence while the control loop is active even if CEM1 isn't
-  watched) is the fix; until it lands, don't treat that profile's outcome as
-  correct behaviour.
+  The "sensor caido" profile (`dropAt`) is the bench test of the silence cut
+  below.
+- **A watched source that goes silent cuts the run** (card 25). Before it,
+  the Detector only evaluated samples that arrived, so a DS18B20 unplugged
+  mid-run let the experiment finish `completed`. Silence = no valid sample:
+  managers already drop invalid readings (DS18B20 `-127` fails the
+  plausibility check, a failing MLX goes invalid), so Engine just calls
+  `Detector::noteAlive()` on every valid sample — **before** the settling
+  gate, so the clock runs from `start` — and `Detector::checkSilence()` from
+  `Engine::update()` every loop (cheap, and independent of the `Timer` being
+  healthy). `resetSilence()` in `_start()` (after the `configureSource()`
+  calls, which reset sources), `armSilence()` when `Tasks::SettlingTime`
+  fires. The limit is `maxMissedSamples` (SD, 1–20, default 3) × the source's
+  measuring interval (`SourceConfig::sampleIntervalMs`, set by Engine at each
+  start from `Intervals`), floored at `MinSilenceMs` = 5 s because the
+  DS18B20's ~750 ms block makes CEM1's 500 ms cadence jittery. It emits one
+  `EventType::Silence` with `count >= limit`, so the existing `onFlag` path
+  cuts it (`type: "silence"`), reported once. It respects
+  `detector.enabled` — **except CEM1 with the control loop on**, which
+  `Engine::_checkControlSilence()` cuts regardless of watch or master switch,
+  because the loop would otherwise keep driving the coils blind on its last
+  duty; the decision is the pure `controlSilenceExpired()` in `detector.hpp`
+  so native tests can pin it. Bench consequence: MLX unwired + `control.enabled`
+  ⇒ every run cuts at ~15 s. On the ESP32 `isCriticalAlertType()` makes
+  `silence` count as critical for health and dot colour, and Resultado reads
+  "<SRC> SIN LECTURAS". TEMP1 `none` + watched is now a generator **error**.
 - **`detector.enabled` is a master switch inside `Detector` itself**
   (`setEnabled()`: `addSample()` drops everything, sources and config stay
   intact), not a gate scattered across Engine's three sample handlers — which

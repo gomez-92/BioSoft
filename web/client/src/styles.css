@@ -152,7 +152,7 @@ h3 { font-size: 0.78rem; margin: 0 0 10px; text-transform: uppercase; letter-spa
 }
 /* Cada alerta se colorea por SU tipo: una critica corta el experimento, una
    racha todavia no. */
-.alerta-critical { border-left-color: var(--down); }
+.alerta-critical, .alerta-silence { border-left-color: var(--down); }
 .alerta-fuente { font-weight: 600; }
 .alerta-tipo { color: var(--muted); }
 .alerta-cuenta { font-variant-numeric: tabular-nums; margin-left: auto; }

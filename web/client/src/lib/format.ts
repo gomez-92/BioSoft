@@ -51,7 +51,18 @@ export function nombreSalud(health: string | undefined): string {
 
 const NOMBRE_TIPO: Record<string, string> = {
   critical: 'critica', streak: 'racha', frequency: 'frecuencia',
+  // Sensor que dejo de dar lecturas (tarjeta 25): corta igual que un
+  // limite critico.
+  silence: 'sin lecturas',
 };
+
+/**
+ * Alertas que valen como criticas para el color: el limite critico y el
+ * sensor sin lecturas. Mismo criterio que isCriticalAlertType() en el ESP32.
+ */
+export function esAlertaCritica(type: string | null | undefined): boolean {
+  return type === 'critical' || type === 'silence';
+}
 
 export function nombreTipoAlerta(type: string): string {
   return NOMBRE_TIPO[type] ?? type;

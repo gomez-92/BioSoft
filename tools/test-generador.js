@@ -211,8 +211,16 @@ expectError("detector.enabled no booleano bloquea la descarga",
   st => { st.detector.enabled = "no"; }, "detector.enabled");
 expectWarn("TEMP1 en sim avisa que no mide el gabinete",
   st => { st.detector.sources[1].sensor = "sim"; }, "TEMP1 con sensor sim");
-expectWarn("TEMP1 none vigilada avisa que nunca corta por temperatura",
+// Desde la tarjeta 25 el silencio corta: vigilada y sin sensor, cortaria
+// en cada corrida.
+expectError("TEMP1 none vigilada bloquea la descarga (cortaria por silencio)",
   st => { st.detector.sources[1].sensor = "none"; }, "sin termometro");
+reset(); T.state.detector.sources[1].sensor = "none"; T.state.detector.sources[1].enabled = false; T.validate();
+check("TEMP1 none sin vigilar es valido", T.errors.length === 0, T.errors.join(" | "));
+expectError("maxMissedSamples fuera de 1..20 bloquea la descarga",
+  st => { st.detector.sources[1].maxMissedSamples = 0; }, "lecturas perdidas");
+expectError("maxMissedSamples con decimales bloquea la descarga",
+  st => { st.detector.sources[0].maxMissedSamples = 2.5; }, "lecturas perdidas");
 expectError("CEM1 no acepta none (es la realimentacion del lazo)",
   st => { st.detector.sources[0].sensor = "none"; }, "CEM1: sensor");
 expectError("TEMP1 no acepta un driver de CEM1",
