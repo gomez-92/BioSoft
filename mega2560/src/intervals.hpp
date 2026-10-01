@@ -12,7 +12,7 @@ namespace Intervals {
   inline unsigned long SendState             = 5000;
   inline unsigned long MeasureTemperature    = 5000;
   inline unsigned long MeasureCurrent        = 8500;
-  inline unsigned long MeasureMagneticField  = 500;
+  inline unsigned long MeasureMagneticField  = 2000;
   inline unsigned long UpdateProgress        = 1000;
   inline unsigned long SendFlags             = 25000;
   inline unsigned long SendResult            = 1000;

@@ -91,8 +91,7 @@ struct ResultData {
   // Con reason == "stopped": si vino del pulsador fisico de emergencia.
   bool fromEmergency = false;
   // Con reason == "refused" (el start no pudo arrancar, ni siquiera hubo
-  // experimento): codigo de la causa -- "nomap", "balance", "tare" o
-  // "taretime". La pantalla redacta el texto con esto.
+  // experimento): codigo de la causa -- "nomap" o "balance". La pantalla redacta el texto con esto.
   char cause[12] = "";
 };
 

@@ -3,8 +3,6 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 
-#include "fieldtare.hpp"
-
 #define MAX_MAGNETOMETERS 10
 
 class IMagnetometer {
@@ -16,14 +14,15 @@ class IMagnetometer {
     virtual bool isValid() const = 0;
     virtual const char* getName() const = 0;
 
-    // Tara del campo ambiente (fieldtare.hpp). Solo un sensor que mide el
-    // vector real puede tararlo: los simulados y los escenarios generan un
-    // campo ya sin ambiente, asi que heredan estos no-op y supportsTare() en
-    // false. Engine solo pide tara a quien la soporta.
-    virtual bool supportsTare() const { return false; }
-    virtual void tareBegin(const TareConfig& config) {}
-    virtual void tareClear() {}
-    virtual TareStatus tareStatus() const { return TareStatus::Idle; }
+    // Sensores que miden por muestreo sin bloquear (el MLX90393 real, ver
+    // fieldsampler.hpp). update() de un sensor asincrono no hace nada: Engine
+    // llama pollAll() en cada vuelta de loop() y el sensor avisa cuando tiene
+    // un valor de ventana nuevo. Los simulados y los escenarios siguen siendo
+    // sincronicos y heredan estos defaults.
+    virtual bool isAsync() const { return false; }
+    virtual bool poll() { return false; }
+    virtual bool beginSampling(float freqHz, uint32_t windowMs) { return false; }
+    virtual void endSampling() {}
 };
 
 class IMagnetometerListener {
@@ -49,6 +48,9 @@ public:
     void clearMagnetometers();
     IMagnetometer* findByName(const char* name) const;
     void updateAll();
+    void pollAll();
+    void beginSamplingAll(float freqHz, uint32_t windowMs);
+    void endSamplingAll();
     void publishMeasures(JsonDocument& measures) const;
     uint8_t magnetometerCount() const;
     void setMagnetometerListener(IMagnetometerListener* listener);
@@ -106,11 +108,38 @@ inline void MagnetometerManager::updateAll() {
   for (uint8_t i = 0; i < _magnetometerCount; i++) {
     auto& m = _magnetometers[i];
     if (!m.magnetometer) continue;
+    if (m.magnetometer->isAsync()) continue;
     m.magnetometer->update();
     if (!m.magnetometer->isValid()) continue;
     if (_listener) {
       _listener->onMagnetometerSample(m.magnetometer);
     }
+  }
+}
+
+inline void MagnetometerManager::pollAll() {
+  for (uint8_t i = 0; i < _magnetometerCount; i++) {
+    auto& m = _magnetometers[i];
+    if (!m.magnetometer || !m.magnetometer->isAsync()) continue;
+    if (!m.magnetometer->poll()) continue;
+    if (!m.magnetometer->isValid()) continue;
+    if (_listener) {
+      _listener->onMagnetometerSample(m.magnetometer);
+    }
+  }
+}
+
+inline void MagnetometerManager::beginSamplingAll(float freqHz, uint32_t windowMs) {
+  for (uint8_t i = 0; i < _magnetometerCount; i++) {
+    auto* m = _magnetometers[i].magnetometer;
+    if (m && m->isAsync()) m->beginSampling(freqHz, windowMs);
+  }
+}
+
+inline void MagnetometerManager::endSamplingAll() {
+  for (uint8_t i = 0; i < _magnetometerCount; i++) {
+    auto* m = _magnetometers[i].magnetometer;
+    if (m && m->isAsync()) m->endSampling();
   }
 }
 

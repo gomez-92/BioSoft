@@ -276,6 +276,11 @@ void setup() {
   delay(1000);
   spi.begin();
   Wire.begin();
+  // Tope de 25 ms a cualquier transaccion I2C. Sin esto, un modulo que deja de
+  // contestar (cable suelto, bus trabado) cuelga el loop() en el ACK que no
+  // llega -- y con el, la lectura del boton de emergencia. En timeout el
+  // hardware TWI se reinicia y la transaccion falla limpia.
+  Wire.setWireTimeout(25000, true);
   scanI2CBus();
 
   /* ===== magnetometers =====*/

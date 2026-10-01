@@ -320,25 +320,25 @@ fuera de rango: revisar el balance, o la etapa de fase (ADR-001).
 
 **Límites que hay que conocer.**
 
-- **Campo ambiente: ya se descuenta.** Es de ~0,025 a 0,065 mT. Al arrancar,
-  con las bobinas apagadas, el Mega mide el ambiente (el log dice `tara OK:
-  ambiente = ... uT`) y de ahí en adelante todo lo que lee `FieldController`,
-  el Detector y la pantalla es |medido - ambiente|. Por eso el mapa de este paso
-  se mide **con la tara puesta**: dejar la jaula, los cables y el equipo del
-  laboratorio como van en el experimento *antes* de arrancar, y no tocar nada
-  durante los ~2,5 s de la tara. Si la tara se rechaza (`Tara del campo ambiente
-  rechazada`), la corrida no arranca y la pantalla Resultado muestra NO INICIO
-  con el motivo (REPETIR queda disponible): revisar que nada se mueva y que no haya
-  una fuente de campo cerca del sensor.
-- **La tara supone un ambiente constante.** Si durante la corrida cambia el
-  campo de fondo (un equipo que se enciende cerca), el desvío entra en la
-  medición. Para juzgar un mínimo de balance conviene repetir con el entorno
-  quieto.
-- **Verificar los umbrales de la tara en banco** (`control.tare` de la tarjeta:
-  dispersión máxima 10 uT, 4 lecturas, ambiente máximo 300 uT; se cambian con
-  el generador, sin reflashear). Con el sensor montado y todo quieto, el log de la
-  tara informa la dispersión máxima: si ronda los 10 uT hay que revisar el
-  montaje o subir el umbral.
+- **Campo ambiente: no hace falta descontarlo.** Es de ~0,025 a 0,065 mT y es
+  continuo, mientras que el campo de las bobinas es alterno. El Mega mide el
+  **valor eficaz (RMS) de la fundamental** de cada eje, y el ambiente (la
+  componente continua) queda fuera del resultado por construcción: no hay tara
+  ni paso previo a la corrida. Lo que sí entra en la medición es cualquier
+  fuente **alterna a la misma frecuencia** (la red a 50/60 Hz si se trabaja a
+  esa frecuencia, un equipo cercano), así que para juzgar un mínimo de balance
+  conviene repetir con el entorno quieto.
+- **Verificar en banco el piso de ruido del RMS.** Con las bobinas apagadas y
+  el sensor montado, el log de `[MLX90393]` informa el RMS de cada ventana de
+  2 s (`RMS = ... uT`), los grupos usados y los descartados. Ese valor no es
+  cero (el ruido de las muestras suma una cota positiva) y es el mínimo que
+  se puede distinguir en campo nulo. Si los descartados son muchos a 100 Hz,
+  el bus está ocupado: probar `Wire.setClock(400000)` u `OSR_1` (el plan se
+  recalcula solo). Cada grupo dura ~30 a 90 ms (10 muestras repartidas en varios
+  períodos por encima de ~33 Hz) y el log `muestreo f=... -> 10 muestras/grupo
+  cada ... us` dice el intervalo elegido: si los grupos descartados a 100 Hz no
+  bajan de unos pocos por ventana, el `loop()` es más lento que la holgura
+  (`SlotMarginUs`) y hay que revisar qué lo frena.
 - **El MLX90393 entrega la magnitud sin signo.** Sirve para minimizar |B|, pero
   no dice de qué lado está el desbalance: el signo de `balance` se encuentra
   probando.
@@ -348,8 +348,8 @@ fuera de rango: revisar el balance, o la etapa de fase (ADR-001).
   (el tope absoluto es 0,5).
 - **Ajuste online (mejora futura).** Hoy el balance es fijo, el medido acá. Un
   ajuste en caliente (variar el delta y quedarse con el sentido que baja |B|)
-  requeriría además filtrar la medición (la tara del ambiente ya existe); queda
-  como mejora.
+  requeriría además saber de qué lado se desvía el campo (el RMS tampoco tiene
+  signo); queda como mejora.
 
 ## 8. Qué queda registrado
 

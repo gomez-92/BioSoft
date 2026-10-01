@@ -355,28 +355,10 @@ check("un archivo sin mapa (anterior a esta clave) carga con balanceMax y mapa d
   return T.state.control.balanceMax === 0.2 && Array.isArray(T.state.control.map) && T.state.control.map.length === 0;
 })());
 
-expectError("tare.samples fuera de rango",
-  s => { s.control.tare.samples = 9; }, "control.tare.samples");
-expectError("tare.samples con decimales (el Mega lo descartaria en silencio)",
-  s => { s.control.tare.samples = 4.5; }, "control.tare.samples");
-expectError("tare.maxSpread fuera de rango",
-  s => { s.control.tare.maxSpread = 0; }, "control.tare.maxSpread");
-expectError("tare.maxAmbient fuera de rango",
-  s => { s.control.tare.maxAmbient = 5000; }, "control.tare.maxAmbient");
-check("un archivo sin control.tare carga con los umbrales de fabrica", (() => {
-  reset(); T.loadParsed({ schemaVersion: 1, control: { enabled: true, kp: 0.1, maxStep: 0.05, deadBand: 0.01 } });
-  const t = T.state.control.tare;
-  return t.samples === 4 && t.maxSpread === 10 && t.maxAmbient === 300;
-})());
-check("un archivo con solo algunos umbrales de tara completa el resto", (() => {
-  reset(); T.loadParsed({ schemaVersion: 1, control: { tare: { maxSpread: 20 } } });
-  const t = T.state.control.tare;
-  return t.samples === 4 && t.maxSpread === 20 && t.maxAmbient === 300;
-})());
-check("los umbrales de tara se serializan dentro de control.tare", (() => {
-  reset(); T.state.control.tare.maxSpread = 25;
+check("un archivo viejo con control.tare se lee y no se vuelve a escribir", (() => {
+  reset(); T.loadParsed({ schemaVersion: 1, control: { tare: { samples: 4, maxSpread: 10, maxAmbient: 300 } } });
   const j = JSON.parse(JSON.stringify(T.buildJson()));
-  return j.control.tare && j.control.tare.maxSpread === 25 && j.control.tare.samples === 4;
+  return j.control.tare === undefined && T.state.control.tare === undefined;
 })());
 
 console.log(fails === 0 ? "\nTODO OK\n" : "\n" + fails + " FALLA(S)\n");

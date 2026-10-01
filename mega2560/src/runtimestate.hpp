@@ -48,7 +48,7 @@ struct ResultData {
   bool fromEmergency = false;
 
   // Solo con reason == "refused": el experimento ni siquiera arranco, y esto
-  // dice por que, como codigo corto ("nomap", "balance", "tare", "taretime").
+  // dice por que, como codigo corto ("nomap", "balance").
   // La pantalla Resultado de la ESP32 redacta el texto con el codigo; viaja
   // ademas de `description` por la misma razon que los campos de arriba.
   char cause[12] = "";

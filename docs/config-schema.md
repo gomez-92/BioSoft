@@ -173,7 +173,7 @@ positivos. Un `0` o un valor negativo se rechaza y esa clave queda en default.
     "sendState": 5000,
     "measureTemperature": 5000,
     "measureCurrent": 8500,
-    "measureMagneticField": 500,
+    "measureMagneticField": 2000,
     "updateProgress": 1000,
     "sendFlags": 25000,
     "sendResult": 1000,
@@ -226,7 +226,6 @@ Hoy viven en `SoftMega2560.ino`, que es el punto donde este archivo los pisa.
   "maxStep": 0.05,
   "deadBand": 0.01,
   "balanceMax": 0.2,
-  "tare": { "samples": 4, "maxSpread": 10, "maxAmbient": 300 },
   "map": []
 }
 ```
@@ -238,9 +237,6 @@ Hoy viven en `SoftMega2560.ino`, que es el punto donde este archivo los pisa.
 | `maxStep` | duty | clamp del paso por llamada a `update()` |
 | `deadBand` | mT | error por debajo del cual no se toca el output |
 | `balanceMax` | adimensional, 0 a 0,5 | tope operativo del `balance` de cada punto del mapa (campo nulo) |
-| `tare.samples` | entero, 2 a 6 | lecturas del ambiente que se promedian en la tara |
-| `tare.maxSpread` | uT, 1 a 100 | dispersion maxima (max - min) por eje entre esas lecturas; mas que eso, la tara se rechaza |
-| `tare.maxAmbient` | uT, 50 a 1000 | magnitud maxima del ambiente aceptada; mas que eso no es campo ambiente sino una fuente cerca |
 | `map` | lista, hasta 9 puntos | mapa de calibracion intensidad x frecuencia -> duty y balance (abajo) |
 
 `enabled: false` es el modo "solo sensado" que antes daban los `testMode`
@@ -303,13 +299,12 @@ en la pantalla):
 
 **Un arranque rechazado se muestra como un experimento terminado antes de
 empezar.** El Mega ya acepto el `start` (ack), asi que informa el rechazo con un
-`result_data` de `reason: "refused"` mas `cause` (`nomap`, `balance`, `tare`,
-`taretime`); no pasa por `_finish()` porque nunca arranco nada. La ESP32 abre
+`result_data` de `reason: "refused"` mas `cause` (`nomap`, `balance`); no pasa por `_finish()` porque nunca arranco nada. La ESP32 abre
 la pantalla Resultado en el panel de Falla con el titulo **NO INICIO**, el
 modo elegido, el motivo y el detalle redactados desde `cause`, y progreso 0 %.
-Despues el flujo sigue normal: VOLVER lleva a Principal. REPETIR solo aparece
-cuando la causa puede ser momentanea (`tare`, `taretime`); con `nomap` o
-`balance` fallaria igual hasta cambiar la configuracion o el mapa. Un rechazo
+Despues el flujo sigue normal: VOLVER lleva a Principal. REPETIR no aparece: con
+`nomap` o `balance` el arranque fallaria igual hasta cambiar la configuracion
+o el mapa. Un rechazo
 **no se publica por MQTT**: sin un `targets` previo el monitor web armaria con
 ese `result` una corrida huerfana de un experimento que nunca existio.
 
@@ -325,29 +320,44 @@ posibles cambian de una tarjeta a otra. El Mega busca por coincidencia exacta
 Por el mismo motivo hay **un tope de 3 intensidades x 3 frecuencias** (seccion 3),
 que acota el mapa a 9 puntos.
 
-**Tara del campo ambiente.** El MLX90393 mide el campo total (bobinas mas
-ambiente, ~0,025 a 0,065 mT), y con 1 mT una banda de 5 % es ±0,05 mT: el
-ambiente puede ocuparla entera, y en campo nulo es lo unico que se lee. Por eso,
-al arrancar con el lazo activo y el sensor real, el Mega **mide el ambiente con
-las bobinas apagadas** (4 lecturas del vector x, y, z, unos 2,5 s) y de ahi en
-adelante el campo es |medido - ambiente|, restando el *vector* y no la
-magnitud (|B + A| - |A| solo vale |B| si B y A son paralelos). Rige igual en
-campo X y en campo nulo, y el mapa se calibra ya con esa medicion.
-La tara se **rechaza entera** (no se recorta ni se usa a medias) si las
-lecturas difieren mas de 10 uT en algun eje, si el ambiente pasa de 300 uT, si
-una lectura no es un numero o si no termina en 4 s: el arranque se aborta, se
-loguea `Tara del campo ambiente rechazada` y la pantalla Resultado muestra
-NO INICIO (arriba). Tampoco se tara con `control.enabled: false` (no se
-excita nada y la lectura cruda es lo que se quiere ver) ni con CEM1 en `sim` o
-`scenario` (ya no traen ambiente). Los tres umbrales salen de `control.tare`
-(tabla de la seccion 5) y viajan en `config_control` como `tareSamples`,
-`tareSpread`, `tareAmbient`; fuera de rango el Mega descarta ese valor entero y
-conserva el anterior (`TareLimits`, `fieldtare.hpp`). Los valores de fabrica
-(4 lecturas, 10 uT, 300 uT) son de partida y se verifican en banco con el
-log de la tara. Lo que **no** se configura es el vencimiento (4 s, constante
-`TareTiming::TimeoutMs`, por debajo del de la pantalla Procesando): por eso
-el tope de lecturas es 6 con la cadencia de fabrica de CEM1 (500 ms); si se
-sube `measureMagneticField`, menos lecturas.
+**Medicion del campo: valor eficaz (RMS), sin tara.** El MLX90393 mide el campo
+total (bobinas mas ambiente, ~0,025 a 0,065 mT), y con 1 mT una banda de 5 %
+es ±0,05 mT: el ambiente puede ocuparla entera, y en campo nulo es lo unico que
+se lee. Una lectura instantanea ademas depende de en que punto de la senal cae
+(la bobina excita una senal alterna de 1 a 100 Hz). Por eso CEM1 no entrega una
+muestra sino el **valor eficaz de la fundamental**, calculado en el Mega
+(`fieldsampler.hpp`): se toman grupos de 10 muestras con la hora real de cada
+una, y por cada grupo se ajusta por minimos cuadrados
+`a cos(wt) + b sen(wt) + c` en cada eje. Hasta unos 33 Hz las 10 muestras caen
+en un periodo exacto (T/10); por encima, donde el bus del sensor no da para
+tanto, se espacian cada ~0,38 o ~0,62 T (razon aurea): el grupo abarca varios
+periodos (~5 a 100 Hz, unos 55 ms) y las fases quedan repartidas sin repetirse.
+Con 3 muestras por periodo (lo que daria el bus en un solo periodo) el ajuste
+no tendria ningun grado de libertad de sobra y el 2do armonico caeria justo
+sobre la fundamental; con 10 muestras hay 7 grados de libertad y los
+armonicos 2 a 7 se rechazan (en simulacion, un 20 % de armonico entra como
+<2 % de error). El costo es un grupo de decenas de ms en vez de uno de ~10 ms
+y un intervalo entre muestras con holgura para el jitter del `loop()`. El termino constante
+`c` **es el campo ambiente**: queda fuera del resultado, asi que ya no hace
+falta medirlo aparte ni descontarlo (se elimino la tara y sus tres umbrales,
+`control.tare`). Rige igual en campo X y en campo nulo, y el mapa se calibra con
+esta medicion.
+La ventana de salida es de `measureMagneticField` (2 s de fabrica): el valor
+que ven `FieldController`, el Detector y la pantalla se renueva a esa cadencia,
+promediando decenas de grupos. Un grupo se descarta si una muestra tarda de mas
+(bus ocupado, ranura perdida) o si el ajuste esta mal condicionado, y cinco
+fallas seguidas del bus invalidan el sensor (el silencio de CEM1 corta el
+experimento, ver tarjeta 25). El muestreo no bloquea: cada vuelta de `loop()`
+hace a lo sumo una transaccion I2C, de modo que ni el boton de emergencia ni el
+resto de las tareas esperan a la medicion; el bus ademas tiene un timeout de
+25 ms.
+Notas para banco, **sin verificar**: el piso de ruido del RMS no es cero (el
+ruido de las muestras aporta una cota inferior positiva, relevante en campo
+nulo); a 100 Hz el sensor da unas 160 muestras/s (6,2 ms entre disparos, ver
+`[MLX90393] muestreo ...` en el log) y la atenuacion de su filtro interno hay
+que medirla; la frecuencia real de la
+senal es la del AD9833 (paso de 0,0931 Hz), no la nominal, y el firmware usa
+esa. Con 50 o 60 Hz, el ruido de red entra en banda.
 
 El generador avisa cuales combinaciones del menu quedan sin punto ("campo nulo
 no disponible para X mT / Y Hz") y cuales puntos del mapa no coinciden con
@@ -361,13 +371,10 @@ ni balance se inventa, salen de la calibracion de banco (ver
   que le dice al Mega que vacie el que tuviera de una conexion anterior.
 - El MLX90393 entrega la magnitud sin signo, asi que el sistema no sabe de que
   lado se desvia el campo nulo.
-- La tara del ambiente (abajo) supone que el ambiente no cambia durante la
-  corrida: si cambia (un equipo que se enciende cerca, mover la jaula), el
-  campo medido lo arrastra.
 - **Ajuste online del balance (opcion B).** Hoy el balance es fijo, el de la
   calibracion. La mejora seria un ajuste en caliente: variar el delta de a
   pasos chicos y quedarse con el sentido que baja |B|, que ahora dispone de
-  la tara del campo ambiente pero aun necesita filtrar la medicion. Se
+  una medicion RMS pero aun necesita saber de que lado se desvia. Se
   descarto en esta version porque, sin signo en la medicion, el ajuste
   perseguiria ruido y podria desbalancear los grupos justo durante el experimento.
 
@@ -921,7 +928,7 @@ trajo. Por eso la configuracion se envia **fragmentada** y
 | Frame | Comando | Contenido |
 |---|---|---|
 | 1 | `config_intervals` | las 9 claves de `intervals.mega` |
-| 2 | `config_control` | las claves escalares de `control` (kp, maxStep, deadBand, balanceMax, enabled, tareSamples, tareSpread, tareAmbient) |
+| 2 | `config_control` | las claves escalares de `control` (kp, maxStep, deadBand, balanceMax, enabled) |
 | 3..6 | `config_coil` | un canal de `coils` cada uno (nombre, enabled, factor) |
 | 7..8 | `config_source` | la CABECERA de una fuente (nombre, enabled, sensor, bufferSize, maxMissedSamples, criticalMultiplier) |
 | 9..14 | `config_rule` | una regla de una fuente (`source`, `rule`, threshold, cooldown, maxEvents) |

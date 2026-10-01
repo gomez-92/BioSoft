@@ -530,11 +530,6 @@ inline void MySystem::_buildConfigControlDoc(JsonDocument& doc) {
   if (control.hasMaxStep) doc["maxStep"] = control.maxStep;
   if (control.hasDeadBand) doc["deadBand"] = control.deadBand;
   if (control.hasBalanceMax) doc["balanceMax"] = control.balanceMax;
-  // Umbrales de la tara: claves planas aca (el frame no anida), `control.tare`
-  // en la tarjeta.
-  if (control.hasTareSamples) doc["tareSamples"] = control.tareSamples;
-  if (control.hasTareSpread) doc["tareSpread"] = control.tareSpread;
-  if (control.hasTareAmbient) doc["tareAmbient"] = control.tareAmbient;
   // `enabled` se leia de la SD pero nunca llegaba al Mega: control.enabled
   // = false no tenia efecto. Va en el mismo frame que el resto del control.
   if (control.hasEnabled) doc["enabled"] = control.enabled;

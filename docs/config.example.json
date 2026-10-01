@@ -110,7 +110,7 @@
       "sendState": 5000,
       "measureTemperature": 5000,
       "measureCurrent": 8500,
-      "measureMagneticField": 500,
+      "measureMagneticField": 2000,
       "updateProgress": 1000,
       "sendFlags": 25000,
       "sendResult": 1000,
@@ -123,11 +123,6 @@
     "maxStep": 0.05,
     "deadBand": 0.01,
     "balanceMax": 0.2,
-    "tare": {
-      "samples": 4,
-      "maxSpread": 10,
-      "maxAmbient": 300
-    },
     "map": []
   },
   "coils": [

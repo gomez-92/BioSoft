@@ -416,6 +416,7 @@ table.pins tbody td{padding:7px 12px 7px 0}
         <li><span class="n">10</span> Finalización del experimento</li>
         <li><span class="n">11</span> Parada de emergencia</li>
         <li><span class="n">12</span> Monitoreo remoto</li>
+        <li><span class="n">13</span> El monitor web</li>
         <li><span class="n">14</span> La tarjeta SD</li>
         <li><span class="n">15</span> Limitaciones vigentes</li>
         <li><span class="n">16</span> Diagnóstico de fallas</li>
@@ -441,7 +442,7 @@ table.pins tbody td{padding:7px 12px 7px 0}
 
     <div class="callout stop">
       <span class="tag">Advertencia preliminar</span>
-      <p><strong>BioSoft se encuentra en desarrollo.</strong> La sección 14
+      <p><strong>BioSoft se encuentra en desarrollo.</strong> La sección 15
         enumera los aspectos que aún no están calibrados, montados o
         accesibles desde la interfaz. Su lectura es obligatoria antes de
         emplear el equipo con animales, puesto que condiciona qué diseños
@@ -931,7 +932,7 @@ table.pins tbody td{padding:7px 12px 7px 0}
         <tr><td>Configuración</td><td>Al pulsar <em>Configuración</em>.</td></tr>
         <tr><td>Espera</td><td>Mientras el equipo inicia o detiene un experimento.</td></tr>
         <tr><td>En curso</td><td>Durante la exposición.</td></tr>
-        <tr><td>Resultado</td><td>Al finalizar un experimento, cualquiera sea el motivo.</td></tr>
+        <tr><td>Resultado</td><td>Al finalizar un experimento, cualquiera sea el motivo, y también cuando el equipo se niega a iniciarlo (sección 8).</td></tr>
       </tbody>
     </table></div>
 
@@ -943,14 +944,15 @@ table.pins tbody td{padding:7px 12px 7px 0}
     <h3>Pantalla Principal</h3>
 
     <p>Presenta los seis parámetros con los que se ejecutará el próximo
-      experimento y dos botones: <strong>Iniciar</strong> y
+      experimento, el modo de exposición (<strong>campo X</strong> o
+      <strong>campo nulo</strong>) y dos botones: <strong>Iniciar</strong> y
       <strong>Configuración</strong>. Se recomienda revisarla antes de cada
       tanda: constituye el resumen de lo que está a punto de ocurrir.</p>
 
     <h2 id="s7">Sección 7</h2>
     <p class="h2title">Configuración de un experimento</p>
 
-    <p>La pantalla <strong>Configuración</strong> ofrece seis listas
+    <p>La pantalla <strong>Configuración</strong> ofrece siete listas
       desplegables. <em>Guardar</em> aplica los cambios y regresa a Principal;
       <em>Volver</em> sale sin aplicar modificaciones.</p>
 
@@ -963,8 +965,36 @@ table.pins tbody td{padding:7px 12px 7px 0}
         <tr><td>Tolerancia de campo</td><td>Desviación admisible de la intensidad medida respecto de la consigna antes de considerarse anormal.</td></tr>
         <tr><td>Rango de temperatura normal</td><td>Franja esperada. Salir de ella genera una alerta.</td></tr>
         <tr><td>Rango de temperatura crítica</td><td>Franja límite. Salir de ella puede interrumpir el experimento.</td></tr>
+        <tr><td>Modo de exposición</td><td><strong>Campo X</strong> (condición de exposición) o <strong>campo nulo</strong> (grupo control). Ver más abajo.</td></tr>
       </tbody>
     </table></div>
+
+    <h3>El modo de exposición</h3>
+
+    <p>La lista ofrece exactamente dos entradas, campo X y campo nulo, y
+      <strong>no puede modificarse desde la tarjeta SD</strong>: son la
+      condición experimental, no un valor que el operador calibre. El valor
+      inicial es siempre <strong>campo X</strong>; un campo nulo accidental
+      sería indistinguible de un experimento normal. El modo se elige antes de
+      iniciar y <strong>no puede cambiarse con el experimento en curso</strong>.</p>
+
+    <p>En campo nulo el equipo <strong>excita las bobinas con la misma
+      corriente</strong> que usaría para la intensidad elegida, de modo que el
+      ruido, la vibración y el calor sean los mismos que en el grupo tratado,
+      pero la consigna del campo neto es <strong>cero</strong>. Como el campo
+      neto es cercano a cero, no hay una lectura contra la cual regular: el
+      equipo aplica el ciclo de trabajo medido previamente en el banco para esa
+      intensidad y esa frecuencia (el «mapa», sección 14) y no lo corrige
+      durante la exposición.</p>
+
+    <div class="callout warn">
+      <span class="tag">Campo nulo exige mapa</span>
+      <p>Si el mapa no tiene un punto para la intensidad y la frecuencia
+        elegidas, <strong>el equipo se niega a iniciar</strong> en campo nulo y
+        lo informa en la pantalla Resultado (sección 8). No improvisa un valor:
+        un control mal excitado invalidaría la comparación sin dar síntoma
+        alguno.</p>
+    </div>
 
     <h3>Los dos rangos de temperatura</h3>
 
@@ -994,6 +1024,11 @@ table.pins tbody td{padding:7px 12px 7px 0}
       fijo del 25 % sobre la franja elegida. Una tolerancia del 5 % define una
       franja normal de ±5 % y una crítica de ±6,25 %.</p>
 
+    <p>En <strong>campo nulo</strong> la tolerancia sigue siendo un porcentaje
+      de la intensidad elegida, pero la franja se centra en <strong>cero</strong>
+      y no en la intensidad: con 1 mT y una tolerancia del 5 %, un campo
+      residual de hasta ±0,05 mT se considera normal.</p>
+
     <h2 id="s8">Sección 8</h2>
     <p class="h2title">Inicio de un experimento</p>
 
@@ -1005,10 +1040,58 @@ table.pins tbody td{padding:7px 12px 7px 0}
       confirma que el experimento está en curso, la pantalla pasa
       automáticamente a <strong>En curso</strong>.</p>
 
-    <p>Si el arranque no se confirma, la pantalla de Espera abandona el intento
-      a los pocos segundos y regresa a Principal. <strong>El regreso a
-      Principal significa que el experimento no comenzó</strong>, no que
-      comenzó y falló.</p>
+    <p>Si la placa de control no confirma el arranque, la pantalla de Espera
+      abandona el intento a los pocos segundos y regresa a Principal.
+      <strong>El regreso a Principal significa que el experimento no
+      comenzó</strong>, no que comenzó y falló. Cuando la placa de control
+      <em>sí</em> recibió la orden pero se negó a ejecutarla, el motivo se
+      muestra en la pantalla Resultado (ver «Cuando el equipo se niega a
+      iniciar»).</p>
+
+    <h3>Cómo se mide el campo</h3>
+
+    <p>El campo magnético no se lee como una instantánea: la señal de las
+      bobinas es alterna (de 1 a 100 Hz) y una sola lectura depende del punto
+      de la onda en que cae. El equipo toma grupos de 10 muestras repartidas
+      a lo largo de uno o varios períodos (a frecuencias altas el sensor no da
+      para 10 muestras en uno solo), calcula el <strong>valor eficaz
+      (RMS)</strong> de la componente a la frecuencia del experimento y
+      actualiza el valor mostrado <strong>cada 2 segundos</strong>
+      aproximadamente, promediando decenas de grupos. Repartir las muestras
+      así hace que las distorsiones de la señal (armónicos) casi no
+      influyan en el valor; el costo es que el valor tarda esos 2 segundos
+      en aparecer tras el inicio.</p>
+
+    <p>El campo magnético terrestre y cualquier objeto cercano producen una
+      componente <em>continua</em>, que este cálculo deja fuera por
+      construcción: <strong>no hay que medir ni descontar el ambiente antes de
+      empezar</strong>, y el inicio no demora por ese motivo. Lo que sí se
+      suma a la lectura es cualquier fuente <em>alterna</em> a la misma
+      frecuencia del experimento (por ejemplo, la red eléctrica si se trabaja a
+      50 o 60 Hz), por lo que conviene mantener el entorno del magnetómetro
+      libre de equipos encendidos.</p>
+
+    <h3>Cuando el equipo se niega a iniciar</h3>
+
+    <p>Hay situaciones en las que iniciar degradado sería peor que no iniciar.
+      El equipo las trata como un experimento <strong>terminado antes de
+      empezar</strong>: muestra la pantalla Resultado con el panel
+      <strong>NO INICIÓ</strong>, el motivo y el detalle, y el flujo continúa
+      con normalidad (Volver lleva a Principal).</p>
+
+    <div class="tablewrap"><table class="wide">
+      <thead><tr><th>Titular</th><th>Causa</th><th>Qué hacer</th><th>¿Repetir?</th></tr></thead>
+      <tbody>
+        <tr><td>Sin punto en el mapa</td><td>Campo nulo con una intensidad y frecuencia que el mapa no tiene</td><td>Medir ese punto en banco y cargarlo en la tarjeta, o elegir otra combinación</td><td>No</td></tr>
+        <tr><td>Balance fuera de tope</td><td>El balance del punto supera el máximo permitido de la tarjeta</td><td>Revisar el punto del mapa y el tope</td><td>No</td></tr>
+      </tbody>
+    </table></div>
+
+    <p>En estos casos el botón <strong>Repetir</strong> no aparece: el problema
+      está en la configuración y repetir fallaría igual hasta cambiarla. Estos
+      rechazos
+      <strong>no se publican</strong> al monitor web: no hubo experimento, y
+      publicarlos crearía una corrida que nunca existió.</p>
 
     <h3>La ventana de asentamiento</h3>
 
@@ -1079,7 +1162,8 @@ table.pins tbody td{padding:7px 12px 7px 0}
     <p class="h2title">Finalización del experimento</p>
 
     <p>Un experimento finaliza de tres maneras, y la pantalla
-      <strong>Resultado</strong> indica cuál fue:</p>
+      <strong>Resultado</strong> indica cuál fue. Existe además un cuarto
+      caso, en el que el experimento ni siquiera comenzó:</p>
 
     <div class="tablewrap"><table>
       <thead><tr><th>Resultado</th><th>Causa</th></tr></thead>
@@ -1087,6 +1171,7 @@ table.pins tbody td{padding:7px 12px 7px 0}
         <tr><td>Exitoso</td><td>Se cumplió la duración configurada.</td></tr>
         <tr><td>Falla</td><td>El equipo interrumpió la exposición por una condición peligrosa sostenida.</td></tr>
         <tr><td>Detenido</td><td>Lo detuvo una persona, desde la pantalla o mediante el pulsador.</td></tr>
+        <tr><td>No inició</td><td>El equipo se negó a arrancar (mapa o balance; sección 8). No hubo exposición: progreso y tiempo figuran en cero.</td></tr>
       </tbody>
     </table></div>
 
@@ -1320,6 +1405,27 @@ table.pins tbody td{padding:7px 12px 7px 0}
         interfaz.</li>
     </ol>
 
+    <h3>Generador de configuración</h3>
+
+    <p>El archivo se produce con el <strong>generador de configuración</strong>
+      (<code>tools/generador-config.html</code>), una página que acompaña al
+      equipo y sirve para <strong>armar el <code>config.json</code> sin
+      escribirlo a mano</strong>. Presenta un formulario con todas las
+      secciones del archivo —tipo de corrida, opciones de las listas de
+      Configuración, intervalos, control y mapa de intensidad, bobinas,
+      detector, canales de corriente, telemetría, WiFi y broker— y entrega el
+      archivo listo para copiar en la tarjeta. También permite abrir uno
+      existente para modificarlo. Es el mismo formulario que usa la pantalla
+      «Configuración» del monitor remoto (sección 13).</p>
+
+    <p>Su ventaja es que <strong>valida antes de permitir guardar</strong>:
+      rangos, coherencia entre secciones y errores de formato que el equipo no
+      puede advertir por sí mismo. Un valor entero escrito con parte decimal,
+      por ejemplo, se descarta en silencio al leerlo y, en las listas de la
+      pantalla, queda en cero. El generador bloquea la descarga mientras haya
+      errores. Se abre con doble clic, funciona sin conexión y no requiere
+      instalar nada.</p>
+
     <h3>Corridas de prueba</h3>
 
     <p>El archivo declara si lo que se corra con esa tarjeta es un
@@ -1414,15 +1520,41 @@ table.pins tbody td{padding:7px 12px 7px 0}
       sin control. Si el magnetómetro no está conectado, todo experimento con
       regulación activa se cortará a los pocos segundos de iniciado.</p>
 
+    <h3>Mapa de intensidad</h3>
+
+    <p>La sección <code>control</code> del archivo incluye el mapa, que
+      gobierna cómo se excita la bobina:</p>
+
+    <ul>
+      <li><strong>El mapa</strong> (<code>control.map</code>). Para cada
+        combinación de intensidad y frecuencia, el ciclo de trabajo que se
+        midió en el banco para lograrla y el <em>balance</em> entre los dos
+        grupos de bobinas. Admite hasta <strong>3 intensidades por 3
+        frecuencias</strong>, es decir, 9 puntos como máximo; cada punto se
+        identifica por el <em>valor</em> de la intensidad y de la frecuencia,
+        no por su posición en la lista, de modo que reordenar o cambiar las
+        opciones de la pantalla no lo desplaza. En campo X el punto es solo el
+        valor de partida del regulador; en campo nulo es lo que se aplica
+        (sección 7). El tope de balance (<code>balanceMax</code>, 0,2 de
+        fábrica) no puede superar 0,5.</li>
+    </ul>
+
+    <p>Una tarjeta <strong>sin mapa</strong> vacía el mapa que la placa de
+      control tuviera de una conexión anterior: el campo nulo no corre con
+      puntos que la tarjeta actual no declara. El generador de configuración
+      valida el mapa antes de permitir guardar.</p>
+
+    <div class="callout warn">
+      <span class="tag">Valores sin verificar</span>
+      <p>Los puntos del mapa y su balance deben obtenerse con el procedimiento de
+        <code>docs/protocolo-calibracion-intensidad.md</code>; hasta entonces el
+        campo nulo no puede usarse.</p>
+    </div>
+
     <div class="callout">
       <span class="tag">Edición del archivo</span>
-      <p>Se recomienda emplear el generador de configuración que acompaña al
-        equipo (<code>tools/generador-config.html</code>): se abre con doble
-        clic, no requiere instalación y <strong>valida antes de permitir
-        guardar</strong>. Resulta conveniente incluso para quien domina el
-        formato JSON, porque existen errores que el equipo no puede advertir:
-        un valor entero escrito con parte decimal, por ejemplo, se descarta en
-        silencio y, en las listas de la pantalla, queda en cero.</p>
+      <p>Se recomienda no editar el archivo a mano y usar el generador de
+        configuración (ver arriba), incluso para quien domina el formato JSON.</p>
     </div>
 
     <h2 id="s15">Sección 15</h2>
@@ -1448,6 +1580,21 @@ table.pins tbody td{padding:7px 12px 7px 0}
         nunca campo nulo, porque un campo nulo accidental sería indistinguible
         de un experimento normal. No puede cambiarse con el experimento en
         curso: alteraría la condición experimental de animales ya expuestos.</li>
+      <li><strong>El mapa y el balance no están medidos en banco.</strong> El
+        campo nulo se excita con un ciclo de trabajo que sale del mapa de la
+        tarjeta; sin los puntos medidos, el equipo se niega a iniciar en ese
+        modo. Cuando existan, el balance se fija una vez y no se ajusta durante
+        la exposición: si el desequilibrio entre grupos de bobinas cambia con
+        el calentamiento, el equipo no lo corrige.</li>
+      <li><strong>La medición del campo no está verificada en banco.</strong>
+        El valor eficaz tiene un piso de ruido (no lee cero ni con las bobinas
+        apagadas), la atenuación del sensor a 100 Hz no está medida, y una
+        fuente alterna a la frecuencia del experimento (la red a 50 o 60 Hz)
+        se suma a la lectura. Además el magnetómetro no informa el signo del
+        campo, de modo que no puede distinguirse de qué lado se desvía.</li>
+      <li><strong>Las listas de intensidad y frecuencia admiten 3 entradas
+        cada una</strong> a efectos del mapa (9 puntos). Más opciones en la
+        tarjeta no tendrían punto asociado.</li>
       <li><strong>La inversión de fase depende de hardware no montado.</strong>
         El inversor y el multiplexor de la etapa de potencia están diseñados
         pero no construidos. Hasta entonces, el modo campo nulo no cancela
@@ -1472,11 +1619,17 @@ table.pins tbody td{padding:7px 12px 7px 0}
         Cuanto se verificó hasta ahora proviene de un simulador que reproduce
         el formato de los mensajes. La primera corrida con la placa es la que
         confirmará el resto (secciones 12 y 13).</li>
-      <li><strong>El firmware de la interfaz incluye un modo de banco</strong>
-        (<code>BENCH_SIN_MEGA</code>) que permite alcanzar Principal sin placa
-        de control conectada. Debe estar desactivado en la compilación de
-        producción; de lo contrario, Iniciar permanecería en Espera hasta
-        agotar el tiempo sin que exista nada que arrancar.</li>
+      <li><strong>La tarjeta puede desactivar la exigencia de la placa de
+        control</strong> (<code>requireMega</code>, sección 14). Con ella
+        desmarcada y la placa desconectada, la interfaz «corre» experimentos
+        sin energizar nada. De fábrica está activada; antes de un experimento
+        real conviene revisar que la tarjeta no la haya cambiado.</li>
+      <li><strong>Un cambio remoto de configuración no avisa en pantalla.</strong>
+        La configuración enviada desde el monitor web se graba en la tarjeta y
+        se aplica al reiniciar; la interfaz no muestra ningún cartel ni ofrece
+        reiniciar. Además, restringir quién puede publicar en el tema de
+        configuración es un paso manual en la consola del servicio de
+        mensajería.</li>
     </ul>
 
     <h2 id="s16">Sección 16</h2>
@@ -1487,7 +1640,9 @@ table.pins tbody td{padding:7px 12px 7px 0}
       <tbody>
         <tr><td>La interfaz regresa por sí sola a la pantalla de Inicio</td><td>Se perdió el contacto con la placa de control</td><td>Revisar el enlace serie (sección 3.3) y la alimentación de la placa de control</td></tr>
         <tr><td>La interfaz nunca abandona la pantalla de Inicio</td><td>El enlace serie no funciona en al menos un sentido</td><td>Verificar cruce TX/RX, masa común y adaptador de nivel (sección 4.1)</td></tr>
-        <tr><td><em>Iniciar</em> deja la pantalla en Espera y regresa a Principal</td><td>El experimento no comenzó</td><td>Revisar el enlace con la placa de control; reintentar</td></tr>
+        <tr><td><em>Iniciar</em> deja la pantalla en Espera y regresa a Principal</td><td>El experimento no comenzó: la orden no llegó a la placa de control</td><td>Revisar el enlace con la placa de control; reintentar</td></tr>
+        <tr><td>Resultado con panel <em>NO INICIÓ</em> y «Sin punto en el mapa»</td><td>Campo nulo con una intensidad o frecuencia que el mapa de la tarjeta no tiene</td><td>Cargar el punto medido en el banco, o elegir una combinación mapeada (sección 14)</td></tr>
+        <tr><td>Resultado con panel <em>NO INICIÓ</em> y «Balance fuera de tope»</td><td>El balance del punto supera <code>balanceMax</code></td><td>Revisar el punto y el tope en la tarjeta</td></tr>
         <tr><td>Una medición indica «Sin datos»</td><td>Ese sensor no reporta</td><td>Revisar la conexión (sección 3.5); confirmar que está habilitado en la configuración</td></tr>
         <tr><td>La temperatura no reporta pese a estar conectada</td><td>El código ROM del DS18B20 no coincide con el compilado</td><td>Si el sensor fue reemplazado, actualizar <code>TEMP1_ADDRESS</code> en el firmware</td></tr>
         <tr><td>La consola del Mega indica «Ningún dispositivo respondió» en I2C</td><td>Bus I2C inoperante</td><td>Revisar SDA/SCL, alimentación de los módulos y <em>pull-ups</em></td></tr>
@@ -1520,6 +1675,14 @@ table.pins tbody td{padding:7px 12px 7px 0}
         que nadie lo advierta, y constituye el error más costoso que este
         equipo puede cometer: invalida la comparación completa sin
         manifestar síntoma alguno.</li>
+      <li><strong>No tocar nada cerca del magnetómetro al pulsar Iniciar.</strong>
+        Durante los primeros segundos el equipo mide el campo ambiente para
+        descontarlo; lo que se mueva en ese lapso queda incorporado como si
+        fuera ambiente.</li>
+      <li><strong>No dar por válido el campo nulo sin el mapa medido.</strong>
+        Cargar el punto de cada combinación de intensidad y frecuencia que se
+        vaya a usar, y verificar el campo residual con el magnetómetro antes de
+        la serie.</li>
       <li><strong>Documentar toda intervención en el cableado.</strong> Tras
         abrir el gabinete, repetir la verificación de la sección 4 y anotar
         qué se desconectó y qué se repuso; si se movió el magnetómetro, la

@@ -261,7 +261,7 @@ void test_resultdata_fits_with_refused_cause(void) {
     JsonDocument doc;
     doc["reason"] = "refused";
     doc["description"] = "Campo nulo sin punto en el mapa";
-    doc["cause"] = "taretime";   // el codigo mas largo
+    doc["cause"] = "balance";   // el codigo mas largo
 
     TEST_ASSERT_TRUE(survivesTransport(Commands::ResultData, doc));
 }
@@ -356,22 +356,6 @@ void test_config_control_fits_with_balance_max(void) {
     TEST_ASSERT_TRUE(survivesTransport(Commands::ConfigControl, doc));
 }
 
-// Y con los tres umbrales de la tara: si el frame no entrara, la tarjeta
-// perderia claves en silencio (serializeJson trunca con CRC valido).
-void test_config_control_fits_with_tare_thresholds(void) {
-    JsonDocument doc;
-    doc["kp"] = 0.123456f;
-    doc["maxStep"] = 0.123456f;
-    doc["deadBand"] = 0.123456f;
-    doc["balanceMax"] = 0.123456f;
-    doc["tareSamples"] = 6;
-    doc["tareSpread"] = 100.123456f;
-    doc["tareAmbient"] = 1000.123456f;
-    doc["enabled"] = true;
-
-    TEST_ASSERT_TRUE(survivesTransport(Commands::ConfigControl, doc));
-}
-
 int main(int argc, char** argv) {
     UNITY_BEGIN();
 
@@ -400,7 +384,6 @@ int main(int argc, char** argv) {
     RUN_TEST(test_resultdata_fits_with_refused_cause);
     RUN_TEST(test_config_map_fits_when_the_card_has_no_map);
     RUN_TEST(test_config_control_fits_with_balance_max);
-    RUN_TEST(test_config_control_fits_with_tare_thresholds);
 
     return UNITY_END();
 }

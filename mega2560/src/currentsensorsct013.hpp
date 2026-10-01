@@ -80,6 +80,17 @@ class CurrentSensorSct013 : public ICurrentSensor {
   public:
     static constexpr uint8_t MaxNameLength = 16;  // 15 caracteres + terminador
 
+    // La ventana de integracion (200 ms de fabrica) bloquea loop(): el ADS1115
+    // se lee en modo single-shot y la libreria espera cada conversion. Entre
+    // muestra y muestra se consulta este gancho (Engine lo conecta al pulsador
+    // de emergencia, ver Engine::begin) y, si devuelve true, la ventana se
+    // abandona sin resultado: el pulsador se atiende en ~1 ms en vez de al
+    // final de la ventana. Se pierde una lectura de corriente, que no es
+    // fuente del Detector.
+    using AbortCheck = bool (*)(void*);
+    static inline AbortCheck abortCheck = nullptr;
+    static inline void* abortContext = nullptr;
+
   private:
 
     Adafruit_ADS1115& _ads;
@@ -276,6 +287,9 @@ inline void CurrentSensorSct013::update() {
   RmsAccumulator rms;
 
   for (uint16_t i = 0; i < samples; i++) {
+    if (abortCheck && abortCheck(abortContext))
+      return;
+
     int16_t raw = readRaw();
 
     // Conversión automática a Volts según la ganancia

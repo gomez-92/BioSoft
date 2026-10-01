@@ -107,11 +107,10 @@ const DEFAULTS = {
     esp32: {updateScreens:50,reSendStart:4000,reSendStop:4000,reSendReset:4000,updateProgress:5000,
             reSendConfig:4000,splashTimeout:4000,busyTimeout:6000},
     mega: {ping:2000,sendState:5000,measureTemperature:5000,measureCurrent:8500,
-           measureMagneticField:500,updateProgress:1000,sendFlags:25000,sendResult:1000,
+           measureMagneticField:2000,updateProgress:1000,sendFlags:25000,sendResult:1000,
            settlingTime:10000}
   },
-  control: {enabled:true,kp:0.1,maxStep:0.05,deadBand:0.01,balanceMax:0.2,
-           tare:{samples:4,maxSpread:10,maxAmbient:300},map:[]},
+  control: {enabled:true,kp:0.1,maxStep:0.05,deadBand:0.01,balanceMax:0.2,map:[]},
   coils: [
     {name:"BOB1",enabled:true, calibrationFactor:1.0},
     {name:"BOB2",enabled:true, calibrationFactor:1.0},
@@ -184,9 +183,6 @@ const MENU_CAP = {fieldIntensity: 3, frequency: 3};
 const menuMax = key => MENU_CAP[key] || MAX_MENU_OPTIONS;
 const MAX_MAP_POINTS = 9;       // ControlMap::MaxPoints
 const MAX_BALANCE = 0.5;        // CoilChannels::MaxBalance
-const TARE_SAMPLES = [2, 6];     // TareLimits::MinSamples / MaxSamples
-const TARE_SPREAD = [1, 100];    // TareLimits::MinSpread / MaxSpread (uT)
-const TARE_AMBIENT = [50, 1000]; // TareLimits::MinAmbient / MaxAmbient (uT)
 const MAP_MATCH_INT = 0.001;    // ControlMapLimits::IntensityMatch (mT)
 const MAP_MATCH_FREQ = 0.5;     // ControlMapLimits::FrequencyMatch (Hz)
 const MAX_WIFI_NETWORKS = 5;   // WiFiConfig::MAX_NETWORKS
@@ -461,20 +457,7 @@ function sControl(){
       num("control.maxStep", FLT, "maxStep — clamp del paso (duty)") +
       num("control.deadBand", FLT, "deadBand — zona muerta (mT)") +
       num("control.balanceMax", FLT, "balanceMax — tope del balance del campo nulo (0 a " + MAX_BALANCE + ")") +
-    '</div>' + sTare() + sControlMap() + '</section>';
-}
-
-function sTare(){
-  return '<div class="sub"><h3>Tara del campo ambiente</h3>' +
-    '<p class="hint">Al arrancar, con las bobinas apagadas, el Mega mide el campo ambiente y lo descuenta. ' +
-    'La tara se <b>rechaza entera</b> (el experimento no arranca) si las lecturas no concuerdan o el ' +
-    'ambiente es demasiado grande. Valores de partida a verificar en banco: el log de la tara ' +
-    'informa la dispersion real. Las <b>lecturas</b> por la cadencia de CEM1 tienen que entrar en 4 s.</p>' +
-    '<div class="grid">' +
-    num("control.tare.samples", INT, "Lecturas que se promedian (" + TARE_SAMPLES[0] + " a " + TARE_SAMPLES[1] + ")") +
-    num("control.tare.maxSpread", FLT, "Dispersion maxima por eje, uT (" + TARE_SPREAD[0] + " a " + TARE_SPREAD[1] + ")") +
-    num("control.tare.maxAmbient", FLT, "Ambiente maximo aceptado, uT (" + TARE_AMBIENT[0] + " a " + TARE_AMBIENT[1] + ")") +
-    '</div></div>';
+    '</div>' + sControlMap() + '</section>';
 }
 
 function sControlMap(){
@@ -790,15 +773,6 @@ function validateControlMap(){
   if (!bmaxOk)
     err("control.balanceMax tiene que estar entre 0 y " + MAX_BALANCE + ": el Mega lo rechaza fuera de ese " +
         "rango y se queda con su valor anterior.");
-  const t = c.tare || {};
-  const tareRange = (v, r, name, int) => {
-    if (!isNum(v) || v < r[0] || v > r[1] || (int && !isInt(v)))
-      err("control.tare." + name + " tiene que estar entre " + r[0] + " y " + r[1] +
-          (int ? " (entero)" : "") + ": el Mega lo rechaza fuera de ese rango y se queda con su valor anterior.");
-  };
-  tareRange(t.samples, TARE_SAMPLES, "samples", true);
-  tareRange(t.maxSpread, TARE_SPREAD, "maxSpread", false);
-  tareRange(t.maxAmbient, TARE_AMBIENT, "maxAmbient", false);
   if (!Array.isArray(c.map)){
     err("control.map tiene que ser una lista de puntos.");
     return;
@@ -1311,9 +1285,9 @@ function loadParsed(parsed){
   // Un archivo anterior al mapa trae `control` sin balanceMax ni map: se completan con
   // los de fabrica (mapa vacio), no se dejan undefined.
   state.control = Object.assign(clone(DEFAULTS.control), state.control);
-  // `tare` se completa clave por clave: un archivo con solo algunas no
-  // tiene que dejar las otras undefined.
-  state.control.tare = Object.assign(clone(DEFAULTS.control.tare), state.control.tare);
+  // `tare` ya no existe (el campo se mide como RMS, que no necesita tara): un
+  // archivo viejo que la traiga se lee, pero no se vuelve a escribir.
+  delete state.control.tare;
   // Una fuente sin `scenario` toma el de fabrica, para que elegir el
   // sensor "scenario" en el formulario tenga numeros que editar.
   state.detector.sources.forEach(s => {

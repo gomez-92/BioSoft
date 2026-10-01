@@ -12,6 +12,10 @@ class EmergencyButton {
     void begin();
     void update();
     void setListener(EmergencyButtonListener* listener);
+    // Nivel crudo, sin debounce ni flanco ni callback: lo usan las esperas
+    // largas para abandonar lo que hacen. No consume el flanco que update()
+    // despues convierte en onEmergencyButtonPressed().
+    bool isPressed() const { return _readPressed(); }
 
   private:
     uint8_t _pin;

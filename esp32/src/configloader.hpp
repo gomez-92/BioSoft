@@ -74,14 +74,6 @@ namespace ConfigLoader {
   struct ControlConfig {
     bool hasBalanceMax = false;
     float balanceMax = 0.0f;
-    // Umbrales de la tara del campo ambiente (control.tare). Solo tipo: el
-    // rango lo valida el Mega (TareLimits en fieldtare.hpp).
-    bool hasTareSamples = false;
-    int tareSamples = 0;
-    bool hasTareSpread = false;
-    float tareSpread = 0.0f;
-    bool hasTareAmbient = false;
-    float tareAmbient = 0.0f;
     // Puntos del mapa, compactados: un punto al que le falta una clave no
     // ocupa lugar, asi que el indice que viaja al Mega es el de esta lista.
     uint8_t mapCount = 0;
@@ -603,22 +595,6 @@ namespace ConfigLoader {
       if (control["balanceMax"].is<float>()) {
         _controlConfig.hasBalanceMax = true;
         _controlConfig.balanceMax = control["balanceMax"].as<float>();
-      }
-
-      JsonObjectConst tare = control["tare"];
-      if (!tare.isNull()) {
-        if (tare["samples"].is<int>()) {
-          _controlConfig.hasTareSamples = true;
-          _controlConfig.tareSamples = tare["samples"].as<int>();
-        }
-        if (tare["maxSpread"].is<float>()) {
-          _controlConfig.hasTareSpread = true;
-          _controlConfig.tareSpread = tare["maxSpread"].as<float>();
-        }
-        if (tare["maxAmbient"].is<float>()) {
-          _controlConfig.hasTareAmbient = true;
-          _controlConfig.tareAmbient = tare["maxAmbient"].as<float>();
-        }
       }
 
       JsonArrayConst map = control["map"];

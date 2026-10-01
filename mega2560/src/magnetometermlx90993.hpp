@@ -5,58 +5,72 @@
 #include <Adafruit_MLX90393.h>
 
 #include "magnetometermanager.hpp"
-#include "fieldtare.hpp"
+#include "fieldsampler.hpp"
 #include "debugconfig.hpp"
 
 // Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
 // el interruptor maestro).
 constexpr bool DEBUG_MAGNETOMETER_MLX90393 = true;
 
-class MagnetometerMlx90393 : public IMagnetometer {
+// Configuracion de conversion del sensor. Es un compromiso medido en papel,
+// no en banco:
+//  - OSR_0 + FILTER_0 es la conversion mas corta (tconv = 1.27 ms, ver
+//    mlx90393_tconv). A 100 Hz es lo que deja ~330 muestras/s,
+//    y cuanto menos integra el sensor menos atenua una senal rapida.
+//  - Lo que pierde en ruido por muestra lo recupera el ajuste: cada ventana de
+//    2 s promedia decenas de grupos.
+// Si en banco el piso de ruido molesta, OSR_1 (1.84 ms) es el siguiente paso;
+// FieldSampler recalcula el plan solo, porque pregunta conversionUs().
+constexpr mlx90393_oversampling MLX90393_SAMPLING_OSR = MLX90393_OSR_0;
+constexpr mlx90393_filter MLX90393_SAMPLING_FILTER = MLX90393_FILTER_0;
+
+// Lo que cuestan en bus un trigger (SM) + una lectura (RM) a 100 kHz: ~10
+// bytes de I2C. Con 400 kHz se podria bajar, pero no hay Wire.setClock hoy.
+constexpr uint32_t MLX90393_BUS_OVERHEAD_US = 1300;
+
+// Mide el valor eficaz (RMS) del campo, no una instantanea: ver
+// fieldsampler.hpp. begin() solo inicializa el chip; el muestreo arranca con
+// beginSampling() cuando Engine sabe la frecuencia del experimento.
+class MagnetometerMlx90393 : public IMagnetometer, private IFieldBus {
 private:
     const char* _name;
     uint8_t _address;
 
     Adafruit_MLX90393 _sensor;
+    FieldSampler _sampler;
 
-    float _x;
-    float _y;
-    float _z;
-    float _magneticField;
-
+    float _magneticField;   // mT (el RMS del ultimo ventaneo)
     bool _isValid;
 
-    // Ambiente medido con las bobinas apagadas, que se descuenta del
-    // vector leido (fieldtare.hpp). Sin tara lista, el campo es el total.
-    FieldTare _tare;
-
-    void logTareOutcome(TareStatus before) const;
+    // IFieldBus
+    uint32_t nowUs() const override { return micros(); }
+    bool trigger() override { return _sensor.startSingleMeasurement(); }
+    bool fetch(float& x, float& y, float& z) override { return _sensor.readMeasurement(&x, &y, &z); }
+    uint32_t conversionUs() const override {
+        return (uint32_t)(mlx90393_tconv[MLX90393_SAMPLING_FILTER][MLX90393_SAMPLING_OSR] * 1000.0f + 0.5f);
+    }
+    uint32_t overheadUs() const override { return MLX90393_BUS_OVERHEAD_US; }
 
 public:
     MagnetometerMlx90393(const char* name, uint8_t address = 0x0C);
     void begin() override;
-    void update() override;
+
+    // No hace nada: un MLX real se lee por poll(), sin bloquear.
+    void update() override {}
+    bool isAsync() const override { return true; }
+    bool poll() override;
+    bool beginSampling(float freqHz, uint32_t windowMs) override;
+    void endSampling() override;
 
     float getMagneticField() const override;
     bool isValid() const override;
     const char* getName() const override;
-
-    bool supportsTare() const override { return true; }
-    void tareBegin(const TareConfig& config) override;
-    void tareClear() override;
-    TareStatus tareStatus() const override;
-
-    float getX() const;
-    float getY() const;
-    float getZ() const;
 };
 
-inline MagnetometerMlx90393::MagnetometerMlx90393(const char* name, uint8_t address) : 
+inline MagnetometerMlx90393::MagnetometerMlx90393(const char* name, uint8_t address) :
     _name(name),
     _address(address),
-    _x(0),
-    _y(0),
-    _z(0),
+    _sampler(*this),
     _magneticField(0),
     _isValid(false)
 {}
@@ -77,84 +91,63 @@ inline void MagnetometerMlx90393::begin() {
     _sensor.setResolution(MLX90393_Y, MLX90393_RES_17);
     _sensor.setResolution(MLX90393_Z, MLX90393_RES_16);
 
-    _sensor.setOversampling(MLX90393_OSR_3);
-    _sensor.setFilter(MLX90393_FILTER_5);
+    _sensor.setOversampling(MLX90393_SAMPLING_OSR);
+    _sensor.setFilter(MLX90393_SAMPLING_FILTER);
 }
 
-inline void MagnetometerMlx90393::update() {
-    if (!_isValid)
-        return;
+inline bool MagnetometerMlx90393::beginSampling(float freqHz, uint32_t windowMs) {
+    if (!_isValid) return false;
+    bool ok = _sampler.begin(freqHz, windowMs);
 
-    if (_sensor.readData(&_x, &_y, &_z)) {
-        // Adafruit_MLX90393::readData() devuelve uT (ver su propio comentario
-        // "Convert data to uT and float", Adafruit_MLX90393.cpp) -- el resto
-        // del sistema (targets del ESP32, MagnetometerVoltageSim, FieldController,
-        // DetectorConfigBuilder) trabaja en mT, asi que se convierte aca antes
-        // de que el valor salga de esta clase. Sin esta conversion el sensor
-        // real reportaria ~1000x lo que el resto del sistema espera.
-        // Con la tara lista se descuenta el ambiente del VECTOR antes de
-        // sacar la magnitud (ver fieldtare.hpp); sin ella, es el campo total.
-        TareStatus before = _tare.status();
-        if (before == TareStatus::Collecting) {
-            _tare.addSample(_x, _y, _z);
-            logTareOutcome(before);
-        }
-        float magneticFieldUt = _tare.apply(_x, _y, _z);
-        _magneticField = magneticFieldUt / 1000.0f;
-        _isValid = true;
-
-        // Se loguean ambas unidades a proposito: con el campo base (sin
-        // bobinas excitando) el valor en mT puede ser tan chico que se vea
-        // como 0.0000 en el log -- el valor crudo en uT permite distinguir
-        // "el sensor no esta leyendo nada" de "el campo ambiente es
-        // realmente muy chico en mT".
-        DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, F("[MLX90393] "));
-        DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, _name);
-        DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, F(" = "));
-        DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, magneticFieldUt, 4);
-        DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, F(" uT / "));
-        DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, _magneticField, 6);
-        DEBUG_PRINTLN(DEBUG_MAGNETOMETER_MLX90393, F(" mT"));
-    }
-    else {
-        _isValid = false;
-        DEBUG_PRINTLN(DEBUG_MAGNETOMETER_MLX90393, F("[MLX90393] readData() fallo"));
-    }
-}
-
-inline void MagnetometerMlx90393::logTareOutcome(TareStatus before) const {
-    TareStatus after = _tare.status();
-    if (after == before || after == TareStatus::Collecting) return;
-    if (after == TareStatus::Ready) {
-        DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, F("[MLX90393] tara OK: ambiente = "));
-        DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, _tare.ambientMagnitude(), 2);
-        DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, F(" uT (x="));
-        DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, _tare.ambientX(), 2);
-        DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, F(" y="));
-        DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, _tare.ambientY(), 2);
-        DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, F(" z="));
-        DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, _tare.ambientZ(), 2);
-        DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, F("), dispersion max = "));
-        DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, _tare.worstSpread(), 2);
-        DEBUG_PRINTLN(DEBUG_MAGNETOMETER_MLX90393, F(" uT"));
+    DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, F("[MLX90393] muestreo f="));
+    DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, freqHz, 3);
+    DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, F(" Hz ventana="));
+    DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, windowMs);
+    DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, F(" ms -> "));
+    if (ok) {
+        DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, _sampler.plan().groupSize);
+        DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, F(" muestras/grupo cada "));
+        DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, _sampler.plan().spacingUs);
+        DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, F(" us, grupo de "));
+        DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, _sampler.plan().spanUs);
+        DEBUG_PRINTLN(DEBUG_MAGNETOMETER_MLX90393, _sampler.plan().uniform ? F(" us (uniforme)") : F(" us (fases repartidas)"));
     } else {
-        DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, F("[MLX90393] tara RECHAZADA: dispersion = "));
-        DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, _tare.worstSpread(), 2);
-        DEBUG_PRINTLN(DEBUG_MAGNETOMETER_MLX90393, F(" uT, o ambiente fuera de rango (se movio algo, o hay una fuente de campo cerca)"));
+        DEBUG_PRINTLN(DEBUG_MAGNETOMETER_MLX90393, F("RECHAZADO (frecuencia fuera de rango)"));
     }
+    return ok;
 }
 
-inline void MagnetometerMlx90393::tareBegin(const TareConfig& config) {
-    _tare.begin(config);
-    DEBUG_PRINTLN(DEBUG_MAGNETOMETER_MLX90393, F("[MLX90393] tara: juntando lecturas del ambiente (bobinas apagadas)"));
+inline void MagnetometerMlx90393::endSampling() {
+    _sampler.stop();
 }
 
-inline void MagnetometerMlx90393::tareClear() {
-    _tare.clear();
-}
+inline bool MagnetometerMlx90393::poll() {
+    if (!_isValid && !_sampler.running()) return false;
 
-inline TareStatus MagnetometerMlx90393::tareStatus() const {
-    return _tare.status();
+    bool fresh = _sampler.poll();
+
+    // Un bus que falla cinco veces seguidas invalida el sensor (silencio del
+    // CEM1 corta el experimento, ver Engine); el primer acierto lo recupera.
+    // begin() no se reintenta aca: re-inicializar el chip en caliente es lo
+    // que ya fallaba en banco (ver MagnetometerManager::addMagnetometer).
+    _isValid = _sampler.healthy();
+
+    if (!fresh) return false;
+
+    _magneticField = _sampler.rmsUt() / 1000.0f;
+
+    DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, F("[MLX90393] "));
+    DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, _name);
+    DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, F(" RMS = "));
+    DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, _sampler.rmsUt(), 3);
+    DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, F(" uT / "));
+    DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, _magneticField, 6);
+    DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, F(" mT (grupos="));
+    DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, _sampler.lastGroups());
+    DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, F(" descartados="));
+    DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, _sampler.lastDiscarded());
+    DEBUG_PRINTLN(DEBUG_MAGNETOMETER_MLX90393, F(")"));
+    return true;
 }
 
 inline float MagnetometerMlx90393::getMagneticField() const {
@@ -167,16 +160,4 @@ inline bool MagnetometerMlx90393::isValid() const {
 
 inline const char* MagnetometerMlx90393::getName() const {
     return _name;
-}
-
-inline float MagnetometerMlx90393::getX() const {
-    return _x;
-}
-
-inline float MagnetometerMlx90393::getY() const {
-    return _y;
-}
-
-inline float MagnetometerMlx90393::getZ() const {
-    return _z;
 }

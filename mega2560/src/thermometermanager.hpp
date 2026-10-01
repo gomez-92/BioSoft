@@ -17,6 +17,13 @@ public:
     virtual float getTemperature() const = 0;
     virtual bool isValid() const = 0;
     virtual const char* getName() const = 0;
+
+    // Sensores cuya conversion tarda (el DS18B20, ~750 ms): update() solo la
+    // DISPARA y no bloquea, y poll() -- Engine la llama en cada vuelta de
+    // loop() -- devuelve true cuando hay una lectura nueva. Los simulados y
+    // los escenarios son instantaneos y heredan estos defaults.
+    virtual bool isAsync() const { return false; }
+    virtual bool poll() { return false; }
 };
 
 // =====================================================
@@ -49,6 +56,7 @@ public:
     void clearThermometers();
     IThermometer* findByName(const char* name) const;
     void updateAll();
+    void pollAll();
     void publishMeasures(JsonDocument& measures) const;
     uint8_t thermometerCount() const;
     void setThermometerListener(IThermometerListener* listener);
@@ -110,6 +118,23 @@ inline void ThermometerManager::updateAll() {
     auto& t = _thermometers[i];
     if (!t.thermometer) continue;
     t.thermometer->update();
+    // Uno asincrono recien dispara la conversion: la muestra sale de pollAll().
+    if (t.thermometer->isAsync()) continue;
+    if (!t.thermometer->isValid()) continue;
+    if (_listener) {
+      _listener->onThermometerSample(t.thermometer);
+    }
+  }
+}
+
+// =====================================================
+// Poll all (sensores asincronos: avisa cuando termino la conversion)
+// =====================================================
+inline void ThermometerManager::pollAll() {
+  for (uint8_t i = 0; i < _thermometerCount; i++) {
+    auto& t = _thermometers[i];
+    if (!t.thermometer || !t.thermometer->isAsync()) continue;
+    if (!t.thermometer->poll()) continue;
     if (!t.thermometer->isValid()) continue;
     if (_listener) {
       _listener->onThermometerSample(t.thermometer);

@@ -19,10 +19,21 @@ class ThermometerDS18B20 : public IThermometer {
     float _temperature;
     bool _isValid;
 
+    // Conversion asincrona: update() la dispara, poll() la recoge ~800 ms
+    // despues. requestTemperatures() con waitForConversion en true bloquea
+    // ~750 ms POR LLAMADA, aunque no haya sensor en el bus: en ese tiempo no se
+    // lee el boton de emergencia ni se muestrea el campo. 800 ms cubre los
+    // 12 bits (el peor caso del chip) sea cual sea la resolucion configurada.
+    static constexpr unsigned long ConversionWaitMs = 800;
+    bool _converting = false;
+    unsigned long _requestedAtMs = 0;
+
   public:
     ThermometerDS18B20(DallasTemperature& dallasThermometer, const char* name, const DeviceAddress& address);
     void begin() override;
     void update() override;
+    bool isAsync() const override { return true; }
+    bool poll() override;
     float getTemperature() const override;
     bool isValid() const override;
     const char* getName() const override;
@@ -52,9 +63,26 @@ inline void ThermometerDS18B20::begin() {
 // Actualización
 // =====================================================
 inline void ThermometerDS18B20::update() {
+  // Si ya hay una conversion en curso se deja terminar: el Timer puede
+  // disparar de nuevo antes de que poll() la haya recogido.
+  if (_converting) return;
+  _dallasThermometer.setWaitForConversion(false);
   _dallasThermometer.requestTemperatures();
+  _requestedAtMs = millis();
+  _converting = true;
+}
+
+// Lee el resultado cuando la conversion termino. Lo que bloquea es solo la
+// lectura del scratchpad por OneWire (~10 ms), no la conversion. Un sensor
+// ausente da -127: queda invalido y no hay muestra (la regla de silencio del
+// Detector se ocupa).
+inline bool ThermometerDS18B20::poll() {
+  if (!_converting) return false;
+  if (millis() - _requestedAtMs < ConversionWaitMs) return false;
+  _converting = false;
   _temperature = _dallasThermometer.getTempC(_address);
   _isValid = _temperature > DALLAS_MIN_PLAUSIBLE_TEMP_C && _temperature < DALLAS_MAX_PLAUSIBLE_TEMP_C;
+  return true;
 }
 
 // =====================================================

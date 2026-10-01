@@ -18,7 +18,7 @@
 #include "coilchannel.hpp"
 #include "fieldcontroller.hpp"
 #include "controlmap.hpp"
-#include "taresequencer.hpp"
+#include "fieldsampler.hpp"
 #include "mainpowerswitch.hpp"
 #include "detector.hpp"
 #include "emergencybutton.hpp"
@@ -90,17 +90,6 @@ class Engine :
     // mapa, fijo, y FieldController NO corre (el objetivo es 0, regular
     // hacia arriba no tiene sentido). Lo fija _start().
     bool _nullRun = false;
-
-    // Tara del campo ambiente (fieldtare.hpp). Se toma ANTES de excitar:
-    // el handler de Start, en vez de llamar a _start(), deja la tara
-    // pendiente y update() la va completando sin bloquear el loop (un bucle
-    // de espera frenaria el ping/ack del enlace serie). Cuando termina bien
-    // recien ahi corre _start(). Mientras tanto el estado sigue en Ready,
-    // con las bobinas y la etapa de potencia apagadas.
-    TareSequencer _tareSequence;
-    // Umbrales de la tara (control.tare de la SD); sin tarjeta, los de fabrica.
-    TareConfig _tareConfig;
-    IMagnetometer* _tareMagnetometer = nullptr;
 
     // Interruptor general del Detector (`detector.enabled` de la SD, llega
     // en config_detector). Como las fuentes, se guarda al recibirlo y se
@@ -207,9 +196,6 @@ class Engine :
     void registerScenarioSensors(MagnetometerScenario* magnetometer, ThermometerScenario* thermometer);
 
   private:
-    void _beginStart();
-    void _updateTare();
-    void _abortTare(const char* cause, const char* description, const __FlashStringHelper* reason);
     void _refuseStart(const char* cause, const char* description);
     void _start();
     void _stop();
@@ -353,6 +339,10 @@ inline void Engine::begin() {
   _serial.begin();
   _coilExcitation.begin();
   _emergencyButton.begin();
+  CurrentSensorSct013::abortCheck = [](void* button) {
+    return static_cast<EmergencyButton*>(button)->isPressed();
+  };
+  CurrentSensorSct013::abortContext = &_emergencyButton;
   _timer.start();
   _engineState.setState(State::Ready);
 }
@@ -361,50 +351,12 @@ inline void Engine::update() {
   _timer.tick();
   _serial.update();
   _emergencyButton.update();
-  _updateTare();
+  // Un paso acotado por sensor asincrono (a lo sumo una transaccion de bus):
+  // el RMS del campo se arma de a muestras, sin bloquear nunca el loop (el
+  // boton de emergencia se lee en esta misma vuelta).
+  _magnetometerManager.pollAll();
+  _thermometerManager.pollAll();
   _checkSilence();
-}
-
-// El handler de Start llama a esto en lugar de _start(): si CEM1 es el
-// sensor real y el lazo va a excitar las bobinas, antes hay que medir el
-// ambiente con ellas apagadas. Sin lazo ("solo sensado") no se excita nada y
-// la lectura cruda es justo lo que se quiere ver; con un sensor simulado o un
-// escenario no hay ambiente que descontar.
-inline void Engine::_beginStart() {
-  _realMagnetometer.tareClear();
-  if (!(_controlLoopEnabled && !_syntheticField && _realMagnetometer.supportsTare())) {
-    _start();
-    return;
-  }
-
-  _tareMagnetometer = &_realMagnetometer;
-  _tareMagnetometer->tareBegin(_tareConfig);
-  _tareSequence.begin(millis(), Intervals::MeasureMagneticField);
-  DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] midiendo el campo ambiente antes de excitar las bobinas..."));
-}
-
-// Una lectura por cadencia de CEM1, directo al sensor: pasar por el manager
-// llamaria a onMagnetometerSample() y moveria el PWM antes de tiempo.
-inline void Engine::_updateTare() {
-  TareAction action = _tareSequence.poll(millis());
-  if (action == TareAction::None) return;
-  if (action == TareAction::Timeout) {
-    _abortTare("taretime", "Tara sin lecturas",
-               F("no se completo a tiempo (el sensor no responde?)"));
-    return;
-  }
-
-  _tareMagnetometer->update();
-  TareOutcome outcome = _tareSequence.report(_tareMagnetometer->tareStatus());
-  if (outcome == TareOutcome::Pending) return;
-
-  if (outcome == TareOutcome::Ready) {
-    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] tara lista, iniciando experimento"));
-    _start();
-  } else {
-    _abortTare("tare", "Tara rechazada",
-               F("lecturas inconsistentes o ambiente fuera de rango"));
-  }
 }
 
 // El start ya fue aceptado (ack enviado) pero no se puede arrancar. Se le
@@ -413,17 +365,6 @@ inline void Engine::_updateTare() {
 // pantalla Resultado; despues el flujo sigue normal, Volver lleva a
 // Principal. No pasa por _finish(): no hay nada que apagar ni un estado
 // Finished que transitar, y el Engine nunca dejo de estar en Ready.
-// Rechazar y no correr con una tara dudosa: un campo nulo medido contra un
-// ambiente mal tarado se veria bien y no lo estaria.
-inline void Engine::_abortTare(const char* cause, const char* description, const __FlashStringHelper* reason) {
-  _tareSequence.cancel();
-  if (_tareMagnetometer != nullptr) _tareMagnetometer->tareClear();
-  DEBUG_PRINT(DEBUG_ENGINE, F("[START][ERROR] Tara del campo ambiente rechazada: "));
-  DEBUG_PRINTLN(DEBUG_ENGINE, reason);
-  DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Abortando comando START"));
-  _refuseStart(cause, description);
-}
-
 inline void Engine::_refuseStart(const char* cause, const char* description) {
   ResultData data;
   strncpy(data.reason, "refused", sizeof(data.reason) - 1);
@@ -512,6 +453,10 @@ inline void Engine::_start() {
   TargetData target = _runtimeState.target();
   _coilExcitation.start(target.frequencyTarget);
   _fieldController.reset();
+  // El RMS se mide a la frecuencia que REALMENTE sale del AD9833 (cuantizada,
+  // paso ~0.093 Hz), no a la pedida: a 1 Hz la diferencia es del 0.1 %.
+  _magnetometerManager.beginSamplingAll(
+      FieldSampling::ad9833ActualHz((float)target.frequencyTarget), Intervals::MeasureMagneticField);
 
   // COMO se excita lo decide el mapa de calibracion (controlmap.hpp). El
   // handler de Start ya rechazo los arranques de campo nulo sin punto
@@ -550,7 +495,7 @@ inline void Engine::_start() {
 }
 
 inline void Engine::_stop() {
-  _tareSequence.cancel();
+  _magnetometerManager.endSamplingAll();
   _mainPowerSwitch.disable();
   _coilExcitation.stop();
   _coilChannels.disableAll();
@@ -560,7 +505,7 @@ inline void Engine::_stop() {
 }
 
 inline void Engine::_reset() {
-  _tareSequence.cancel();
+  _magnetometerManager.endSamplingAll();
   _mainPowerSwitch.disable();
   _coilExcitation.stop();
   _coilChannels.disableAll();
@@ -723,8 +668,8 @@ inline void Engine::_applySourceSettings() {
   DEBUG_PRINTLN(DEBUG_ENGINE, _controlLoopEnabled ? F(" control=on") : F(" control=off"));
 
   // TEMP1: "none" no registra ningun termometro. Es lo que hay que usar sin
-  // DS18B20 cableado: registrado, requestTemperatures() bloquea ~750 ms en
-  // cada medicion aunque no haya nadie en el bus.
+  // DS18B20 cableado: registrado, cada medicion dispara una conversion y
+  // lee un scratchpad vacio (~10 ms de bus) aunque no haya nadie.
   _thermometerManager.clearThermometers();
   SourceSettings* temp = _findSourceSettings("TEMP1");
   SensorChoice tempSensor = (temp != nullptr) ? temp->sensor : SensorChoice::Real;
@@ -1080,17 +1025,6 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
 
   else if (strcmp(command, Commands::Start) == 0) {
 
-    // La ESP32 reenvia start hasta recibir el ack, que ya salio: un start
-    // repetido mientras se tara no puede reiniciar la tara ni reaplicar la
-    // configuracion. Se re-confirma y se ignora.
-    if (_tareSequence.pending()) {
-      DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] ya hay un start esperando la tara, se ignora el repetido"));
-      JsonDocument dup;
-      dup["command"] = Commands::Start;
-      _serial.sendCommand(Commands::Ack, dup);
-      return;
-    }
-
     DEBUG_PRINTLN(DEBUG_ENGINE, );
     DEBUG_PRINTLN(DEBUG_ENGINE, F("========================================"));
     DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Comando START recibido"));
@@ -1396,9 +1330,9 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
     DEBUG_PRINTLN(DEBUG_ENGINE, );
     DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Iniciando experimento..."));
 
-    _beginStart();
+    _start();
 
-    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] _beginStart() finalizado"));
+    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] _start() finalizado"));
 
     DEBUG_PRINTLN(DEBUG_ENGINE, F("========================================"));
     DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Comando START procesado"));
@@ -1479,32 +1413,6 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
         _balanceMax = balanceMax;
       } else {
         DEBUG_PRINTLN(DEBUG_ENGINE, F("[CONFIG_CONTROL] balanceMax invalido -- se ignora"));
-      }
-    }
-    // Umbrales de la tara del campo ambiente. Cada uno se valida por
-    // separado y se rechaza entero fuera de rango (TareLimits).
-    if (params["tareSamples"].is<int>()) {
-      int samples = params["tareSamples"].as<int>();
-      if (TareLimits::isValidSamples(samples)) {
-        _tareConfig.samples = (uint8_t)samples;
-      } else {
-        DEBUG_PRINTLN(DEBUG_ENGINE, F("[CONFIG_CONTROL] tareSamples invalido -- se ignora"));
-      }
-    }
-    if (params["tareSpread"].is<float>()) {
-      float spread = params["tareSpread"].as<float>();
-      if (TareLimits::isValidSpread(spread)) {
-        _tareConfig.maxSpread = spread;
-      } else {
-        DEBUG_PRINTLN(DEBUG_ENGINE, F("[CONFIG_CONTROL] tareSpread invalido -- se ignora"));
-      }
-    }
-    if (params["tareAmbient"].is<float>()) {
-      float ambient = params["tareAmbient"].as<float>();
-      if (TareLimits::isValidAmbient(ambient)) {
-        _tareConfig.maxAmbient = ambient;
-      } else {
-        DEBUG_PRINTLN(DEBUG_ENGINE, F("[CONFIG_CONTROL] tareAmbient invalido -- se ignora"));
       }
     }
     // En false el lazo mide pero no toca el PWM (lo que antes eran los

@@ -200,7 +200,10 @@ Key collaborators:
   referenced the other. The `.ino` now derives it from
   `Intervals::MeasureMagneticField`, so changing the measurement cadence retunes
   the controller on its own. The `0.2f` default survives only for `Config`s
-  built standalone in tests. The tuning parameters (`kp`, `maxStep`, `deadBand`)
+  built standalone in tests. CEM1's cadence is now the RMS window (2000 ms,
+  see the `MagnetometerMlx90393` bullet), so `kp`/`maxStep` must be retuned
+  for a ~2 s loop (four times slower than the 500 ms they were guessed for).
+  The tuning parameters (`kp`, `maxStep`, `deadBand`)
   are deliberately *not* derived — they are set in `SoftMega2560.ino`, which is
   the single place the SD config will override once it exists, and they are
   still uncalibrated header defaults rather than measured values.
@@ -360,7 +363,7 @@ Key collaborators:
   sim)` (the DS18B20 is `new`'d in `setup()`, after Engine exists), and
   `_applySourceSettings()` re-registers the chosen one on every `start` —
   `none` registers nothing, the only safe bring-up state without a DS18B20
-  since `requestTemperatures()` blocks ~750 ms even on an empty bus. TEMP1
+  since the DS18B20 conversion takes ~750 ms even on an empty bus. TEMP1
   watched with no thermometer is legal but never cuts; Engine logs it.
   `ThermometerVoltageSim` reads **A1, 0–5 V → 0–50 °C** (10 °C per volt, so
   every menu zone is reachable with a pot). `ThermometerManager::
@@ -401,7 +404,7 @@ Key collaborators:
   **or** any source on `sim`/`scenario`) forces `TEST` and the MODO PRUEBA
   notice — fabricated data never enters the history as an experiment.
   RAM cost on the Mega is ~320 bytes (two signal templates + two sensors),
-  leaving it at ~76%.
+  leaving it at ~76% (84% after the RMS sampler, below).
   The "sensor caido" profile (`dropAt`) is the bench test of the silence cut
   below.
 - **A watched source that goes silent cuts the run** (card 25). Before it,
@@ -417,7 +420,7 @@ Key collaborators:
   fires. The limit is `maxMissedSamples` (SD, 1–20, default 3) × the source's
   measuring interval (`SourceConfig::sampleIntervalMs`, set by Engine at each
   start from `Intervals`), floored at `MinSilenceMs` = 5 s because the
-  DS18B20's ~750 ms block makes CEM1's 500 ms cadence jittery. It emits one
+  DS18B20's ~750 ms conversion makes sample arrival jittery. It emits one
   `EventType::Silence` with `count >= limit`, so the existing `onFlag` path
   cuts it (`type: "silence"`), reported once. It respects
   `detector.enabled` — **except CEM1 with the control loop on**, which
@@ -446,14 +449,48 @@ Key collaborators:
   `begin_I2C` failing the *second* time (first always OK), with no actual
   wiring problem. A magnetometer that never connected, or that dropped mid-run,
   still gets its `begin()` retried since it's not valid.
-- `MagnetometerMlx90393::update()` converts the Adafruit driver's raw reading
-  (µT) to mT before storing it — the rest of the system (ESP32 targets, the
-  sim, `FieldController`, `DetectorConfigBuilder`) works in mT, so without this
-  conversion the real sensor reports ~1000x what everything else expects. Logs
-  both units on every read (`DEBUG_MAGNETOMETER_MLX90393`) since the mT value
-  can round to 0.0000 near ambient field, and the raw µT figure is what
-  distinguishes "sensor isn't reading" from "ambient field really is that
-  small."
+- **CEM1 measures the RMS of the fundamental, not a snapshot, and there is no
+  ambient tare** (`fieldsampler.hpp`, driven by `MagnetometerMlx90393`).
+  A snapshot depended on where in the 1-100 Hz wave it landed, and the ambient
+  (~0.025-0.065 mT, DC) could fill a whole 5 % band — so the old tare
+  (`FieldTare`/`TareSequencer`/`control.tare`/`tare`/`taretime` refusals) is
+  gone, not replaced: per group, a least-squares fit
+  `y = a cos(wt) + b sin(wt) + c` per axis, where `c` *is* the ambient and
+  drops out. Output is sqrt(mean group power) in µT, ÷1000 → mT (the rest of
+  the system works in mT; the log prints both units, since near ambient the mT
+  value can round to 0.0000 and the µT figure tells "not reading" from "small
+  field"). The value renews every `Intervals::MeasureMagneticField` (**2000 ms**
+  now, was 500): the settling window and cadence were the negotiable costs
+  accepted for precision; the emergency-stop latency and the field accuracy
+  were not.
+  Things that bite:
+    - **3 samples/period is the minimum, not enough**: 3 unknowns, zero
+      redundancy, and the 2nd harmonic aliases exactly onto the fundamental
+      (a 20 % harmonic read as ~20 % error). The bus only gives ~165-330
+      samples/s at 100 Hz, so a group is **10 samples, uniform T/10 in one
+      period up to ~33 Hz, and above that spaced (m+0.382)T or (m+0.618)T**
+      (golden ratio, never T/k) over ~5 periods — same samples/s, 7 degrees of
+      freedom, harmonics 2-7 rejected to <2 % (`test_fieldsampler`). A group
+      lasting a few periods is still fine against crystal/AD9833 error (~1e-4 ×
+      periods); fitting the whole window would not be.
+    - **`SlotMarginUs` (1000 µs) in the minimum spacing is load-bearing.**
+      `poll()` runs once per `loop()`; with a grid tighter than the loop
+      jitter the *real* interval drifted to ~0.5T, the harmonics came back and
+      half the groups were discarded at 100 Hz. Each sample carries its real
+      `micros()` timestamp, so jitter itself does not hurt; slot slippage does.
+    - **Frequency is the AD9833's actual one** (`ad9833ActualHz`, 0.0931 Hz
+      step — up to 4.7 % off at 1 Hz), passed by Engine, not the requested one.
+    - **Non-blocking**: `poll()` does at most one I2C transaction (trigger *or*
+      fetch), `Engine::update()` calls `pollAll()` each loop, `updateAll()`
+      skips `isAsync()` sensors. The old blocking read held `loop()` and with
+      it the emergency button. Five consecutive bus failures make the sensor
+      invalid (CEM1 silence cuts the run, card 25); first success recovers.
+      OSR_0/FILTER_0 (tconv 1.27 ms) is the shortest conversion; OSR_1 is the
+      fallback if bench noise bothers — the plan recomputes itself.
+    - RMS has a **noise floor** (never reads 0 with coils off) — it is the
+      minimum distinguishable in null field. An AC source at the same frequency
+      (mains at 50/60 Hz) *does* add. **All of it unverified on the bench**:
+      I2C cadence, noise floor, 100 Hz attenuation, RAM (Mega at ~84 %).
 - CEM1 is **not registered** as a Detector source by default, `TEMP1` is —
   that pair is the compiled default, set in `SoftMega2560.ino`'s `setup()` and
   in `Engine`'s constructor, and matches `docs/config.example.json`. The reason
@@ -472,25 +509,29 @@ Key collaborators:
   0.099, which felt like the duty "bouncing" at the slightest deviation instead
   of easing in; `Config::kp`/`maxStep` replace the old
   `Config::coarseStep`/`fineStep` fields.
-- **I2C hang hazard**: `ThermometerDS18B20::update()`
-  (`dallasThermometer.requestTemperatures()`) always blocks ~750ms per call
-  regardless of whether a sensor is on the bus, and
-  `Adafruit_ADS1115::readADC_Differential_*()` **hangs `loop()` indefinitely**
-  waiting for an I2C ACK that never comes when the ADS1115 isn't wired — it has
-  no timeout. Confirmed on-device: the debug log cut off mid-tick right after
-  `"Iniciando: MEASURE_CURRENT"`, with `Tasks::Finish` silently never firing
-  because the MCU was frozen well before the configured duration elapsed.
-  **The current-sensor half of this is now guarded.**
-  `CurrentSensorSct013::begin()` probes the module's address first — a bare
-  address transaction (`Wire.beginTransmission`/`endTransmission`), which
-  returns a clean error when nobody answers — and only then calls
-  `_ads.begin()`. If the chip isn't there the sensor stays disabled, says so in
-  the log, and `update()` returns before touching the bus. That is what makes
-  it safe to leave a channel on the second module (0x49) configured in the SD
-  file while that module doesn't physically exist yet.
-  The thermometer has no such guard, so for bring-up without a DS18B20 wired
-  it must not be registered — which is now an SD setting,
-  `detector.sources[TEMP1].sensor: "none"`, not an `.ino` edit.
+- **I2C / blocking hazards, now bounded** — the motivation is the emergency
+  button, which `loop()` polls: anything that holds `loop()` delays it.
+  `Adafruit_ADS1115::readADC_Differential_*()` used to **hang indefinitely**
+  waiting for an ACK that never comes when the ADS1115 isn't wired
+  (confirmed on-device: the log cut off mid-tick and `Tasks::Finish` never
+  fired). Guards, all in place:
+    - `Wire.setWireTimeout(25000, true)` in `SoftMega2560.ino`: any bus hang
+      is cut at 25 ms.
+    - `CurrentSensorSct013::begin()` probes the address first (a bare
+      `beginTransmission`/`endTransmission`) and only then `_ads.begin()`; if
+      the chip isn't there the sensor stays disabled and `update()` returns
+      before touching the bus. That is what makes a channel on the second
+      module (0x49) safe to leave in the SD file before the module exists.
+    - The SCT013 integration window (an RMS over tens of ms) can be aborted:
+      `CurrentSensorSct013::abortCheck` is set by `Engine::begin()` to
+      `EmergencyButton::isPressed()` (the raw pin level, not the debounced
+      edge), checked before each `readRaw()`. A pressed button cuts the window
+      instead of waiting it out.
+    - `ThermometerDS18B20` is async: it `update()` triggers a conversion with
+      `setWaitForConversion(false)` and `poll()` collects it ~800 ms later, instead of `requestTemperatures()` blocking `loop()` 750 ms per
+      call. Still must not be registered with no DS18B20 wired for a *useful*
+      reading, which is the SD setting `detector.sources[TEMP1].sensor: "none"`.
+    - `MagnetometerMlx90393` is non-blocking (above).
 - `PWM_PIN` is `44` (Timer5/OC5C), not `A0` — `A0`..`A15` have no hardware timer
   on the Mega2560, so `analogWrite()` there silently degrades to a binary
   `digitalWrite`, not real PWM. `PwmDriver`'s `frequency` constructor param is
@@ -587,8 +628,8 @@ Key collaborators:
   calibration factor, already saturated, and reset to 0 by `disable()` — not
   the `FieldController` setpoint, so a coil running short is visible on
   screen.
-- **Map duty/field and null-field mode (card 135)** (`controlmap.hpp`,
-  `fieldtare.hpp`, `taresequencer.hpp`). Intensity is no longer found by the
+- **Map duty/field and null-field mode (card 135)** (`controlmap.hpp`).
+  Intensity is no longer found by the
   controller from zero: `ControlMap` holds up to 9 points (3 intensities x 3
   frequencies, the menus' cap) with the duty measured on the bench for each,
   and `start` begins at that duty, the controller only trimming. Points come
@@ -602,20 +643,15 @@ Key collaborators:
   per-point `balance` bounded by `control.balanceMax`; the fixed-sigma variant
   was chosen over an adaptive one (documented as future improvement).
   **A start that cannot begin is refused, not run degraded**: null field with
-  no point for that intensity/frequency, a balance over the cap, or a rejected
-  tare. `Engine::_refuseStart()` sends `result_data` with `reason: "refused"` +
-  `cause` (`nomap`/`balance`/`tare`/`taretime`) and never goes through
+  no point for that intensity/frequency or a balance over the cap.
+  `Engine::_refuseStart()` sends `result_data` with `reason: "refused"` +
+  `cause` (`nomap`/`balance`) and never goes through
   `_finish()` (nothing ran, Engine stays Ready).
-  **Ambient-field tare**: with the coils off and before enabling anything, the
-  Mega averages a few magnetometer readings and subtracts the ambient *vector*;
-  `FieldTare` is the pure calculation, `TareSequencer` the pure timing
-  (settle 500 ms, fixed 4 s timeout, below the ESP32's 6 s Busy). The thresholds
-  are `control.tare` (`samples` 2-6, `maxSpread` 1-100 uT, `maxAmbient`
-  50-1000 uT, `TareLimits`), rejected whole per key when out of range. The
-  6-sample cap is not arbitrary: settle + 5 x 500 ms must fit the 4 s timeout
-  at CEM1's factory cadence. Assumes the ambient stays constant during the run;
-  the MLX reports no sign. Defaults are starting values, **not verified on the
-  bench**. `config_control` frame width is pinned in `test_serialframes`.
+  There is no ambient tare any more (card 135 first had one, with
+  `control.tare` thresholds): the RMS measurement removes the ambient by
+  construction, see the `MagnetometerMlx90393` bullet. The MLX still reports no
+  sign, so the balance direction is found by trial. `config_control` frame
+  width is pinned in `test_serialframes`.
 - Current (`SCT013-1`) is measured and sent to the ESP32 but is not, and was
   never meant to be, a Detector source — by design the only sources are `TEMP1`
   and `CEM1`. `Engine::onCurrentSensorSample` still calls
@@ -1189,8 +1225,8 @@ NULO"` placeholder the SquareLine export ships with.
   the cause code (`ResultadoController::_buildRefusedTexts`), progress and
   elapsed forced to zero (the getters would read the *previous* run), and
   state closed to Ready if it was Starting. REPETIR is offered only for
-  `tare`/`taretime` (momentary), not for config causes. **It is not published
-  to MQTT**: with no `targets` before it, the web monitor would build an orphan
+  **never** for a refused start (both causes are configuration, so repeating
+  would refuse again). **It is not published to MQTT**: with no `targets` before it, the web monitor would build an orphan
   run from an experiment that never existed.
   Leaving Resultado is manual only, via `ui_ResultadoBtnVolver` (already built in
   SquareLine, just needed wiring) → `EventName::Back` → resets `_data.result` and
@@ -1221,9 +1257,8 @@ Two things there are worth knowing before touching it:
   and the operator gets a menu entry of 0 ms. The generator blocks the download
   on any non-integer in an int-typed field; that check is the main reason to
   generate the file rather than hand-edit it.
-- **`control.map` and `control.tare` are validated here against the same
-  limits as the Mega** (`TARE_*`, `MAX_BALANCE` constants mirror
-  `TareLimits`/`CoilChannels::MaxBalance` — same drift hazard as the two
+- **`control.map` is validated here against the same limits as the Mega**
+  (`MAX_BALANCE` mirrors `CoilChannels::MaxBalance` — same drift hazard as the two
   `seriallink.hpp`). The web copy (`client/public/`) must stay identical:
   `npm run sync:generador` after every edit.
 - **The 128-byte telemetry payload cannot overflow**, so the generator

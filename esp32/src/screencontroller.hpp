@@ -987,7 +987,6 @@ class ResultadoController : public BaseScreenController {
     void _buildAlertsClause(char* out, size_t size) const;
     void _buildCriticalTexts(char* headline, size_t headlineSize, char* detail, size_t detailSize) const;
     void _buildRefusedTexts(char* headline, size_t headlineSize, char* detail, size_t detailSize) const;
-    bool _refusalAllowsRepeat() const;
 };
 
 inline ResultadoController::ResultadoController(SystemData& data) : BaseScreenController(&ui_ResultadoScreen, ui_ResultadoScreen_screen_init, ui_ResultadoScreen_screen_destroy, ScreenType::RESULT, "result"), _data(data) {}
@@ -1110,25 +1109,11 @@ inline void ResultadoController::_buildRefusedTexts(char* headline, size_t headl
     snprintf(headline, headlineSize, "BALANCE FUERA DE TOPE");
     snprintf(detail, detailSize, "el balance del punto supera control.balanceMax");
   }
-  else if (strcmp(cause, "tare") == 0) {
-    snprintf(headline, headlineSize, "TARA DEL CAMPO RECHAZADA");
-    snprintf(detail, detailSize, "lecturas del ambiente inconsistentes: no mover nada");
-  }
-  else if (strcmp(cause, "taretime") == 0) {
-    snprintf(headline, headlineSize, "TARA SIN LECTURAS");
-    snprintf(detail, detailSize, "el sensor de campo no respondio a tiempo");
-  }
   else {
     // Causa desconocida (Mega mas nuevo que la ESP32): queda lo que dijo el Mega.
     snprintf(headline, headlineSize, "NO SE PUDO INICIAR");
     snprintf(detail, detailSize, "%s", _data.result.description);
   }
-}
-
-// Repetir sirve cuando la causa fue momentanea (la tara: alguien movio algo)
-// y no cuando es la configuracion, que va a fallar igual hasta que se cambie.
-inline bool ResultadoController::_refusalAllowsRepeat() const {
-  return strcmp(_data.result.cause, "tare") == 0 || strcmp(_data.result.cause, "taretime") == 0;
 }
 
 inline void ResultadoController::_applyPanel(lv_obj_t* panel, bool visible, lv_obj_t* modeLabel, lv_obj_t* detailLabel, const char* detail) {
@@ -1187,7 +1172,7 @@ inline void ResultadoController::_applyResult() {
   // con la misma configuracion que acaba de disparar un limite lo mas
   // probable es que vuelva a cortar igual. Hay que revisar la causa (o la
   // configuracion) antes, y para eso hay que salir de esta pantalla.
-  bool hideRepeat = isCritical || (isRefused && !_refusalAllowsRepeat());
+  bool hideRepeat = isCritical || isRefused;
   if (hideRepeat) lv_obj_add_flag(ui_ButtonResultadoRepetir, LV_OBJ_FLAG_HIDDEN);
   else            lv_obj_remove_flag(ui_ButtonResultadoRepetir, LV_OBJ_FLAG_HIDDEN);
 
