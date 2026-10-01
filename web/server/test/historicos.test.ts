@@ -34,7 +34,7 @@ beforeAll(async () => {
   const completada = await Run.create({
     deviceId: 'biosoft-01', startedAt: t0, endedAt: new Date('2026-09-20T11:00:00Z'),
     state: 'finished',
-    targets: { mode: 'campo X', cem: 1.5, freq: 50, dur: 60, tol: 10 },
+    targets: { mode: 'campo X', cem: 1.5, freq: 50, dur: 60, tol: 10, configId: '1a2b3c4d', relaxations: 1 },
     result: { reason: 'completed', description: 'Duracion alcanzada' },
     stats: { measureCount: 4, alertCount: 0 },
   });
@@ -168,6 +168,14 @@ describe.skipIf(!hayMongo)('API de historicos', () => {
     } finally {
       await Run.deleteOne({ _id: vieja._id });
     }
+  });
+
+  it('la lista trae el id de configuracion y las relajaciones', async () => {
+    const data = await (await get('/api/runs?reason=completed')).json();
+    expect(data.items[0].configId).toBe('1a2b3c4d');
+    expect(data.items[0].relaxations).toBe(1);
+    const cortada = await (await get('/api/runs?reason=critical')).json();
+    expect(cortada.items[0].relaxations).toBeNull();
   });
 
   it('pagina', async () => {

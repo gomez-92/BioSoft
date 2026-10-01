@@ -6,6 +6,7 @@ export interface Targets {
   mode?: string; cem?: number; freq?: number; dur?: number; tol?: number;
   tnmin?: number; tnmax?: number; tcmin?: number; tcmax?: number;
   test?: boolean;
+  configId?: string; relaxations?: number;
 }
 
 /** "normal" | "test" | "unknown" (sin marca TEST: firmware viejo o simulador viejo). */

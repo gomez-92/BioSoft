@@ -804,6 +804,19 @@ and `StateListener` (own app state, from `SystemData`).
   would turn every new experiment into `unknown`. Absent or unrecognised
   `runType` ⇒ normal (logged); the generator refuses any other value. The
   emergency stop is **not** configurable in any run type, by design.
+- **Each run carries `CFG` and `RLX` in `targets`** (card 23), for
+  traceability. `CFG` = `ConfigLoader::configId()`: CRC32 (IEEE, via a
+  `Print` that `serializeJson` feeds byte by byte — no text buffer) of the
+  parsed document **after removing `wifi` and `broker`**, computed at the end
+  of `load()`; `"default"` whenever the compiled defaults are what runs. Only
+  the board computes it — the monitor stores it, never recomputes — and it is
+  deliberately not written into the file (a hand-edited file would keep a
+  stale id). `RLX` = `relaxationMask()`, one bit per relaxation, absent keys
+  counted at their factory default; bit 2 (CEM1 unwatched) **is** the factory
+  default, so it is recorded but excluded from the warning (`WarningMask`),
+  or every experiment would be flagged. The bit order is duplicated in
+  `web/client/src/lib/format.ts` (`RELAJACIONES`) — same drift hazard as the
+  two `seriallink.hpp`.
 - **`requireMega`** (top-level SD key, default `true`) replaced the
   compile-time `BENCH_SIN_MEGA`, which had been left at `true` in the
   production firmware. `MySystem::_benchWithoutMega()` is `!requireMega &&
@@ -1215,6 +1228,13 @@ Other things worth knowing before touching it:
   publishes `TEST: true` by default (`--type normal|none` to change it):
   its data is invented, and entering the history as an experiment is exactly
   what the flag exists to prevent.
+- **`targets.configId` / `targets.relaxations`** come from the board's `CFG`
+  / `RLX` (card 23); `parseTargets` drops an `RLX` that isn't an integer
+  0–255 rather than store it misread. A run declared `normal` with any
+  warning bit gets the **CON RELAJACIONES** chip (history, detail, live);
+  test runs don't, since relaxations are expected there.
+  `relajacionesDe()`/`relajacionesConAviso()` are the single place that
+  decodes the mask.
 - **Aggregated points carry min and max, not just the average.** A five-minute
   bucket swallows the fifteen-second temperature spike that cut the
   experiment — which is exactly what someone opens the chart to find.

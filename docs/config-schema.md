@@ -685,7 +685,7 @@ adivinar la forma del JSON.
 | `measures` | periodico | campo magnetico y temperatura |
 | `coils` | periodico | `c1`..`c4` (corriente, A) y `d1`..`d4` (duty aplicado, %) |
 | `status` | periodico | salud, avance, transcurrido, `REMAINING`, `STATE`, `MEGA` |
-| `targets` | al arrancar el experimento | `MODE`, `CEM`, `FREQ`, `DUR`, `TOL`, `TNMIN`, `TNMAX`, `TCMIN`, `TCMAX`, `TEST` |
+| `targets` | al arrancar el experimento | `MODE`, `CEM`, `FREQ`, `DUR`, `TOL`, `TNMIN`, `TNMAX`, `TCMIN`, `TCMAX`, `TEST`, `CFG`, `RLX` |
 | `alerts` | con cada alerta | `SRC`, `TYPE`, `COUNT`, `LIMIT` |
 | `result` | al terminar | `REASON`, `DESC`, `PROGRESS`, `ELAPSED`, `MEAN`, `TEST` y, si corto una fuente, `SRC`/`TYPE`/`COUNT`/`LIMIT` |
 
@@ -1050,6 +1050,40 @@ Reemplaza la constante de compilacion `BENCH_SIN_MEGA` de `mysystem.hpp`, que
 habia quedado en `true` en el firmware de produccion. Va junto a `runType`
 porque los dos son decisiones de banco, pero son independientes: una corrida
 sin Mega no tiene mediciones reales y deberia declararse `test`.
+
+### Trazabilidad: `CFG` y `RLX` en `targets`
+
+Cada corrida publica con que configuracion corrio (tarjeta 23):
+
+- **`CFG`** — identificador de la configuracion: CRC32 del JSON leido **sin
+  `wifi` ni `broker`** (cambiar de red no cambia el experimento), en 8 digitos
+  hex. `"default"` sin tarjeta, sin archivo o con un archivo descartado entero
+  (lo que corre en esos casos son los defaults compilados). Lo calcula **solo la
+  placa** (`ConfigLoader::configId()`); el monitor lo guarda y no lo recalcula,
+  asi no hay dos implementaciones del mismo hash que puedan divergir. No se
+  escribe adentro del archivo a proposito: un archivo editado a mano
+  conservaria un id que ya no describe su contenido.
+- **`RLX`** — mascara de bits de las relajaciones activas. Cada bit es un
+  hecho de la configuracion; una clave ausente cuenta con su default de
+  fabrica.
+
+| Bit | Valor | Relajacion | ¿Avisa en una corrida normal? |
+|---|---|---|---|
+| 0 | 1 | `detector.enabled: false` | si |
+| 1 | 2 | TEMP1 sin vigilar | si |
+| 2 | 4 | CEM1 sin vigilar | **no**: es el default de fabrica (reglas sin calibrar) |
+| 3 | 8 | alguna fuente en `sim` o `scenario` | si |
+| 4 | 16 | TEMP1 con `sensor: "none"` | si |
+| 5 | 32 | `control.enabled: false` | si |
+| 6 | 64 | `requireMega: false` | si |
+
+El monitor guarda las dos en la corrida, muestra el id y la lista de
+relajaciones en el detalle, y marca **CON RELAJACIONES** (en el historial, el
+detalle y en vivo) a un experimento declarado `normal` con alguna relajacion
+que avisa. En una corrida de prueba no se marca: ahi son lo esperado. El orden
+de los bits esta en `ConfigLoader::Relaxations` (ESP32) y en
+`web/client/src/lib/format.ts`; cambiar uno sin el otro traduce mal cada
+corrida, sin error visible.
 
 ---
 

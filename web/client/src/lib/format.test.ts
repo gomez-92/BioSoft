@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  esAlertaCritica, esCampoNulo, etiquetaTipoCorrida, nombreModo, nombreTipoAlerta, tipoDesdeMarca,
+  esAlertaCritica, esCampoNulo, etiquetaTipoCorrida, nombreModo, nombreTipoAlerta,
+  relajacionesConAviso, relajacionesDe, tipoDesdeMarca,
 } from './format.js';
 
 // El modo de exposicion es lo unico que distingue el grupo tratado del grupo
@@ -73,5 +74,25 @@ describe('alerta de sensor sin lecturas', () => {
     expect(esAlertaCritica('critical')).toBe(true);
     expect(esAlertaCritica('streak')).toBe(false);
     expect(esAlertaCritica(undefined)).toBe(false);
+  });
+});
+
+// La mascara RLX de la placa (tarjeta 23). El orden de bits tiene que ser el
+// de ConfigLoader::Relaxations: si se corre uno, cada corrida se traduce mal.
+describe('relajaciones', () => {
+  it('traduce cada bit en el orden de la placa', () => {
+    expect(relajacionesDe(1)).toEqual(['Detector apagado']);
+    expect(relajacionesDe(1 << 3)).toEqual(['Sensores simulados o escenario']);
+    expect(relajacionesDe(1 << 6)).toEqual(['Sin exigir la placa de control']);
+    expect(relajacionesDe(0)).toEqual([]);
+    expect(relajacionesDe(undefined)).toEqual([]);
+  });
+
+  // CEM1 sin vigilar es el default de fabrica: avisarlo marcaria a todo
+  // experimento.
+  it('CEM1 sin vigilar se registra pero no avisa', () => {
+    expect(relajacionesDe(4)).toEqual(['CEM1 sin vigilar']);
+    expect(relajacionesConAviso(4)).toEqual([]);
+    expect(relajacionesConAviso(4 | 1)).toEqual(['Detector apagado']);
   });
 });

@@ -264,6 +264,45 @@ namespace ConfigLoader {
   // operador (runType) o datos fabricados.
   inline bool marksRunsAsTest() { return _testRun || usesSyntheticSensors(); }
 
+  // ---------------------------------------------------------------------
+  // Trazabilidad (tarjeta 23): con que configuracion corrio cada corrida.
+  // ---------------------------------------------------------------------
+
+  // Identificador de la configuracion cargada: CRC32 del JSON ya leido SIN
+  // `wifi` ni `broker` (cambiar de red no cambia el experimento), en 8
+  // digitos hex. "default" sin tarjeta, sin archivo, o con un archivo que se
+  // descarto entero (JSON invalido, schemaVersion no soportada): en todos
+  // esos casos lo que corre son los defaults compilados.
+  //
+  // Lo calcula SOLO la placa. El monitor no lo recalcula, lo guarda: asi no
+  // hay dos implementaciones del mismo hash que puedan divergir. Se descarto
+  // que el generador escriba el id adentro del archivo porque un archivo
+  // editado a mano conservaria un id que ya no describe su contenido.
+  constexpr size_t ConfigIdLength = 9;   // 8 hex + '\0'
+  inline char _configId[ConfigIdLength] = "default";
+  inline const char* configId() { return _configId; }
+
+  // Relajaciones activas, como mascara de bits en `targets` (`RLX`). Un
+  // entero y no texto por el tope de payload. Cada bit es un HECHO de la
+  // configuracion, no un juicio: si es preocupante en una corrida normal lo
+  // decide WarningMask.
+  namespace Relaxations {
+    constexpr uint8_t DetectorOff     = 1 << 0;  // detector.enabled = false
+    constexpr uint8_t Temp1Unwatched  = 1 << 1;  // TEMP1 no vigilada
+    constexpr uint8_t Cem1Unwatched   = 1 << 2;  // CEM1 no vigilada (DEFAULT de fabrica)
+    constexpr uint8_t SyntheticSensor = 1 << 3;  // alguna fuente en sim o scenario
+    constexpr uint8_t Temp1NoSensor   = 1 << 4;  // TEMP1 con sensor "none"
+    constexpr uint8_t ControlOff      = 1 << 5;  // control.enabled = false
+    constexpr uint8_t MegaNotRequired = 1 << 6;  // requireMega = false
+
+    // Las que ameritan aviso en una corrida declarada normal. CEM1 sin
+    // vigilar queda afuera: es el default de fabrica (sus reglas son
+    // provisorias, sin calibrar), y avisarlo marcaria a todo experimento.
+    constexpr uint8_t WarningMask = 0x7F & ~Cem1Unwatched;
+  };
+
+  inline uint8_t relaxationMask();
+
   namespace {
 
     // Copia una cadena del JSON al buffer del label, truncando si hace
@@ -875,6 +914,33 @@ namespace ConfigLoader {
       }
     }
 
+    // Print que acumula un CRC32 (polinomio IEEE, el de zip/Ethernet) de lo
+    // que se le escribe: serializeJson() lo alimenta byte a byte, sin armar
+    // el texto en memoria.
+    class Crc32Print : public Print {
+      public:
+        uint32_t crc = 0xFFFFFFFFu;
+        size_t write(uint8_t byte) override {
+          crc ^= byte;
+          for (uint8_t i = 0; i < 8; i++) {
+            crc = (crc >> 1) ^ (0xEDB88320u & (0u - (crc & 1u)));
+          }
+          return 1;
+        }
+        uint32_t value() const { return ~crc; }
+    };
+
+    // Va despues de cargar todas las secciones: saca wifi y broker del
+    // documento (ya se copiaron a sus buffers) y hashea lo que queda. Mismo
+    // firmware, misma serializacion, mismo id.
+    inline void computeConfigId(JsonDocument& doc) {
+      doc.remove("wifi");
+      doc.remove("broker");
+      Crc32Print crc;
+      serializeJson(doc, crc);
+      snprintf(_configId, ConfigIdLength, "%08lx", (unsigned long)crc.value());
+    }
+
     inline void loadTelemetry(JsonObjectConst telemetry) {
       if (telemetry.isNull()) {
         DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] sin seccion 'telemetry': se conservan los defaults"));
@@ -1004,6 +1070,7 @@ namespace ConfigLoader {
     DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F(" bytes"));
 
     loadRunType(doc["runType"]);
+    // El id se calcula al final, sobre el mismo documento: ver configId().
     loadRequireMega(doc["requireMega"]);
     loadMenus(doc["menus"]);
     loadIntervals(doc["intervals"]);
@@ -1016,9 +1083,38 @@ namespace ConfigLoader {
     loadWifi(doc["wifi"]);
     loadBroker(doc["broker"]);
 
+    computeConfigId(doc);
+    DEBUG_PRINT(DEBUG_CONFIGLOADER, F("[CONFIG] configId="));
+    DEBUG_PRINTLN(DEBUG_CONFIGLOADER, _configId);
     DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] configuracion aplicada"));
     DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] ----------------------------------------"));
     return true;
+  }
+
+
+  // Cada clave ausente vale su default de fabrica (el del Mega para lo que
+  // es del Mega): detector encendido, TEMP1 vigilada, CEM1 NO vigilada,
+  // control activo, Mega exigido.
+  inline uint8_t relaxationMask() {
+    uint8_t mask = 0;
+    if (_detectorConfig.hasEnabled && !_detectorConfig.enabled) mask |= Relaxations::DetectorOff;
+    if (_controlConfig.hasEnabled && !_controlConfig.enabled) mask |= Relaxations::ControlOff;
+    if (!_requireMega) mask |= Relaxations::MegaNotRequired;
+    if (usesSyntheticSensors()) mask |= Relaxations::SyntheticSensor;
+
+    bool cem1Watched = false;
+    for (uint8_t i = 0; i < _sourceConfigCount; i++) {
+      const SourceConfigEntry& source = _sourceConfigs[i];
+      if (strcmp(source.name, "CEM1") == 0) {
+        cem1Watched = source.hasEnabled && source.enabled;
+      }
+      else if (strcmp(source.name, "TEMP1") == 0) {
+        if (source.hasEnabled && !source.enabled) mask |= Relaxations::Temp1Unwatched;
+        if (source.hasSensor && strcmp(source.sensor, "none") == 0) mask |= Relaxations::Temp1NoSensor;
+      }
+    }
+    if (!cem1Watched) mask |= Relaxations::Cem1Unwatched;
+    return mask;
   }
 
 };

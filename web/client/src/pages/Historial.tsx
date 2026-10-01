@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { authFetch } from '../lib/auth.js';
 import { duracion, esCampoNulo, nombreModo, nombreMotivo } from '../lib/format.js';
-import { TipoCorrida } from '../components/TipoCorrida.js';
+import { ConRelajaciones, TipoCorrida } from '../components/TipoCorrida.js';
 
 // Lista de corridas. Lo que se busca al recorrerla es casi siempre lo mismo:
 // que corridas fueron control (campo nulo) y cuales se cortaron solas. Por eso
@@ -14,6 +14,7 @@ interface RunRow {
   endedAt: string | null;
   state: string;
   runType: string;
+  relaxations: number | null;
   mode: string | null;
   reason: string | null;
   durationMinutes: number | null;
@@ -119,6 +120,7 @@ function Fila({ run }: { run: RunRow }) {
             <span className={`chip chip-modo ${esNulo ? 'chip-nulo' : ''}`}>{nombreModo(run.mode)}</span>
           )}
           <TipoCorrida runType={run.runType} />
+          <ConRelajaciones runType={run.runType} relaxations={run.relaxations} />
           <Motivo reason={run.reason} state={run.state} />
         </div>
         <div className="fila-datos">

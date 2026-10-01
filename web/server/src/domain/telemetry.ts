@@ -21,6 +21,9 @@ export interface ParsedTargets {
   mode?: string; cem?: number; freq?: number; dur?: number; tol?: number;
   tnmin?: number; tnmax?: number; tcmin?: number; tcmax?: number;
   test?: boolean;
+  // Trazabilidad (tarjeta 23): el id de la configuracion con la que corrio
+  // (lo calcula la placa, aca no se recalcula) y la mascara de relajaciones.
+  configId?: string; relaxations?: number;
 }
 export interface ParsedAlert { source: string; type: string; count: number; limit: number }
 export interface ParsedResult {
@@ -48,6 +51,14 @@ function num(value: unknown): number | undefined {
 // contrato, y leerlo como prueba o como experimento seria adivinar.
 function bool(value: unknown): boolean | undefined {
   return typeof value === 'boolean' ? value : undefined;
+}
+
+// La mascara de relajaciones es un entero de 0 a 255. Un 1.5 o un negativo
+// no es una mascara: mejor que falte a guardarla mal interpretada.
+function mascara(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 255
+    ? value
+    : undefined;
 }
 
 function str(value: unknown): string | undefined {
@@ -141,7 +152,7 @@ export function parseTargets(payload: unknown): ParsedTargets | null {
   const data = asObject(payload);
   if (!data) return null;
   warnUnknownKeys('targets', data,
-    ['MODE', 'CEM', 'FREQ', 'DUR', 'TOL', 'TNMIN', 'TNMAX', 'TCMIN', 'TCMAX', 'TEST']);
+    ['MODE', 'CEM', 'FREQ', 'DUR', 'TOL', 'TNMIN', 'TNMAX', 'TCMIN', 'TCMAX', 'TEST', 'CFG', 'RLX']);
 
   const parsed: ParsedTargets = {
     mode: str(data.MODE), cem: num(data.CEM), freq: num(data.FREQ),
@@ -149,6 +160,8 @@ export function parseTargets(payload: unknown): ParsedTargets | null {
     tnmin: num(data.TNMIN), tnmax: num(data.TNMAX),
     tcmin: num(data.TCMIN), tcmax: num(data.TCMAX),
     test: bool(data.TEST),
+    configId: str(data.CFG),
+    relaxations: mascara(data.RLX),
   };
   return Object.values(parsed).some((value) => value !== undefined) ? parsed : null;
 }

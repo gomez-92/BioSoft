@@ -28,6 +28,8 @@ const targetsSchema = new Schema({
   tnmin: Number, tnmax: Number,   // rango normal de temperatura
   tcmin: Number, tcmax: Number,   // rango critico
   test: Boolean,   // la marca TEST tal como llego (ausente en firmwares viejos)
+  configId: String,     // CRC32 de la configuracion de la SD, o "default" (tarjeta 23)
+  relaxations: Number,  // mascara de bits de relajaciones activas (ver client/src/lib/format.ts)
 }, { _id: false });
 
 const resultSchema = new Schema({

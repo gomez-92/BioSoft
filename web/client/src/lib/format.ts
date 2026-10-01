@@ -97,6 +97,39 @@ export function esCampoNulo(mode: string | null | undefined): boolean {
 }
 
 /**
+ * Relajaciones de la configuracion (tarjeta 23): la mascara `RLX` que publica
+ * la placa en `targets`. El orden de los bits es el de
+ * `ConfigLoader::Relaxations` en esp32/src/configloader.hpp: cambiar uno de
+ * los dos lados sin el otro traduciria mal cada corrida, sin error visible.
+ */
+const RELAJACIONES: Array<[number, string]> = [
+  [1 << 0, 'Detector apagado'],
+  [1 << 1, 'TEMP1 sin vigilar'],
+  [1 << 2, 'CEM1 sin vigilar'],
+  [1 << 3, 'Sensores simulados o escenario'],
+  [1 << 4, 'TEMP1 sin termometro'],
+  [1 << 5, 'Control de intensidad apagado'],
+  [1 << 6, 'Sin exigir la placa de control'],
+];
+
+/** CEM1 sin vigilar es el default de fabrica: se registra pero no amerita aviso. */
+const SIN_AVISO = 1 << 2;
+
+export function relajacionesDe(mask: number | null | undefined): string[] {
+  if (mask === null || mask === undefined) return [];
+  return RELAJACIONES.filter(([bit]) => (mask & bit) !== 0).map(([, nombre]) => nombre);
+}
+
+/**
+ * Las relajaciones que ameritan aviso en una corrida declarada como
+ * experimento: todas menos CEM1 sin vigilar.
+ */
+export function relajacionesConAviso(mask: number | null | undefined): string[] {
+  if (mask === null || mask === undefined) return [];
+  return relajacionesDe(mask & ~SIN_AVISO);
+}
+
+/**
  * Tipo de corrida a partir de la marca TEST. Mismo criterio que el backend
  * (`runTypeFrom`): sin marca es "unknown", NO "normal" -- no se sabe si hubo
  * animales, y presentarla como experimento seria inventarlo.

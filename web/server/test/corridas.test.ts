@@ -224,6 +224,13 @@ describe.skipIf(!hayMongo)('correlacion de corridas', () => {
     expect(runs.map((r) => r.runType)).toEqual(['test', 'normal']);
   });
 
+  it('la corrida guarda el id de configuracion y las relajaciones', async () => {
+    await handleTelemetry(message('targets', { ...TARGETS, TEST: false, CFG: '1a2b3c4d', RLX: 5 }));
+    const runs = await Run.find().lean();
+    expect(runs[0].targets?.configId).toBe('1a2b3c4d');
+    expect(runs[0].targets?.relaxations).toBe(5);
+  });
+
   it('un result huerfano conserva su marca de prueba', async () => {
     await handleTelemetry(message('result', { ...RESULT_OK, TEST: true }));
     const runs = await Run.find().lean();

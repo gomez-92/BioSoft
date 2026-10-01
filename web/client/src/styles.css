@@ -89,6 +89,7 @@ h3 { font-size: 0.78rem; margin: 0 0 10px; text-transform: uppercase; letter-spa
 /* PRUEBA tiene que saltar a la vista: es lo que dice que esos datos no son un
    experimento. Fondo lleno, no el tinte suave de los demas chips. */
 .chip-prueba { background: var(--warn); color: #1a1d24; }
+.chip-relajada { background: transparent; color: var(--warn); border: 1px solid var(--warn); }
 .chip-sin-marca { background: transparent; color: var(--muted); border: 1px dashed var(--muted); }
 
 .progreso { display: flex; flex-direction: column; gap: 10px; }

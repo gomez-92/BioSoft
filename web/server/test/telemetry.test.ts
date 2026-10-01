@@ -134,9 +134,22 @@ describe('parseTargets', () => {
     expect(parseTargets({ MODE: 'x', TEST: 1 })?.test).toBeUndefined();
   });
 
+  // Tarjeta 23: con que configuracion corrio y que relajaciones tenia.
+  it('lee CFG y RLX', () => {
+    const parsed = parseTargets({ MODE: 'x', CFG: '1a2b3c4d', RLX: 9 });
+    expect(parsed?.configId).toBe('1a2b3c4d');
+    expect(parsed?.relaxations).toBe(9);
+  });
+
+  it('descarta una mascara que no es un entero de 0 a 255', () => {
+    for (const RLX of [1.5, -1, 256, '9', true]) {
+      expect(parseTargets({ MODE: 'x', RLX })?.relaxations).toBeUndefined();
+    }
+  });
+
   it('TEST no es una clave desconocida', () => {
     const warn = vi.spyOn(console, 'warn');
-    parseTargets({ MODE: 'x', TEST: true });
+    parseTargets({ MODE: 'x', TEST: true, CFG: 'default', RLX: 4 });
     expect(warn).not.toHaveBeenCalled();
   });
 });

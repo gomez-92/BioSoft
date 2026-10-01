@@ -7,9 +7,10 @@ import {
 import { authFetch } from '../lib/auth.js';
 import {
   duracion, esCampoNulo, horaCorta, nombreModo, nombreMotivo, nombreTipoAlerta, numero,
+  relajacionesConAviso, relajacionesDe,
 } from '../lib/format.js';
 import type { RunType, Targets } from '../lib/types.js';
-import { TipoCorrida } from '../components/TipoCorrida.js';
+import { ConRelajaciones, TipoCorrida } from '../components/TipoCorrida.js';
 
 // Detalle de una corrida: que se pidio, que paso y por que termino.
 
@@ -74,6 +75,7 @@ export function DetalleCorrida() {
             </span>
           )}
           <TipoCorrida runType={detalle.runType} />
+          <ConRelajaciones runType={detalle.runType} relaxations={detalle.targets?.relaxations} />
           {detalle.result && (
             <span className={`chip chip-motivo-${detalle.result.reason}`}>
               {nombreMotivo(detalle.result.reason)}
@@ -90,6 +92,14 @@ export function DetalleCorrida() {
         {/* Una corrida huerfana no es basura: sus mediciones son reales. Pero
             hay que decir que le falta el cierre, o sus numeros se leerian como
             si describieran un experimento completo. */}
+        {/* Un experimento con protecciones apagadas o datos simulados: los
+            numeros pueden ser reales, pero no los de un experimento en
+            condiciones, y eso tiene que leerse antes que los graficos. */}
+        {detalle.runType === 'normal' && relajacionesConAviso(detalle.targets?.relaxations).length > 0 && (
+          <p className="aviso">
+            Declarada como experimento, pero corrio con: {relajacionesConAviso(detalle.targets?.relaxations).join(', ')}.
+          </p>
+        )}
         {!detalle.result && detalle.state === 'orphan' && (
           <p className="aviso">
             Esta corrida nunca recibio su mensaje de cierre: el monitor no sabe como termino.
@@ -200,6 +210,12 @@ function Objetivos({ targets, resultado }: { targets: Targets | null; resultado:
           <D t="Temp. critica" v={`${numero(targets.tcmin, 0)}–${numero(targets.tcmax, 0)} °C`} />
         )}
         {resultado?.progressPercent !== undefined && <D t="Avance" v={`${resultado.progressPercent} %`} />}
+        {/* Con que configuracion de la tarjeta SD corrio: el id lo calcula
+            la placa ("default" = valores de fabrica, sin tarjeta). */}
+        {targets?.configId && <D t="Configuracion" v={targets.configId} />}
+        {targets?.relaxations !== undefined && (
+          <D t="Relajaciones" v={relajacionesDe(targets.relaxations).join(', ') || 'ninguna'} />
+        )}
         {/* El paro fisico y el Detener en pantalla llegan los dos como
             "stopped": sin esto no hay forma de distinguirlos. */}
         {resultado?.emergency !== undefined && (

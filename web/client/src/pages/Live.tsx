@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   antiguedad, duracion, esCampoNulo, esViejo, horaCorta, nombreModo, nombreMotivo,
-  nombreSalud, nombreTipoAlerta, numero,
+  nombreSalud, nombreTipoAlerta, numero, relajacionesConAviso,
 } from '../lib/format.js';
 import type { LiveState } from '../lib/useLive.js';
 import { TipoCorrida } from '../components/TipoCorrida.js';
@@ -88,6 +88,13 @@ function Avisos({ estado, ahora }: { estado: LiveState; ahora: number }) {
   // placa que lo controla".
   if (estado.status?.megaOk === false) {
     avisos.push('La pantalla perdio el enlace con la placa de control (Mega).');
+  }
+  // Un experimento declarado que corre con protecciones apagadas o datos
+  // simulados: quien mira desde afuera tiene que saberlo antes de leer los
+  // numeros.
+  const relajaciones = relajacionesConAviso(estado.targets?.relaxations);
+  if (estado.run?.runType === 'normal' && relajaciones.length > 0) {
+    avisos.push(`Experimento con relajaciones activas: ${relajaciones.join(', ')}.`);
   }
   if (estado.run && esViejo(estado.status?.ts, ahora)) {
     avisos.push(`No llegan datos ${antiguedad(estado.status?.ts, ahora)}.`);

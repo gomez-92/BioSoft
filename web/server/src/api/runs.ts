@@ -54,6 +54,10 @@ runsRouter.get('/runs', asincrono(async (req, res) => {
       endedAt: run.endedAt ?? null,
       state: run.state,
       runType: run.runType ?? 'unknown',
+      // Las relajaciones van en la lista para poder marcar ahi mismo un
+      // experimento que corrio con protecciones apagadas.
+      relaxations: run.targets?.relaxations ?? null,
+      configId: run.targets?.configId ?? null,
       // El modo y el motivo van en la LISTA, no solo en el detalle: son lo
       // que se busca al recorrerla (que corridas fueron control, cuales se
       // cortaron), y tener que abrir cada una para saberlo la volveria

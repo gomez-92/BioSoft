@@ -810,6 +810,10 @@ inline void MySystem::_publishTargets() {
   // experimento declarado. Forzado a true si alguna fuente usa un sensor
   // simulado o un escenario (ConfigLoader::marksRunsAsTest).
   doc["TEST"] = ConfigLoader::marksRunsAsTest();
+  // Trazabilidad (tarjeta 23): con que configuracion corrio y que
+  // relajaciones tenia. Ver ConfigLoader::configId() / relaxationMask().
+  doc["CFG"] = ConfigLoader::configId();
+  doc["RLX"] = ConfigLoader::relaxationMask();
 
   _publishTelemetry(Topics::Targets, doc);
 }

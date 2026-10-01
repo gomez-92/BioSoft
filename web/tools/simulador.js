@@ -12,6 +12,7 @@
 //   node tools/simulador.js --mode null      # grupo control
 //   node tools/simulador.js --type normal    # marcada como experimento
 //   node tools/simulador.js --type none      # sin marca TEST (firmware viejo)
+//   node tools/simulador.js --type normal --rlx 1  # experimento con el detector apagado
 //   node tools/simulador.js --url mqtt://localhost:1883 --step 500
 //
 // Contra el broker real (OJO: son datos falsos entrando al historico real; por
@@ -50,6 +51,10 @@ const mode = arg('mode', 'x');                // x | null
 // justo lo que la marca existe para evitar.
 const runType = arg('type', 'test');          // test | normal | none
 const marca = runType === 'none' ? {} : { TEST: runType !== 'normal' };
+// Trazabilidad (tarjeta 23), como la publica la placa: un id de
+// configuracion y la mascara de relajaciones. 4 = CEM1 sin vigilar (el
+// default de fabrica); con --rlx se prueba el aviso de relajaciones.
+const traza = runType === 'none' ? {} : { CFG: arg('cfg', 'default'), RLX: Number(arg('rlx', '4')) };
 const base = arg('base', 'biosoft/telemetry');
 
 const T = {
@@ -93,7 +98,7 @@ const secondsPerStep = Math.round((durationMinutes * 60) / steps);
 async function run() {
   publish(T.targets, {
     MODE: mode, CEM: 1.5, FREQ: 50, DUR: durationMinutes, TOL: 10,
-    TNMIN: 20, TNMAX: 30, TCMIN: 15, TCMAX: 35, ...marca,
+    TNMIN: 20, TNMAX: 30, TCMIN: 15, TCMAX: 35, ...marca, ...traza,
   }, true);
 
   let health = 'normal';
