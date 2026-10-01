@@ -56,6 +56,11 @@ export function emitTelemetry(event: RealtimeEvent, data: unknown): void {
 // Estado del enlace con el broker. Es informacion propia del backend, no
 // telemetria: desde el navegador es la diferencia entre "el experimento no
 // esta publicando" y "nosotros no estamos escuchando".
+/** Configuracion remota (tarjeta 24): vigente y estado de los envios. */
+export function emitConfig(evento: string, data: unknown): void {
+  io?.emit(evento, data);
+}
+
 export function emitLinkStatus(broker: boolean): void {
   io?.emit('link:status', { broker });
 }

@@ -57,6 +57,14 @@ class SdStorage {
     // Agrega al final del archivo (lo crea si no existe).
     bool appendFile(const char* path, const char* data);
 
+    // Acceso como stream, para leer o escribir un JSON sin pasarlo entero
+    // por un buffer de RAM (configuracion remota, tarjeta 24). Un File
+    // invalido (sin tarjeta, o que no abre) se evalua false.
+    File openRead(const char* path) const;
+    File openWrite(const char* path);
+    // Copia por bloques chicos: no necesita un buffer del tamano del archivo.
+    bool copyFile(const char* from, const char* to);
+
   private:
     uint8_t _csPin;
     uint8_t _sckPin;
@@ -159,4 +167,37 @@ inline bool SdStorage::appendFile(const char* path, const char* data) {
   size_t written = file.print(data);
   file.close();
   return written == strlen(data);
+}
+
+inline File SdStorage::openRead(const char* path) const {
+  if (!_ready) return File();
+  return SD.open(path, FILE_READ);
+}
+
+inline File SdStorage::openWrite(const char* path) {
+  if (!_ready) return File();
+  return SD.open(path, FILE_WRITE);
+}
+
+inline bool SdStorage::copyFile(const char* from, const char* to) {
+  if (!_ready) return false;
+  File in = SD.open(from, FILE_READ);
+  if (!in) return false;
+  File out = SD.open(to, FILE_WRITE);
+  if (!out) {
+    in.close();
+    return false;
+  }
+  uint8_t chunk[256];
+  bool ok = true;
+  while (in.available()) {
+    size_t n = in.read(chunk, sizeof(chunk));
+    if (n == 0 || out.write(chunk, n) != n) {
+      ok = false;
+      break;
+    }
+  }
+  in.close();
+  out.close();
+  return ok;
 }

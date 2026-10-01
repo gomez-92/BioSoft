@@ -276,11 +276,13 @@ Mismo criterio que el resto del repo — **fijar lo que se rompe en silencio**:
 - **Credenciales.** El `.env` del backend lleva usuario y password del broker y
   la URI de Atlas. No va al repo; `.env.example` con placeholders, igual que
   `secrets.example.h`.
-- **Este monitor es de solo lectura, por diseño.** No se agregan comandos
-  remotos: un `start` remoto energizaría bobinas con animales adentro y sin
-  nadie en la sala, y el paro de emergencia solo sirve a quien ya está ahí. Si
-  alguna vez se discute, es una decisión de seguridad del experimento, no una
-  funcionalidad pendiente.
+- **Este monitor no tiene comandos remotos, por diseño.** Un `start` remoto
+  energizaría bobinas con animales adentro y sin nadie en la sala, y el paro de
+  emergencia solo sirve a quien ya está ahí. Si alguna vez se discute, es una
+  decisión de seguridad del experimento, no una funcionalidad pendiente. La
+  única escritura que existe es la **configuración remota** (tarjeta 24,
+  `config-schema.md` sección 17): graba la tarjeta SD, se rechaza durante una
+  corrida y vale recién al reiniciar la placa.
 - **Renombrar campos desde la SD rompe el dashboard en silencio.** Los cinco
   campos configurables llegan con el nombre que diga la tarjeta. El backend los
   lee por nombre configurable (mismo `.env`), y ante una clave desconocida

@@ -13,4 +13,8 @@ namespace Tasks {
   constexpr const char* PublishCoils          = "PUBLISH_COILS";
   constexpr const char* PublishStatus         = "PUBLISH_STATUS";
   constexpr const char* ReSendConfig          = "RESEND_CONFIG";
+  // Publica la configuracion vigente de a un bloque por tick (tarjeta 24,
+  // remoteconfig.hpp): la cola de publicacion tiene 4 lugares y la
+  // configuracion son ~20 bloques.
+  constexpr const char* PublishCurrentConfig  = "PUBLISH_CURRENT_CONFIG";
 };

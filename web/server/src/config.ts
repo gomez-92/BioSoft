@@ -73,6 +73,15 @@ export const config = {
     result: env('TOPIC_RESULT', 'biosoft/telemetry/result'),
   },
 
+  // Configuracion remota (tarjeta 24, esp32/src/remoteconfig.hpp). Fijos en
+  // la placa: no se configuran desde la SD, porque son el canal por el que
+  // se cambia la SD.
+  configTopics: {
+    currentPrefix: env('TOPIC_CONFIG_CURRENT', 'biosoft/config/current/'),
+    set: env('TOPIC_CONFIG_SET', 'biosoft/config/set'),
+    status: env('TOPIC_CONFIG_STATUS', 'biosoft/config/status'),
+  },
+
   // Los cinco campos que la tarjeta SD puede renombrar. El resto de las claves
   // ("c1".."d4", "REASON", "SRC"...) son estructurales: parte de la forma del
   // mensaje, no valores que el operador elija, y por eso no se configuran.

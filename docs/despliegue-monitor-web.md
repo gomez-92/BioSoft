@@ -116,6 +116,22 @@ Tres cosas, y las tres ya costaron tiempo en este proyecto:
 Conviene crear **una credencial propia para el backend** en EMQX, distinta de la
 de la placa: si alguna se filtra, se revoca una sola.
 
+**Regla de acceso de la configuración remota (tarjeta 24).** El monitor puede
+reescribir la tarjeta SD de la placa publicando en `biosoft/config/set`. En la
+consola de EMQX (Access Control → Authorization) hay que dejar que **solo la
+credencial del backend** publique en ese topic, y que la de la placa solo se
+suscriba a él:
+
+| Credencial | `biosoft/config/set` | `biosoft/config/status`, `biosoft/config/current/#` |
+|---|---|---|
+| backend | publicar | suscribirse |
+| placa | suscribirse | publicar |
+| cualquier otra | denegar | — |
+
+Sin esa regla, cualquiera con una credencial del broker (el simulador, otra
+placa) puede mandarle una configuración. No hay forma de configurarla desde el
+repositorio: es un paso manual, una sola vez.
+
 ## Atajo: el asistente
 
 `web/tools/generador-despliegue.html` se abre con doble clic (sin build, sin

@@ -20,7 +20,8 @@ touches no firmware:
   reads field/current/temperature sensors, and decides when to cut the experiment
   (time elapsed, danger detected, or loss of scientific rigor).
 - **`web/`** — remote monitor. Subscribes to the ESP32's telemetry, stores it in
-  MongoDB and serves a dashboard (live + history). Read-only by design.
+  MongoDB and serves a dashboard (live + history). No remote commands by
+  design; its one write path is the SD config (card 24, below).
 
 There is no shared source directory — `esp32/src/seriallink.hpp` and
 `mega2560/src/seriallink.hpp` (and `commands.hpp`, `timer.hpp`, `debugconfig.hpp`)
@@ -782,11 +783,35 @@ and `StateListener` (own app state, from `SystemData`).
   succeed. Don't re-open this as a certificate problem without comparing
   fingerprints first.
   The remote monitor is a **dashboard of the user's own**, not Datacake, and
-  it is **read-only**: the board publishes and never subscribes,
-  `onMessageReceived()` is empty on purpose and there are no remote commands.
-  That is a deliberate boundary — a remote `start` would energize coils with
-  animals in the cabinet and nobody in the room, while the physical e-stop
-  only helps someone who is already there.
+  there are **no remote commands**: that is a deliberate boundary — a remote
+  `start` would energize coils with animals in the cabinet and nobody in the
+  room, while the physical e-stop only helps someone who is already there.
+  Its one write path is the SD config (next bullet), which never acts live.
+- **Remote config (card 24, `remoteconfig.hpp`)**: the board's first inbound
+  channel — `onMessageReceived()` listens to `biosoft/config/set` only.
+  Contract in schema §17. Things that bite if forgotten:
+  - The MQTT callback runs on the **comms core**; the SD is also used by the
+    main loop. So `onMessageReceived()` only copies into a FreeRTOS queue
+    (`_configInbox`, 4 × 512) and `MySystem::update()` processes it. Same for
+    the "publish current config" trigger: `onBrokerConnected()` sets a
+    volatile flag, `update()` adds the timer task (`Timer` isn't core-safe).
+  - `BrokerManager::handleMessage` used to truncate inbound payloads to 128
+    bytes; a chunk is ~400, so it's `BrokerBufferSize` now.
+  - **No new 8 KB statics**: they come out of the same DRAM as the heap TLS
+    needs. `ConfigLoader::_currentText` (the text published as "current",
+    exactly what was CRC'd) *is* `load()`'s read buffer — `load()` parses with
+    `(const char*)` so ArduinoJson copies strings and frees the buffer — and
+    the receiver works entirely through SD streams (`openRead`/`openWrite`/
+    `copyFile`). A first draft with two extra buffers took static RAM from
+    88 KB to 105 KB.
+  - The board writes `config.json` **minified**: pretty-printed, a config that
+    fit when sent can exceed `ConfigLoader`'s 8 KB once credentials are added
+    back (`ConfigLoader::addCredentials()` restores wifi/broker exactly as the
+    file had them; they never travel over MQTT).
+  - Rejected while `Running`/`Starting`/`Stopping`; applied only on reboot,
+    whatever causes it — **no on-screen confirmation and no "restart now"**
+    (they need SquareLine; card 26). The EMQX ACL restricting who may publish
+    to `config/set` is a manual console step (`docs/despliegue-monitor-web.md`).
 - **`runType` (`"normal"` | `"test"`, top-level in the SD config, schema
   §15) is a declaration, not an operating mode.** It switches nothing on or
   off — every relaxation (detector, sources, sensors, control loop) lives in
@@ -1235,6 +1260,23 @@ Other things worth knowing before touching it:
   test runs don't, since relaxations are expected there.
   `relajacionesDe()`/`relajacionesConAviso()` are the single place that
   decodes the mask.
+- **Remote config, monitor side** (`domain/configsync.ts`,
+  `domain/configchunks.ts`, `api/config.ts`): config topics bypass the
+  telemetry path in the ingestor because here **retained messages matter**
+  (the current config is published retained; reprocessing is idempotent, keyed
+  by `configId`). Reassembled text must CRC32 to the board's id or it's
+  dropped — retained chunks of two configs can mix in the broker. Sending is
+  one chunk at a time, waiting for the board's `parcial` ack (5 s, 3 retries,
+  then `no_entregada`); one request at a time (409 otherwise). CRC32 and
+  chunking are reimplemented (no `zlib.crc32`, which needs Node ≥ 22.2) and
+  mirror `remoteconfig.hpp` — same drift hazard as the bit order of `RLX`.
+  The Configuracion page **embeds the generator** (`postMessage`, same origin
+  only) so validation has one source; the container is built from `web/`
+  alone, so it ships a copy in `client/public/` (`npm run sync:generador`)
+  and `client/src/lib/generador.test.ts` fails when copy and original differ.
+  Production's `X-Frame-Options` went from `DENY` to `SAMEORIGIN` for that
+  iframe. `tools/simulador-config.js` plays the board's side (current config +
+  acks; `--ocupada`, `--perder N`) for testing without hardware.
 - **Aggregated points carry min and max, not just the average.** A five-minute
   bucket swallows the fifteen-second temperature spike that cut the
   experiment — which is exactly what someone opens the chart to find.

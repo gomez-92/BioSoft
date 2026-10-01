@@ -14,7 +14,8 @@
     "build": "npm run build --workspace server && npm run build --workspace client",
     "test": "npm run test --workspace server && npm run test --workspace client && node tools/test-generador-despliegue.js",
     "infra:up": "docker compose up -d",
-    "infra:down": "docker compose down"
+    "infra:down": "docker compose down",
+    "sync:generador": "node tools/sincronizar-generador.js"
   },
   "devDependencies": {
     "concurrently": "^9.1.0"

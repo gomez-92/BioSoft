@@ -1257,17 +1257,41 @@ table.pins tbody td{padding:7px 12px 7px 0}
 
     <div class="callout warn">
       <span class="tag">Alcance del monitor</span>
-      <p><strong>Es de solo lectura, por diseño.</strong> No es posible iniciar
-        ni detener un experimento desde la web, ni lo será: hacerlo energizaría
-        las bobinas con animales en el gabinete y sin nadie en la sala,
-        mientras que la parada de emergencia solo auxilia a quien ya está
-        presente.</p>
+      <p><strong>No controla el experimento, por diseño.</strong> No es posible
+        iniciar ni detener un experimento desde la web, ni lo será: hacerlo
+        energizaría las bobinas con animales en el gabinete y sin nadie en la
+        sala, mientras que la parada de emergencia solo auxilia a quien ya está
+        presente. Lo único que la web puede cambiar es la configuración (ver
+        abajo).</p>
       <p><strong>Solo hay datos durante un experimento.</strong> Fuera de una
         corrida la pantalla indica que no hay ninguno en curso, y ello no
         constituye una falla.</p>
       <p><strong>El monitor debe permanecer encendido.</strong> Es el único
         que escucha al equipo; lo publicado mientras está detenido se pierde y
         no se recupera. Aparece luego como un tramo sin mediciones.</p>
+    </div>
+
+    <h3>Pantalla «Configuración»</h3>
+
+    <p>Muestra con qué configuración está funcionando la placa y permite
+      enviarle una nueva. El formulario es el mismo generador de configuración
+      que acompaña al equipo, con las mismas validaciones: no deja enviar un
+      archivo con errores. La red WiFi y el broker no se editan desde acá y la
+      placa conserva los suyos.</p>
+
+    <p>Al enviar, la placa recibe la configuración, la valida y la graba en su
+      tarjeta SD, dejando la anterior respaldada como
+      <code>config.prev.json</code>. La pantalla informa el resultado:
+      «Grabada en la placa», o el motivo del rechazo (por ejemplo, un
+      experimento en curso).</p>
+
+    <div class="callout warn">
+      <span class="tag">Cuándo se aplica</span>
+      <p><strong>La configuración enviada se aplica en el próximo reinicio de
+        la placa</strong>, cualquiera sea su causa, y la placa no pide
+        confirmación en su pantalla. Para aplicarla de inmediato hay que
+        reiniciarla a mano. Un envío se rechaza mientras hay un experimento en
+        curso.</p>
     </div>
 
     <h2 id="s14">Sección 14</h2>

@@ -7,15 +7,19 @@ import { authRouter } from './api/auth.js';
 import { healthRouter } from './api/health.js';
 import { liveRouter } from './api/live.js';
 import { runsRouter } from './api/runs.js';
+import { configRouter } from './api/config.js';
+import { configurarSync, handleConfigMessage } from './domain/configsync.js';
 import { config } from './config.js';
 import { requireAuth } from './auth/middleware.js';
 import { seedInitialUser } from './auth/seed.js';
 import { connectMongo } from './db/mongo.js';
 import { initRunTracker, sweepStaleRuns } from './domain/runtracker.js';
 import { registerHandlers } from './mqtt/handlers.js';
-import { mqttStatus, startIngestor, stopIngestor } from './mqtt/ingestor.js';
+import {
+  mqttStatus, onConfigMessage, publishToBoard, startIngestor, stopIngestor,
+} from './mqtt/ingestor.js';
 import { cabecerasSeguras, servirCliente, verificarProduccion } from './produccion.js';
-import { startRealtime } from './realtime/socket.js';
+import { emitConfig, startRealtime } from './realtime/socket.js';
 
 // Antes que nada: si la configuracion de produccion esta mal, mejor no
 // arrancar que arrancar a medias.
@@ -58,6 +62,7 @@ app.use('/api', requiereBase, authRouter);
 app.use('/api', requireAuth, healthRouter);
 app.use('/api', requireAuth, requiereBase, liveRouter);
 app.use('/api', requireAuth, requiereBase, runsRouter);
+app.use('/api', requireAuth, requiereBase, configRouter);
 
 // El front va DESPUES de las rutas de la API: su comodin atrapa todo lo que
 // no empiece con /api.
@@ -70,6 +75,9 @@ const server = createServer(app);
 connectMongo();
 startRealtime(server);   // antes del ingestor: el handler emite apenas guarda
 registerHandlers();
+// Configuracion remota (tarjeta 24): camino aparte de la telemetria.
+configurarSync({ publicar: publishToBoard, emitir: emitConfig });
+onConfigMessage((message) => handleConfigMessage(message));
 
 // Los dos enlaces son INDEPENDIENTES y arrancan por separado.
 //

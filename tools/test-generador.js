@@ -23,7 +23,7 @@ function fakeEl(id){
   return { id, innerHTML:"", textContent:"", disabled:false, dataset:{},
            addEventListener(){}, click(){}, files:[], value:"" };
 }
-["msgs","app","preview","file","dl","btnReset","btnLoad"].forEach(id => nodes[id] = fakeEl(id));
+["msgs","app","preview","file","dl","send","btnReset","btnLoad"].forEach(id => nodes[id] = fakeEl(id));
 
 const document = {
   getElementById: id => nodes[id] || (nodes[id] = fakeEl(id)),
@@ -42,7 +42,7 @@ vm.runInContext(code + `
 var __t = {
   get errors(){ return errors; }, get warns(){ return warns; },
   get state(){ return state; }, set state(v){ state = v; },
-  DEFAULTS: DEFAULTS, validate: validate, buildJson: buildJson
+  DEFAULTS: DEFAULTS, validate: validate, buildJson: buildJson, loadParsed: loadParsed
 };`, ctx);
 const T = ctx.__t;
 
@@ -272,6 +272,18 @@ ctx.applyProfile("tempAlta");
 ctx.realSensors();
 check("volver a sensores reales restaura mlx90393 / ds18b20",
       T.state.detector.sources[0].sensor === "mlx90393" && T.state.detector.sources[1].sensor === "ds18b20");
+
+console.log("\n== Cargar un archivo existente (tarjeta 24) ==");
+// Antes "Cargar archivo" no traia wifi ni broker: editar una tarjeta y
+// volver a descargarla borraba las credenciales en silencio.
+reset();
+T.loadParsed({ schemaVersion: 1, wifi: [{ ssid: "LAB", password: "x1" }], broker: { server: "b.example.com" } });
+const conCred = T.buildJson();
+check("cargar conserva las redes WiFi del archivo", conCred.wifi.length === 1 && conCred.wifi[0].ssid === "LAB");
+check("cargar conserva el broker del archivo", conCred.broker.server === "b.example.com");
+check("las filas de WiFi del formulario quedan completas", T.state.wifi.length === 5);
+check("abierto con doble clic (no embebido) el archivo lleva wifi y broker",
+      "wifi" in conCred && "broker" in conCred);
 
 console.log(fails === 0 ? "\nTODO OK\n" : "\n" + fails + " FALLA(S)\n");
 process.exit(fails ? 1 : 0);

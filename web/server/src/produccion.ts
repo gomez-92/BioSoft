@@ -46,8 +46,10 @@ export function cabecerasSeguras(app: Express): void {
   app.use((_req, res, next) => {
     // Impide que el navegador adivine el tipo de un archivo servido.
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    // Nadie embebe este monitor en un iframe ajeno.
-    res.setHeader('X-Frame-Options', 'DENY');
+    // Nadie embebe este monitor en un iframe ajeno. SAMEORIGIN y no DENY:
+    // la seccion Configuracion embebe el generador (/generador-config.html,
+    // tarjeta 24) desde el mismo origen, y DENY bloqueaba tambien ese.
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
     // No filtrar la URL completa (que lleva el id de corrida) a terceros.
     res.setHeader('Referrer-Policy', 'same-origin');
     next();

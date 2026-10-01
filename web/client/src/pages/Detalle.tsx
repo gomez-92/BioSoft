@@ -109,6 +109,7 @@ export function DetalleCorrida() {
       </section>
 
       <Objetivos targets={detalle.targets} resultado={detalle.result} />
+      {detalle.targets?.configId && <ConfiguracionDeLaCorrida configId={detalle.targets.configId} />}
 
       {mediciones && mediciones.points.length > 0 ? (
         <section className="panel">
@@ -185,6 +186,43 @@ function BotonCsv({ id }: { id: string }) {
       </button>
       {error && <p className="login-error">{error}</p>}
     </>
+  );
+}
+
+// La configuracion completa con la que corrio (tarjetas 23 y 24): la placa
+// publica la vigente y el monitor la guarda por id. Se pide recien al abrirla.
+function ConfiguracionDeLaCorrida({ configId }: { configId: string }) {
+  const [contenido, setContenido] = useState<unknown>(undefined);
+  const [estado, setEstado] = useState<'cerrado' | 'cargando' | 'listo' | 'sin-datos'>('cerrado');
+
+  if (configId === 'default') return null;
+
+  function abrir() {
+    if (estado !== 'cerrado') return;
+    setEstado('cargando');
+    authFetch(`/api/config/snapshots/${configId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data?.content) { setContenido(data.content); setEstado('listo'); }
+        else setEstado('sin-datos');
+      })
+      .catch(() => setEstado('sin-datos'));
+  }
+
+  return (
+    <section className="panel">
+      <details onToggle={abrir}>
+        <summary>Configuracion completa ({configId})</summary>
+        {estado === 'cargando' && <p className="empty">Cargando...</p>}
+        {estado === 'sin-datos' && (
+          <p className="empty">
+            El monitor no tiene guardada esta configuracion: la placa nunca la informo mientras estaba
+            conectado.
+          </p>
+        )}
+        {estado === 'listo' && <pre className="config-json">{JSON.stringify(contenido, null, 2)}</pre>}
+      </details>
+    </section>
   );
 }
 

@@ -151,3 +151,35 @@ const alertSchema = new Schema({
 }, { versionKey: false });
 
 export const Alert = model('Alert', alertSchema);
+
+/* --------------------- configuracion remota (tarjeta 24) --------------------- */
+
+// La configuracion con la que corre (o corrio) la placa, indexada por el
+// configId que la placa calcula (tarjeta 23). `text` es el JSON exacto que la
+// placa hasheo -- sin wifi ni broker --, y su CRC32 se verifico contra el id
+// al reensamblarlo. "default" = defaults compilados, sin texto.
+const configSnapshotSchema = new Schema({
+  configId: { type: String, required: true, unique: true },
+  text: { type: String, default: '' },
+  content: { type: Schema.Types.Mixed, default: null },
+  lastReportedAt: { type: Date, index: true },
+}, { timestamps: true });
+
+export const ConfigSnapshot = model('ConfigSnapshot', configSnapshotSchema);
+
+// Un envio de configuracion desde el monitor a la placa, con su estado.
+//   enviando / parcial -> en curso (parcial = la placa confirmo sentChunks)
+//   aceptada           -> grabada en la SD; se aplica en el proximo reinicio
+//   invalida / ocupada / incompleta / error / no_entregada -> no se toco nada
+const configRequestSchema = new Schema({
+  requestId: { type: String, required: true, unique: true },
+  user: String,
+  text: String,
+  chunks: Number,
+  sentChunks: { type: Number, default: 0 },
+  state: { type: String, required: true, index: true },
+  message: String,
+  newConfigId: String,
+}, { timestamps: true });
+
+export const ConfigRequest = model('ConfigRequest', configRequestSchema);

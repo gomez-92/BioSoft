@@ -389,7 +389,10 @@ inline void BrokerManager::_mqttCallback(char* topic, byte* payload, unsigned in
  * ============================================================ */
 inline void BrokerManager::handleMessage(char* topic, byte* payload, unsigned int length) {
 
-    static char msg[128];
+    // Del tamano del paquete: un bloque de la configuracion remota (tarjeta
+    // 24) ronda los 400 bytes, y con 128 llegaba cortado -- un JSON ilegible
+    // que se descartaba sin que nada dijera por que.
+    static char msg[BrokerBufferSize];
 
     length = min(length, sizeof(msg) - 1);
 

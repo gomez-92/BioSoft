@@ -18,6 +18,7 @@
 #include "configurationoptions.hpp"
 #include "configloader.hpp"
 #include "selectionstore.hpp"
+#include "remoteconfig.hpp"
 #include "debugconfig.hpp"
 
 // Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
@@ -37,10 +38,23 @@ class MySystem :
   public BrokerListener,
   public ScreenManagerListener,
   public IScreenListener,
-  public StateListener
+  public StateListener,
+  public RemoteConfig::Output
 {
   private:
     SystemData _data;
+
+    // Configuracion remota (tarjeta 24, remoteconfig.hpp). Los bloques que
+    // llegan por MQTT entran por onMessageReceived(), que corre en el nucleo
+    // de comunicaciones; la SD la usa el loop principal. Por eso se encolan
+    // y se procesan en update(): nunca se toca la SD desde los dos nucleos.
+    struct ConfigInboxMessage {
+      char payload[BrokerBufferSize];
+    };
+    QueueHandle_t _configInbox = nullptr;
+    // Lo levanta onBrokerConnected() (otro nucleo) y lo atiende update(): el
+    // Timer no es seguro entre nucleos, asi que la tarea se agrega desde aca.
+    volatile bool _publishConfigRequested = false;
     SerialLink& _serial;
     Timer& _timer;
     WiFiManager& _wifiManager;
@@ -48,6 +62,8 @@ class MySystem :
     DisplayDriver& _display;
     ScreenManager& _screenManager;
     SdStorage& _sdStorage;
+    RemoteConfig::CurrentPublisher _configPublisher;
+    RemoteConfig::Receiver _configReceiver;
 
     // Frames de configuracion en vuelo, mandados desde onSerialConnected()
     // y reenviados por Tasks::ReSendConfig hasta que cada uno tenga su ack
@@ -84,6 +100,7 @@ class MySystem :
     void _sendReset();
 
     void _sendMegaConfig();
+    void _updateRemoteConfig();
     // Banco sin Mega2560: `requireMega: false` en la tarjeta Y el serial sin
     // conectar. Al vencer el splash se pasa a Principal igual (forzando
     // Ready) en vez de esperar el primer state_data; Iniciar pasa directo a
@@ -129,6 +146,10 @@ class MySystem :
     void onBrokerConnected() override;
     void onBrokerDisconnected() override;
     void onMessageReceived(const char* topic, const char* payload) override;
+
+    // RemoteConfig::Output
+    bool publishConfigMessage(const char* topic, const char* payload, bool retain) override;
+    bool experimentInProgress() override;
     void onScreenChanged(ScreenType from, ScreenType to) override;
     void onScreenEvent(ScreenEvent e) override;
     void onStateChanged(const char* oldState, const char* newState) override;
@@ -142,7 +163,8 @@ inline MySystem::MySystem(SerialLink& serial, Timer& timer, WiFiManager& wifiMan
   _brokerManager(brokerManager), 
   _display(display), 
   _screenManager(screenManager),
-  _sdStorage(sdStorage)
+  _sdStorage(sdStorage),
+  _configReceiver(sdStorage)
 {
   _serial.setListener(this);
   _timer.setTimerListener(this);
@@ -171,6 +193,12 @@ inline void MySystem::begin() {
   // distintos para el mismo experimento. begin() corre despues de
   // ConfigLoader, asi que aca las tablas ya son las definitivas.
   _data.updatePrincipalConfigurationLabels();
+
+  // Configuracion remota (tarjeta 24): la cola entre nucleos y la
+  // suscripcion. subscribe() guarda el topic y lo reaplica en cada
+  // reconexion del broker.
+  _configInbox = xQueueCreate(4, sizeof(ConfigInboxMessage));
+  _brokerManager.subscribe(RemoteConfig::TopicSet);
 
   _serial.begin();
   _timer.begin();
@@ -214,6 +242,38 @@ inline void MySystem::begin() {
 inline void MySystem::update() {
   _serial.update();
   _timer.tick();
+  _updateRemoteConfig();
+}
+
+inline void MySystem::_updateRemoteConfig() {
+  if (_configInbox != nullptr) {
+    ConfigInboxMessage message;
+    while (xQueueReceive(_configInbox, &message, 0) == pdTRUE) {
+      _configReceiver.handle(message.payload, *this);
+    }
+  }
+  _configReceiver.checkTimeout(*this);
+
+  // Al conectar (y en cada reconexion) se republica la configuracion
+  // vigente, retenida: el monitor la encuentra aunque se conecte despues.
+  if (_publishConfigRequested) {
+    _publishConfigRequested = false;
+    _configPublisher.begin(ConfigLoader::currentText());
+    _timer.addTask(Tasks::PublishCurrentConfig, 300);
+  }
+}
+
+inline bool MySystem::publishConfigMessage(const char* topic, const char* payload, bool retain) {
+  return _publish(topic, payload, retain);
+}
+
+// Starting y Stopping cuentan como "en curso": el Mega puede estar
+// energizando o cortando, y grabar un archivo en ese momento no aporta nada.
+inline bool MySystem::experimentInProgress() {
+  const char* state = _data.getState();
+  return strcmp(state, StateData::Running) == 0
+      || strcmp(state, StateData::Starting) == 0
+      || strcmp(state, StateData::Stopping) == 0;
 }
 
 inline void MySystem::remoteUpdate() {
@@ -1140,6 +1200,10 @@ inline void MySystem::onTimer(const char* name) {
   if(strcmp(name, Tasks::UpdateScreens) == 0) {
     _screenManager.update();
   }
+  else if(strcmp(name, Tasks::PublishCurrentConfig) == 0) {
+    _configPublisher.publishNext(*this, ConfigLoader::configId());
+    if (!_configPublisher.active()) _timer.removeTask(Tasks::PublishCurrentConfig);
+  }
   else if(strcmp(name, Tasks::ReSendStart) == 0) {
     _sendStart();
   }
@@ -1241,13 +1305,24 @@ inline void MySystem::onWiFiDisconnected() {
 
 inline void MySystem::onBrokerConnected() {
   _data.communication.brokerOk = true;
+  _publishConfigRequested = true;
 }
 
 inline void MySystem::onBrokerDisconnected() {
   _data.communication.brokerOk = false;
 }
 
-inline void MySystem::onMessageReceived(const char* topic, const char* payload) {}
+// Solo escucha biosoft/config/set (tarjeta 24). Corre en el nucleo de
+// comunicaciones: no procesa nada, encola para el loop principal. Con la cola
+// llena el bloque se descarta -- el monitor no recibe su confirmacion y lo
+// reenvia.
+inline void MySystem::onMessageReceived(const char* topic, const char* payload) {
+  if (_configInbox == nullptr || strcmp(topic, RemoteConfig::TopicSet) != 0) return;
+  ConfigInboxMessage message;
+  strncpy(message.payload, payload, sizeof(message.payload) - 1);
+  message.payload[sizeof(message.payload) - 1] = '\0';
+  xQueueSend(_configInbox, &message, 0);
+}
 
 inline void MySystem::onScreenChanged(ScreenType from, ScreenType to) {
   // Las pantallas se crean y se destruyen al navegar (ver ScreenManager),

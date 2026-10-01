@@ -312,3 +312,15 @@ h3 { font-size: 0.78rem; margin: 0 0 10px; text-transform: uppercase; letter-spa
   cursor: pointer;
 }
 .salir:hover { color: var(--text); border-color: var(--muted); }
+
+/* Configuracion de la placa (tarjeta 24). El generador embebido trae su
+   propio estilo; el marco solo le da lugar. */
+.panel-generador { padding: 0; overflow: hidden; }
+.generador { width: 100%; height: 80vh; min-height: 600px; border: 0; display: block; }
+.lista-pedidos { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.pedido { display: flex; flex-wrap: wrap; gap: 12px; padding: 8px 12px; border-left: 3px solid var(--muted); }
+.pedido-aceptada { border-left-color: var(--ok); }
+.pedido-invalida, .pedido-ocupada, .pedido-incompleta, .pedido-error, .pedido-no_entregada { border-left-color: var(--down); }
+.pedido-estado { font-weight: 600; }
+.pedido-mensaje { color: var(--muted); }
+.config-json { max-height: 420px; overflow: auto; font-size: 0.8rem; }

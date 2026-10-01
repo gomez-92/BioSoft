@@ -1104,3 +1104,91 @@ exactamente el comportamiento actual del firmware, lo que lo hace util como:
 La unica diferencia respecto del firmware actual es
 `detector.sources[CEM1].enabled`, que va en `false` para reflejar que hoy
 `detector.addSource("CEM1")` esta comentado por el bring-up sin `A0` cableado.
+
+---
+
+## 17. Configuracion remota desde el monitor web
+
+El monitor puede **leer** la configuracion vigente de la placa y **mandarle**
+una nueva (tarjeta 24). Lo que llega se graba en la SD y **se aplica en el
+proximo reinicio**. Codigo: `esp32/src/remoteconfig.hpp` (placa) y
+`web/server/src/domain/configsync.ts` (monitor).
+
+### Topics (fijos, no configurables desde la SD: son el canal por el que se cambia la SD)
+
+| Topic | Sentido | Retain | Contenido |
+|---|---|---|---|
+| `biosoft/config/current/<i>` | placa -> monitor | si | bloque `i` de la configuracion vigente: `{id, i, n, d}` |
+| `biosoft/config/current/meta` | placa -> monitor | si | `{id, n, len}`; `n = 0` con `id: "default"` (defaults compilados) |
+| `biosoft/config/set` | monitor -> placa | no | bloque `i` de una configuracion nueva: `{r, i, n, d}` |
+| `biosoft/config/status` | placa -> monitor | no | `{r, st, i?, msg?, id?}` |
+
+### Transporte
+
+La configuracion pesa ~7 KB y la placa tiene un solo buffer MQTT de 512 bytes,
+asi que el texto del JSON viaja en **bloques** de tamano fijo, no por seccion
+(`detector` o `menus` solas ya pasan de 512). El tope del bloque son 340
+caracteres **ya escapados** dentro del string `d`. Placa y monitor parten igual
+(`RemoteConfig::chunkLength` / `chunkText`).
+
+- **Vigente**: la placa la publica al conectar con el broker (y en cada
+  reconexion), de a un bloque por tick, **retenida**. Es el texto exacto que
+  hasheo para el `configId` (seccion 15), asi que el monitor verifica que el
+  CRC32 del texto reensamblado de el id antes de guardarlo: bloques retenidos
+  de dos configuraciones mezclados no pasan.
+- **Nueva**: el monitor manda de a **un bloque por vez** y espera la
+  confirmacion (`st: "parcial", i`) antes del siguiente; sin confirmacion
+  reintenta el mismo bloque 3 veces (5 s cada una) y despues da el pedido por
+  no entregado. Nunca manda un bloque a ciegas. La placa escribe cada bloque a
+  `/biosoft/config.new` en la SD, no en RAM.
+
+### Lo que hace la placa al completar un pedido
+
+1. Parsea `config.new` (con el mismo `schemaVersion` que `ConfigLoader`). Si no
+   es valido: `invalida`, no se toca nada.
+2. Calcula el id que va a tener (sin credenciales) y le agrega `wifi` y
+   `broker` **tal como estaban en el archivo vigente**: las credenciales no
+   viajan nunca por MQTT.
+3. Rechaza un archivo que no entraria en el buffer de 8 KB de `ConfigLoader`.
+4. Copia `config.json` a **`config.prev.json`** (respaldo) y graba el nuevo
+   `config.json`, **minificado** (indentado podria pasarse de 8 KB con las
+   credenciales).
+5. Responde `aceptada` con el id nuevo.
+
+Todo por streams de la SD: ningun buffer de 8 KB, que saldria del mismo heap
+que necesita el handshake TLS (tarjetas 17 y 18).
+
+### Estados de un pedido
+
+| Estado | Significado |
+|---|---|
+| `enviando` / `parcial` | en curso (`parcial` = la placa confirmo hasta el bloque `i`) |
+| `aceptada` | grabada en la SD; vale desde el proximo reinicio |
+| `ocupada` | rechazada: hay un experimento en curso (o arrancando / deteniendose) |
+| `invalida` | rechazada: no parsea, `schemaVersion` no soportada o no entra en 8 KB |
+| `incompleta` | faltaron bloques o llegaron fuera de orden; o 30 s sin bloque nuevo |
+| `error` | la placa no pudo escribir (sin tarjeta, SD llena...) |
+| `no_entregada` | la placa no confirmo un bloque (estado que pone el monitor) |
+
+### Salvaguardas, y lo que falta
+
+- Nunca se aplica en caliente; se rechaza durante una corrida; se valida antes
+  de tocar `config.json`; queda el respaldo; `wifi`/`broker` no viajan; no hay
+  comandos ni reinicio remotos.
+- **No hay confirmacion en la pantalla de la placa** ni boton "Reiniciar
+  ahora": requieren SquareLine y quedaron como mejora (tarjeta 26).
+  Consecuencia: lo aceptado se aplica en el proximo reinicio, **cualquiera sea
+  su causa**, sin que nadie en la sala lo haya aprobado.
+- **La regla de acceso del broker** (solo la credencial del monitor puede
+  publicar en `biosoft/config/set`) se configura a mano en la consola de EMQX
+  (ver `docs/despliegue-monitor-web.md`). Sin ella, cualquiera con una
+  credencial del broker puede reescribir la tarjeta.
+
+### El formulario es el generador
+
+La seccion Configuracion del monitor **embebe `tools/generador-config.html`**
+y se comunica por `postMessage`: le pasa la vigente, recibe el JSON ya
+validado. Asi hay una sola fuente de reglas. Embebido, el generador no muestra
+ni produce `wifi`/`broker`. El contenedor del monitor se construye solo con
+`web/`, asi que lleva una **copia** (`web/client/public/generador-config.html`,
+`npm run sync:generador`) y un test del front falla si difiere del original.

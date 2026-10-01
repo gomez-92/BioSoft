@@ -11,6 +11,9 @@ import { Login } from './pages/Login.js';
 // el celular en medio del campo, no tiene por que descargarlos.
 const DetalleCorrida = lazy(() =>
   import('./pages/Detalle.js').then((m) => ({ default: m.DetalleCorrida })));
+// Configuracion de la placa (tarjeta 24): tambien aparte, se usa poco.
+const Configuracion = lazy(() =>
+  import('./pages/Configuracion.js').then((m) => ({ default: m.Configuracion })));
 
 type Sesion = { usuario: string } | null;
 
@@ -71,6 +74,7 @@ function Contenido({ sesion, onSalir }: { sesion: { usuario: string }; onSalir: 
       <nav className="navegacion">
         <NavLink to="/" end>En curso</NavLink>
         <NavLink to="/historial">Historial</NavLink>
+        <NavLink to="/configuracion">Configuracion</NavLink>
       </nav>
 
       <Suspense fallback={<p className="empty panel">Cargando...</p>}>
@@ -78,6 +82,7 @@ function Contenido({ sesion, onSalir }: { sesion: { usuario: string }; onSalir: 
           <Route path="/" element={<Live estado={estado} onVerCorrida={(id) => navigate(`/corrida/${id}`)} />} />
           <Route path="/historial" element={<Historial />} />
           <Route path="/corrida/:id" element={<DetalleCorrida />} />
+          <Route path="/configuracion" element={<Configuracion />} />
           <Route path="*" element={<p className="empty panel">Esa pagina no existe. <Link to="/">Ir al inicio</Link></p>} />
         </Routes>
       </Suspense>

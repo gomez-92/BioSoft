@@ -282,6 +282,20 @@ namespace ConfigLoader {
   inline char _configId[ConfigIdLength] = "default";
   inline const char* configId() { return _configId; }
 
+  // El texto EXACTO que se hasheo: el JSON leido, sin wifi ni broker, en una
+  // sola linea. Es lo que la placa publica como "configuracion vigente"
+  // (tarjeta 24): el monitor la reconstruye, verifica que su CRC32 de el
+  // configId y la guarda. Vacio con los defaults compilados -- no hay un
+  // archivo que mostrar.
+  //
+  // Es el MISMO buffer en el que load() lee el archivo: un segundo static de
+  // 8 KB sale del mismo DRAM que el heap, y el heap es lo que el handshake
+  // TLS necesita (tarjetas 17 y 18). Por eso load() parsea copiando los
+  // strings (deserializeJson con const char*) y recien despues escribe aca
+  // el texto sin credenciales.
+  inline char _currentText[MaxFileSize] = "";
+  inline const char* currentText() { return _currentText; }
+
   // Relajaciones activas, como mascara de bits en `targets` (`RLX`). Un
   // entero y no texto por el tope de payload. Cada bit es un HECHO de la
   // configuracion, no un juicio: si es preocupante en una corrida normal lo
@@ -931,11 +945,19 @@ namespace ConfigLoader {
     };
 
     // Va despues de cargar todas las secciones: saca wifi y broker del
-    // documento (ya se copiaron a sus buffers) y hashea lo que queda. Mismo
-    // firmware, misma serializacion, mismo id.
+    // documento (ya se copiaron a sus buffers), lo serializa en una linea y
+    // hashea ESE texto. Mismo firmware, misma serializacion, mismo id -- y el
+    // texto publicado tiene exactamente ese CRC, que el monitor verifica.
     inline void computeConfigId(JsonDocument& doc) {
       doc.remove("wifi");
       doc.remove("broker");
+      size_t length = serializeJson(doc, _currentText, MaxFileSize);
+      if (length >= MaxFileSize - 1) {
+        // No deberia pasar (el archivo entero entro en MaxFileSize y esto es
+        // un subconjunto minificado), pero un texto truncado tendria un CRC
+        // que no describe la configuracion: mejor no publicar nada.
+        _currentText[0] = '\0';
+      }
       Crc32Print crc;
       serializeJson(doc, crc);
       snprintf(_configId, ConfigIdLength, "%08lx", (unsigned long)crc.value());
@@ -1038,16 +1060,23 @@ namespace ConfigLoader {
     // buffer queda reservado toda la ejecucion aunque se use una sola vez;
     // es el precio de no arriesgar un stack overflow en el arranque, y en la
     // ESP32 esos 8 KB no son un problema.
-    static char buffer[MaxFileSize];
+    // Es _currentText (ver su declaracion): se usa como buffer de lectura y
+    // queda con el texto publicable al final. Cualquier salida por error lo
+    // deja vacio, porque ahi adentro queda el archivo crudo, con credenciales.
+    char* buffer = _currentText;
     size_t length = 0;
 
     if (!storage.readFile(ConfigPath, buffer, MaxFileSize, &length)) {
+      _currentText[0] = '\0';
       DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] no se pudo leer el archivo: se usan los defaults"));
       return false;
     }
 
+    // const char*: ArduinoJson COPIA los strings al documento, asi el buffer
+    // queda libre para el texto publicable (computeConfigId).
     JsonDocument doc;
-    DeserializationError error = deserializeJson(doc, buffer);
+    DeserializationError error = deserializeJson(doc, (const char*)buffer);
+    _currentText[0] = '\0';
     if (error) {
       DEBUG_PRINT(DEBUG_CONFIGLOADER, F("[CONFIG] JSON invalido ("));
       DEBUG_PRINT(DEBUG_CONFIGLOADER, error.c_str());
@@ -1115,6 +1144,45 @@ namespace ConfigLoader {
     }
     if (!cem1Watched) mask |= Relaxations::Cem1Unwatched;
     return mask;
+  }
+
+
+  // Id de un documento cualquiera con la misma regla que configId(): lo usa
+  // la configuracion remota (remoteconfig.hpp) para informarle al monitor el
+  // id que va a tener la configuracion que acaba de grabar.
+  inline void configIdOf(JsonDocument& doc, char* out, size_t size) {
+    doc.remove("wifi");
+    doc.remove("broker");
+    Crc32Print crc;
+    serializeJson(doc, crc);
+    snprintf(out, size, "%08lx", (unsigned long)crc.value());
+  }
+
+  // Agrega al documento las secciones wifi y broker TAL COMO LAS TRAIA el
+  // archivo vigente (las que no traia no se inventan: siguen saliendo de
+  // secrets.h). La configuracion remota nunca las transporta -- no viajan
+  // credenciales por MQTT -- asi que al grabar el archivo nuevo hay que
+  // volver a ponerlas, o la placa perderia la red en el proximo reinicio.
+  inline void addCredentials(JsonDocument& doc) {
+    if (_wifiNetworkCount > 0) {
+      JsonArray wifi = doc["wifi"].to<JsonArray>();
+      for (uint8_t i = 0; i < _wifiNetworkCount; i++) {
+        JsonObject network = wifi.add<JsonObject>();
+        network["ssid"] = _wifiNetworks[i].ssid;
+        network["password"] = _wifiNetworks[i].password;
+      }
+    }
+    bool hasBroker = _brokerConfig.server[0] != '\0' || _brokerConfig.port != 0
+      || _brokerConfig.user[0] != '\0' || _brokerConfig.password[0] != '\0'
+      || _brokerConfig.clientId[0] != '\0';
+    if (hasBroker) {
+      JsonObject broker = doc["broker"].to<JsonObject>();
+      if (_brokerConfig.server[0] != '\0')   broker["server"] = _brokerConfig.server;
+      if (_brokerConfig.port != 0)            broker["port"] = _brokerConfig.port;
+      if (_brokerConfig.user[0] != '\0')     broker["user"] = _brokerConfig.user;
+      if (_brokerConfig.password[0] != '\0') broker["password"] = _brokerConfig.password;
+      if (_brokerConfig.clientId[0] != '\0') broker["clientId"] = _brokerConfig.clientId;
+    }
   }
 
 };

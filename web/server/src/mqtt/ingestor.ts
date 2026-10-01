@@ -48,6 +48,22 @@ export function onTelemetry(handler: MessageHandler): void {
   handlers.push(handler);
 }
 
+// Configuracion remota (tarjeta 24). Va por un camino aparte de la
+// telemetria a proposito: aca los retenidos SI importan (la configuracion
+// vigente se publica retenida) y no tiene nada que ver con las corridas.
+export interface ConfigMessageIn { topic: string; payload: unknown; retained: boolean }
+const configHandlers: Array<(message: ConfigMessageIn) => void | Promise<void>> = [];
+
+export function onConfigMessage(handler: (message: ConfigMessageIn) => void | Promise<void>): void {
+  configHandlers.push(handler);
+}
+
+/** Publica hacia la placa (QoS 1, sin retain). */
+export async function publishToBoard(topic: string, payload: string): Promise<void> {
+  if (!client || !connected) throw new Error('sin conexion con el broker');
+  await client.publishAsync(topic, payload, { qos: 1, retain: false });
+}
+
 export function startIngestor(): void {
   const groups = groupByTopic();
 
@@ -68,7 +84,12 @@ export function startIngestor(): void {
     connected = true;
     emitLinkStatus(true);
     console.log(`[mqtt] conectado a ${config.mqtt.url} como ${config.mqtt.clientId}`);
-    for (const topic of groups.keys()) {
+    const topics = [
+      ...groups.keys(),
+      `${config.configTopics.currentPrefix}#`,
+      config.configTopics.status,
+    ];
+    for (const topic of topics) {
       client!.subscribe(topic, { qos: 1 }, (error) => {
         if (error) console.error(`[mqtt] no se pudo suscribir a ${topic}:`, error.message);
         else console.log(`[mqtt] suscripto a ${topic}`);
@@ -85,6 +106,23 @@ export function startIngestor(): void {
   client.on('error', (error) => console.error('[mqtt] error:', error.message));
 
   client.on('message', (topic, raw, packet) => {
+    if (topic.startsWith(config.configTopics.currentPrefix) || topic === config.configTopics.status) {
+      let payload: unknown;
+      try {
+        payload = JSON.parse(raw.toString());
+      } catch {
+        console.error(`[mqtt] payload no es JSON en ${topic}: ${raw.toString()}`);
+        return;
+      }
+      const message = { topic, payload, retained: packet.retain === true };
+      for (const handler of configHandlers) {
+        Promise.resolve(handler(message)).catch((error) =>
+          console.error(`[mqtt] handler de configuracion fallo en ${topic}:`, error),
+        );
+      }
+      return;
+    }
+
     const group = groups.get(topic);
     if (!group) return;
 
