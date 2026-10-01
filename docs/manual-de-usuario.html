@@ -1338,6 +1338,32 @@ table.pins tbody td{padding:7px 12px 7px 0}
       midiendo la temperatura del gabinete</strong>. Ninguno de estos ajustes
       es apto para un experimento con animales.</p>
 
+    <h3>Escenarios sintéticos</h3>
+
+    <p>Con el sensor de una fuente en <em>scenario</em>, la placa de control
+      no lee el sensor: <strong>calcula la lectura</strong> siguiendo un
+      escenario, y esa lectura recorre todo el proceso real. Las alertas, el
+      corte, la pantalla de resultado y el monitor web se comportan como con
+      un sensor de verdad. Sirve para comprobar el equipo completo sin
+      sensores conectados.</p>
+
+    <p>El generador de configuración trae escenarios listos: <em>todo
+      normal</em>, <em>temperatura alta</em>, <em>temperatura que sube</em>,
+      <em>campo inestable</em>, <em>campo fuera de rango</em> y <em>sensor de
+      temperatura caído</em>. Los escenarios se adaptan solos a los rangos
+      elegidos en la pantalla Configuración: «temperatura alta» supera el
+      rango crítico elegido, cualquiera sea.</p>
+
+    <div class="callout warn">
+      <span class="tag">Al usar escenarios</span>
+      <p><strong>Las bobinas no se energizan</strong> mientras el campo no
+        provenga del sensor real (escenario o <em>sim</em>): la pantalla
+        muestra el ciclo de trabajo que se aplicaría, pero no sale a la etapa
+        de potencia.</p>
+      <p><strong>Todas esas corridas quedan marcadas como PRUEBA</strong>,
+        aunque la tarjeta declare corridas normales.</p>
+    </div>
+
     <div class="callout">
       <span class="tag">Edición del archivo</span>
       <p>Se recomienda emplear el generador de configuración que acompaña al

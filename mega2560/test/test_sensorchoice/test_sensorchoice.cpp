@@ -56,6 +56,12 @@ void test_unknown_value_or_source_keeps_current(void) {
     TEST_ASSERT_EQUAL(SensorChoice::Sim, after(nullptr, "none", SensorChoice::Sim));
 }
 
+// Escenarios sinteticos (tarjeta 22): las dos fuentes los aceptan.
+void test_both_sources_accept_scenario(void) {
+    TEST_ASSERT_EQUAL(SensorChoice::Scenario, after("CEM1", "scenario", SensorChoice::Real));
+    TEST_ASSERT_EQUAL(SensorChoice::Scenario, after("TEMP1", "scenario", SensorChoice::Real));
+}
+
 int main(int argc, char** argv) {
     UNITY_BEGIN();
 
@@ -64,6 +70,7 @@ int main(int argc, char** argv) {
     RUN_TEST(test_temp1_accepts_ds18b20_sim_and_none);
     RUN_TEST(test_driver_names_are_not_interchangeable_between_sources);
     RUN_TEST(test_unknown_value_or_source_keeps_current);
+    RUN_TEST(test_both_sources_accept_scenario);
 
     return UNITY_END();
 }

@@ -23,6 +23,7 @@
 #include "safetymargins.hpp"
 #include "detectorconfigbuilder.hpp"
 #include "sensorchoice.hpp"
+#include "scenariosensors.hpp"
 #include "debugconfig.hpp"
 
 // Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
@@ -91,6 +92,14 @@ class Engine :
     // despues de construido el Engine. nullptr = no registrado.
     IThermometer* _realThermometer = nullptr;
     IThermometer* _simThermometer = nullptr;
+    MagnetometerScenario* _scenarioMagnetometer = nullptr;
+    ThermometerScenario* _scenarioThermometer = nullptr;
+
+    // true si CEM1 NO es el sensor real (sim o escenario) en la corrida
+    // actual. Lo calcula _applySourceSettings() y lo usa _start(): con un
+    // campo inventado, el lazo calcula y reporta el duty pero ni la etapa de
+    // potencia ni los canales se habilitan.
+    bool _syntheticField = false;
 
     // Plantillas de configuracion del Detector, una por fuente. Traen el
     // bufferSize y las 3 reglas: arrancan en los defaults compilados y las
@@ -103,6 +112,7 @@ class Engine :
       const char* name;
       bool enabled;
       SensorChoice sensor;       // que driver la alimenta (ver sensorchoice.hpp)
+      ScenarioSignal scenario;   // la senal si sensor == Scenario (scenario.hpp)
       float criticalMultiplier;  // solo CEM1 (sus rangos son derivados)
       SourceConfig config;
     };
@@ -161,6 +171,10 @@ class Engine :
     // Los dos drivers posibles de TEMP1 (DS18B20 y simulado). Se llama en
     // setup(); cual queda registrado lo decide _applySourceSettings().
     void registerThermometers(IThermometer* real, IThermometer* sim);
+    // Los drivers de escenario de CEM1 y TEMP1 (scenariosensors.hpp). Se
+    // llama en setup(); se usan cuando detector.sources[].sensor es
+    // "scenario".
+    void registerScenarioSensors(MagnetometerScenario* magnetometer, ThermometerScenario* thermometer);
 
   private:
     void _start();
@@ -173,6 +187,10 @@ class Engine :
     // el comentario de su implementacion.
     void _applySourceSettings();
     Engine::SourceSettings* _findSourceSettings(const char* name);
+    // Aplica un float de config_scenario solo si es >= 0; si no, lo deja
+    // como estaba y lo dice en el log.
+    void _applyNonNegative(JsonVariantConst value, float& target, const char* key);
+    static ScenarioRanges _scenarioRangesOf(const SourceConfig& config);
     // Registra los sensores de corriente habilitados, salteando los de un
     // modulo que no conteste en el bus. Ver su implementacion.
     void _applyCurrentSensorSettings();
@@ -256,13 +274,24 @@ inline Engine::Engine(
   // habilita cuando el hardware esta listo, sin recompilar.
   _sourceSettings[0].name = "CEM1";
   _sourceSettings[0].enabled = false;
-  _sourceSettings[0].sensor = SensorChoice::Sim;
+  // Default: el MLX90393 real. Hasta la tarjeta 22 era el sim de A0, pero
+  // con un campo que no es real las bobinas quedan bloqueadas, y un Mega sin
+  // tarjeta SD no podria excitar nunca. sim/scenario son elecciones de
+  // banco que la tarjeta tiene que pedir explicitamente.
+  _sourceSettings[0].sensor = SensorChoice::Real;
+  // Escenario por defecto: "todo normal". Niveles relativos a los rangos de
+  // la corrida (scenario.hpp). La planta alcanza el objetivo con duty 0.5,
+  // en el medio del rango: el lazo tiene margen para los dos lados.
+  _sourceSettings[0].scenario.setpointDuty = 0.5f;
+  _sourceSettings[0].scenario.noise = 0.1f;
   _sourceSettings[0].criticalMultiplier = SafetyMargins::CemCriticalMultiplier;
   _sourceSettings[0].config = DetectorConfigBuilder::defaultConfig();
 
   _sourceSettings[1].name = "TEMP1";
   _sourceSettings[1].enabled = true;
   _sourceSettings[1].sensor = SensorChoice::Real;
+  // Centro del rango normal elegido, con un ruido de 0.1 nivel.
+  _sourceSettings[1].scenario.noise = 0.1f;
   _sourceSettings[1].criticalMultiplier = SafetyMargins::CemCriticalMultiplier;
   _sourceSettings[1].config = DetectorConfigBuilder::defaultConfig();
 
@@ -299,6 +328,11 @@ inline void Engine::update() {
 inline void Engine::_start() {
   // Ver comentario de _isSettlingTime en la declaracion de la clase.
   _isSettlingTime = true;
+  // t = 0 de los escenarios sinteticos (scenario.hpp).
+  Scenario::restart(millis());
+  // Con un campo que no es el real, nada se energiza: ver _syntheticField.
+  // Va ANTES de enableAll(), que es quien lo respeta.
+  _coilChannels.setOutputsInhibited(_syntheticField);
   TargetData target = _runtimeState.target();
   _coilExcitation.start(target.frequencyTarget);
   _fieldController.reset();
@@ -309,7 +343,11 @@ inline void Engine::_start() {
     _coilChannels.writeAll(_fieldController.getOutput());
     _coilChannels.enableAll();
   }
-  _mainPowerSwitch.enable();
+  if (_syntheticField) {
+    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] CEM1 no es el sensor real: etapa de potencia y bobinas BLOQUEADAS (el duty se calcula y se reporta, no sale)"));
+  } else {
+    _mainPowerSwitch.enable();
+  }
   _engineState.setState(State::Running);
 }
 
@@ -336,6 +374,31 @@ inline void Engine::_reset() {
 inline void Engine::registerThermometers(IThermometer* real, IThermometer* sim) {
   _realThermometer = real;
   _simThermometer = sim;
+}
+
+inline ScenarioRanges Engine::_scenarioRangesOf(const SourceConfig& config) {
+  ScenarioRanges ranges;
+  ranges.normalMin = config.normalMin;
+  ranges.normalMax = config.normalMax;
+  ranges.criticalMin = config.criticalMin;
+  ranges.criticalMax = config.criticalMax;
+  return ranges;
+}
+
+inline void Engine::_applyNonNegative(JsonVariantConst value, float& target, const char* key) {
+  if (!value.is<float>()) return;
+  float v = value.as<float>();
+  if (v >= 0.0f) {
+    target = v;
+    return;
+  }
+  DEBUG_PRINT(DEBUG_ENGINE, F("[CONFIG_SCENARIO] valor negativo -- se ignora: "));
+  DEBUG_PRINTLN(DEBUG_ENGINE, key);
+}
+
+inline void Engine::registerScenarioSensors(MagnetometerScenario* magnetometer, ThermometerScenario* thermometer) {
+  _scenarioMagnetometer = magnetometer;
+  _scenarioThermometer = thermometer;
 }
 
 inline bool Engine::registerCurrentSensor(CurrentSensorSct013* sensor, uint8_t address, uint8_t channel) {
@@ -441,13 +504,20 @@ inline void Engine::_applySourceSettings() {
   }
 
   SourceSettings* cem = _findSourceSettings("CEM1");
-  bool useRealSensor = (cem != nullptr) && cem->sensor == SensorChoice::Real;
-  _magnetometerManager.addMagnetometer(
-    useRealSensor ? &_realMagnetometer : &_simMagnetometer
-  );
+  SensorChoice cemSensor = (cem != nullptr) ? cem->sensor : SensorChoice::Real;
+  IMagnetometer* magnetometer = &_realMagnetometer;
+  if (cemSensor == SensorChoice::Sim) {
+    magnetometer = &_simMagnetometer;
+  }
+  else if (cemSensor == SensorChoice::Scenario && _scenarioMagnetometer != nullptr) {
+    _scenarioMagnetometer->setSignal(cem->scenario);
+    magnetometer = _scenarioMagnetometer;
+  }
+  _magnetometerManager.addMagnetometer(magnetometer);
+  _syntheticField = (cemSensor != SensorChoice::Real);
 
   DEBUG_PRINT(DEBUG_ENGINE, F("[SOURCES] CEM1 sensor="));
-  DEBUG_PRINT(DEBUG_ENGINE, useRealSensor ? F("real") : F("sim"));
+  DEBUG_PRINT(DEBUG_ENGINE, SensorChoices::name(cemSensor));
   DEBUG_PRINTLN(DEBUG_ENGINE, _controlLoopEnabled ? F(" control=on") : F(" control=off"));
 
   // TEMP1: "none" no registra ningun termometro. Es lo que hay que usar sin
@@ -459,6 +529,10 @@ inline void Engine::_applySourceSettings() {
   IThermometer* thermometer = nullptr;
   if (tempSensor == SensorChoice::Real) thermometer = _realThermometer;
   else if (tempSensor == SensorChoice::Sim) thermometer = _simThermometer;
+  else if (tempSensor == SensorChoice::Scenario && _scenarioThermometer != nullptr) {
+    _scenarioThermometer->setSignal(temp->scenario);
+    thermometer = _scenarioThermometer;
+  }
   if (thermometer != nullptr) _thermometerManager.addThermometer(thermometer);
 
   DEBUG_PRINT(DEBUG_ENGINE, F("[SOURCES] TEMP1 sensor="));
@@ -956,6 +1030,12 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
     DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Aplicando configuracion a CEM1..."));
 
     _detector.configureSource("CEM1", configCem);
+    // Los niveles del escenario se miden contra ESTOS rangos (scenario.hpp):
+    // se pasan aunque CEM1 no use el escenario, es barato y deja al sensor
+    // listo si una corrida posterior lo elige.
+    if (_scenarioMagnetometer != nullptr) {
+      _scenarioMagnetometer->setRanges(_scenarioRangesOf(configCem));
+    }
 
     DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Source CEM1 configurada correctamente"));
 
@@ -1033,6 +1113,9 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
     DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Aplicando configuracion a TEMP1..."));
 
     _detector.configureSource("TEMP1", configTemp);
+    if (_scenarioThermometer != nullptr) {
+      _scenarioThermometer->setRanges(_scenarioRangesOf(configTemp));
+    }
 
     DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Source TEMP1 configurada correctamente"));
 
@@ -1369,6 +1452,53 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
     doc["command"] = Commands::ConfigCurrent;
     doc["address"] = address;
     doc["channel"] = channel;
+
+    _serial.sendCommand(
+      Commands::Ack,
+      doc
+    );
+  }
+
+  // Senal de escenario de una fuente (scenario.hpp), en niveles relativos a
+  // los rangos de la corrida. Claves cortas porque el frame tiene 256 bytes:
+  // b=base n=noise r=ramp sa=stepAt s=step oa=oscAmp op=oscPeriod da=dropAt
+  // d=setpointDuty. Se aplica clave por clave sobre la
+  // plantilla y vale desde el proximo start, como el resto de la fuente. Un
+  // valor fuera de rango deja esa clave como estaba.
+  else if (strcmp(command, Commands::ConfigScenario) == 0) {
+    const char* sourceName = params["name"];
+    SourceSettings* settings = _findSourceSettings(sourceName);
+    if (settings == nullptr) {
+      DEBUG_PRINT(DEBUG_ENGINE, F("[CONFIG_SCENARIO][ERROR] Fuente desconocida o sin 'name': "));
+      DEBUG_PRINTLN(DEBUG_ENGINE, sourceName == nullptr ? "(ausente)" : sourceName);
+      return;
+    }
+
+    ScenarioSignal& signal = settings->scenario;
+    if (params["b"].is<float>())  signal.base = params["b"].as<float>();
+    if (params["r"].is<float>())  signal.ramp = params["r"].as<float>();
+    if (params["s"].is<float>())  signal.step = params["s"].as<float>();
+    if (params["oa"].is<float>()) signal.oscAmp = params["oa"].as<float>();
+    // Los que no pueden ser negativos: el ruido es una amplitud y los otros
+    // tres son tiempos o periodos.
+    _applyNonNegative(params["n"], signal.noise, "noise");
+    _applyNonNegative(params["sa"], signal.stepAt, "stepAt");
+    _applyNonNegative(params["op"], signal.oscPeriod, "oscPeriod");
+    _applyNonNegative(params["da"], signal.dropAt, "dropAt");
+    // Es un duty, asi que ademas no puede pasar de 1.0.
+    if (params["d"].is<float>()) {
+      float v = params["d"].as<float>();
+      if (v >= 0.0f && v <= 1.0f) signal.setpointDuty = v;
+      else DEBUG_PRINTLN(DEBUG_ENGINE, F("[CONFIG_SCENARIO] setpointDuty fuera de 0..1 -- se ignora"));
+    }
+
+    DEBUG_PRINT(DEBUG_ENGINE, F("[CONFIG_SCENARIO] "));
+    DEBUG_PRINT(DEBUG_ENGINE, settings->name);
+    DEBUG_PRINTLN(DEBUG_ENGINE, F(" guardado (vale desde el proximo start)"));
+
+    JsonDocument doc;
+    doc["command"] = Commands::ConfigScenario;
+    doc["name"] = settings->name;
 
     _serial.sendCommand(
       Commands::Ack,

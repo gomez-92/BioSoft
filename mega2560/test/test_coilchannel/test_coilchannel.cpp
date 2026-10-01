@@ -304,12 +304,87 @@ void test_collective_operations_are_safe_with_no_channels(void) {
     TEST_ASSERT_EQUAL_UINT8(0, channels.count());
 }
 
+// =====================================================================
+// Bloqueo de salidas (tarjeta 22): con CEM1 sim o escenario, el lazo regula
+// contra un campo inventado. Si esto se rompe, ese duty sale a las bobinas
+// reales con la etapa de potencia conectada.
+// =====================================================================
+
+void test_inhibited_enableAll_never_drives_enable_pins(void) {
+    PwmDriver pwm1(PwmPin1);
+    PwmDriver pwm2(PwmPin2);
+    CoilChannel coil1(pwm1, EnablePin1, "BOB1");
+    CoilChannel coil2(pwm2, EnablePin2, "BOB2");
+    CoilChannels channels;
+    channels.addChannel(&coil1);
+    channels.addChannel(&coil2);
+    channels.beginAll();
+
+    channels.setOutputsInhibited(true);
+    channels.enableAll();
+
+    Verify(Method(ArduinoFake(), digitalWrite).Using(EnablePin1, HIGH)).Never();
+    Verify(Method(ArduinoFake(), digitalWrite).Using(EnablePin2, HIGH)).Never();
+    TEST_ASSERT_FALSE(coil1.isEnabled());
+    TEST_ASSERT_FALSE(coil2.isEnabled());
+}
+
+// El duty se sigue calculando y reportando (la pantalla lo muestra), pero
+// al pin solo llega 0.
+void test_inhibited_writeAll_reports_duty_but_outputs_zero(void) {
+    PwmDriver pwm1(PwmPin1);
+    CoilChannel coil1(pwm1, EnablePin1, "BOB1");
+    CoilChannels channels;
+    channels.addChannel(&coil1);
+    channels.beginAll();
+    channels.setOutputsInhibited(true);
+    channels.enableAll();
+
+    channels.writeAll(0.5f);
+
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.5f, coil1.appliedDuty());
+    Verify(Method(ArduinoFake(), analogWrite).Using(PwmPin1, 127)).Never();
+}
+
+void test_inhibiting_turns_off_channels_already_enabled(void) {
+    PwmDriver pwm1(PwmPin1);
+    CoilChannel coil1(pwm1, EnablePin1, "BOB1");
+    CoilChannels channels;
+    channels.addChannel(&coil1);
+    channels.beginAll();
+    channels.enableAll();
+    TEST_ASSERT_TRUE(coil1.isEnabled());
+
+    channels.setOutputsInhibited(true);
+
+    TEST_ASSERT_FALSE(coil1.isEnabled());
+}
+
+void test_lifting_the_inhibit_lets_enableAll_work_again(void) {
+    PwmDriver pwm1(PwmPin1);
+    CoilChannel coil1(pwm1, EnablePin1, "BOB1");
+    CoilChannels channels;
+    channels.addChannel(&coil1);
+    channels.beginAll();
+    channels.setOutputsInhibited(true);
+    channels.setOutputsInhibited(false);
+
+    channels.enableAll();
+
+    TEST_ASSERT_TRUE(coil1.isEnabled());
+    TEST_ASSERT_FALSE(channels.outputsInhibited());
+}
+
 int main(int argc, char** argv) {
     UNITY_BEGIN();
 
     RUN_TEST(test_begin_configures_enable_pin_and_leaves_channel_off);
     RUN_TEST(test_enable_drives_enable_pin_and_pwm);
     RUN_TEST(test_disable_turns_channel_off);
+    RUN_TEST(test_inhibited_enableAll_never_drives_enable_pins);
+    RUN_TEST(test_inhibited_writeAll_reports_duty_but_outputs_zero);
+    RUN_TEST(test_inhibiting_turns_off_channels_already_enabled);
+    RUN_TEST(test_lifting_the_inhibit_lets_enableAll_work_again);
     RUN_TEST(test_enable_respects_active_low_wiring);
     RUN_TEST(test_disabled_channel_writes_zero_duty);
 

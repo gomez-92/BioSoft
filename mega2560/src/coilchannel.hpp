@@ -185,15 +185,25 @@ class CoilChannels {
     void enableAll();
     void disableAll();
 
+    // Bloqueo de salidas: mientras esta activo, enableAll() NO habilita
+    // ningun canal (ni el pin de enable ni el PWM), pero writeAll() sigue
+    // repartiendo el duty, asi que appliedDuty() reporta lo que el lazo
+    // HABRIA aplicado. Lo activa Engine cuando CEM1 no es el sensor real
+    // (sim o escenario): regular contra un campo inventado no puede
+    // energizar las bobinas de verdad.
+    void setOutputsInhibited(bool inhibited);
+    bool outputsInhibited() const;
+
     // Reparte el duty comun del lazo a todos los canales habilitados.
     void writeAll(float duty);
 
   private:
     CoilChannel* _channels[MAX_COIL_CHANNELS];
     uint8_t _count;
+    bool _inhibited;
 };
 
-inline CoilChannels::CoilChannels() : _count(0) {
+inline CoilChannels::CoilChannels() : _count(0), _inhibited(false) {
   for (uint8_t i = 0; i < MAX_COIL_CHANNELS; i++) {
     _channels[i] = nullptr;
   }
@@ -244,9 +254,25 @@ inline void CoilChannels::beginAll() {
 }
 
 inline void CoilChannels::enableAll() {
+  if (_inhibited) {
+    DEBUG_PRINTLN(DEBUG_COILCHANNEL, F("[COIL] salidas bloqueadas (campo sintetico): no se habilita ningun canal"));
+    disableAll();
+    return;
+  }
   for (uint8_t i = 0; i < _count; i++) {
     if (_channels[i]) _channels[i]->enable();
   }
+}
+
+inline void CoilChannels::setOutputsInhibited(bool inhibited) {
+  _inhibited = inhibited;
+  // Bloquear apaga ya lo que estuviera encendido; desbloquear no enciende
+  // nada por si solo -- eso sigue siendo el enableAll() del start.
+  if (inhibited) disableAll();
+}
+
+inline bool CoilChannels::outputsInhibited() const {
+  return _inhibited;
 }
 
 inline void CoilChannels::disableAll() {

@@ -151,7 +151,7 @@
       {
         "name": "CEM1",
         "enabled": false,
-        "sensor": "sim",
+        "sensor": "mlx90393",
         "bufferSize": 32,
         "range": {
           "mode": "derived",
@@ -173,6 +173,17 @@
             "cooldown": 16,
             "maxEvents": 3
           }
+        },
+        "scenario": {
+          "base": 0,
+          "noise": 0.1,
+          "ramp": 0,
+          "stepAt": 0,
+          "step": 0,
+          "oscAmp": 0,
+          "oscPeriod": 0,
+          "dropAt": 0,
+          "setpointDuty": 0.5
         }
       },
       {
@@ -199,6 +210,16 @@
             "cooldown": 16,
             "maxEvents": 3
           }
+        },
+        "scenario": {
+          "base": 0,
+          "noise": 0.1,
+          "ramp": 0,
+          "stepAt": 0,
+          "step": 0,
+          "oscAmp": 0,
+          "oscPeriod": 0,
+          "dropAt": 0
         }
       }
     ]

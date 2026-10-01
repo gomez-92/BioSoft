@@ -117,16 +117,18 @@ const DEFAULTS = {
     {name:"BOB4",enabled:false,calibrationFactor:1.0}
   ],
   detector: { enabled: true, sources: [
-    {name:"CEM1",enabled:false,sensor:"sim",bufferSize:32,
+    {name:"CEM1",enabled:false,sensor:"mlx90393",bufferSize:32,
      range:{mode:"derived",criticalMultiplier:1.25},
      rules:{critical:{threshold:3,cooldown:1,maxEvents:2},
             streak:{threshold:5,cooldown:4,maxEvents:5},
-            frequency:{threshold:16,cooldown:16,maxEvents:3}}},
+            frequency:{threshold:16,cooldown:16,maxEvents:3}},
+     scenario:{base:0,noise:0.1,ramp:0,stepAt:0,step:0,oscAmp:0,oscPeriod:0,dropAt:0,setpointDuty:0.5}},
     {name:"TEMP1",enabled:true,sensor:"ds18b20",bufferSize:32,
      range:{mode:"operator"},
      rules:{critical:{threshold:3,cooldown:1,maxEvents:2},
             streak:{threshold:5,cooldown:4,maxEvents:5},
-            frequency:{threshold:16,cooldown:16,maxEvents:3}}}
+            frequency:{threshold:16,cooldown:16,maxEvents:3}},
+     scenario:{base:0,noise:0.1,ramp:0,stepAt:0,step:0,oscAmp:0,oscPeriod:0,dropAt:0}}
   ]},
   currentSensors: [
     {name:"SCT013-1",enabled:true, address:72,channel:0,ratedCurrent:5.0,ratedVoltage:1.0,calibration:0.775,sampleRate:860,integrationTimeMs:200},
@@ -210,7 +212,59 @@ const INT = "int", FLT = "float";
 // queda con el anterior: la tarjeta diria "sim" y el equipo seguiria
 // leyendo el sensor real, o al reves. CEM1 no admite "none": es la
 // realimentacion del lazo de control.
-const SOURCE_SENSORS = { CEM1: ["sim", "mlx90393"], TEMP1: ["ds18b20", "sim", "none"] };
+const SOURCE_SENSORS = { CEM1: ["mlx90393", "sim", "scenario"], TEMP1: ["ds18b20", "sim", "scenario", "none"] };
+
+// Escenarios sinteticos (tarjeta 22): la senal se mide en NIVELES relativos a
+// los rangos de la corrida, no en valores fisicos (mega2560/src/scenario.hpp):
+//   0 = centro del rango normal, +-1 = borde del normal, +-2 = borde del
+//   critico, mas alla de 2 = adentro de la zona critica.
+// Asi un perfil significa lo mismo con cualquier rango elegido en pantalla.
+const SCENARIO_KEYS = [
+  ["base", FLT, "Nivel base"],
+  ["noise", FLT, "Ruido (niveles, >= 0)"],
+  ["ramp", FLT, "Rampa (niveles/min)"],
+  ["stepAt", FLT, "Salto a los (s)"],
+  ["step", FLT, "Salto (niveles)"],
+  ["oscAmp", FLT, "Oscilacion (niveles)"],
+  ["oscPeriod", FLT, "Periodo de oscilacion (s)"],
+  ["dropAt", FLT, "Sensor caido a los (s, 0 = nunca)"]
+];
+const QUIET = {base:0,noise:0.1,ramp:0,stepAt:0,step:0,oscAmp:0,oscPeriod:0,dropAt:0};
+// Cada perfil fija las DOS fuentes en "scenario" y define su senal. Los que
+// prueban el campo prenden CEM1 en el Detector: viene apagada de fabrica, y
+// sin eso un "campo inestable" no levantaria ningun flag.
+const SCENARIO_PROFILES = [
+  ["normal", "Todo normal", "Las dos fuentes en el centro del rango normal, con ruido leve. Debe terminar completed.",
+   {cem: {}, temp: {}}],
+  ["tempAlta", "Temperatura alta", "TEMP1 salta a la zona critica (+2,5) a los 60 s. Debe cortar por critical.",
+   {cem: {}, temp: {stepAt: 60, step: 2.5}}],
+  ["tempSube", "Temperatura que sube", "TEMP1 sube 1 nivel por minuto: sale del normal al minuto y pasa el critico a los 2. Ejercita streak y frequency antes del corte.",
+   {cem: {}, temp: {ramp: 1}}],
+  ["campoInestable", "Campo inestable", "CEM1 oscila +-1,6 niveles cada 4 s, mas rapido de lo que el lazo puede seguir: entra y sale del normal sin llegar al critico.",
+   {cem: {oscAmp: 1.6, oscPeriod: 4, noise: 0.2}, temp: {}, cemEnabled: true}],
+  ["campoFuera", "Campo fuera de rango", "CEM1 sin planta (no responde al lazo) salta a +2,5 a los 60 s. Debe cortar por critical.",
+   {cem: {setpointDuty: 0, stepAt: 60, step: 2.5}, temp: {}, cemEnabled: true}],
+  ["sensorCaido", "Sensor de temperatura caido", "TEMP1 deja de dar lecturas a los 90 s. Muestra que hoy el silencio de un sensor NO corta el experimento.",
+   {cem: {}, temp: {dropAt: 90}}]
+];
+
+function applyProfile(key){
+  const prof = SCENARIO_PROFILES.find(p => p[0] === key);
+  if (!prof) return;
+  const def = prof[3];
+  state.detector.sources.forEach(s => {
+    const isCem = s.name === "CEM1";
+    s.sensor = "scenario";
+    s.scenario = Object.assign({}, QUIET, isCem ? {setpointDuty: 0.5} : {}, isCem ? def.cem : def.temp);
+    if (isCem && def.cemEnabled) s.enabled = true;
+  });
+  render();
+}
+
+function realSensors(){
+  state.detector.sources.forEach(s => { s.sensor = s.name === "CEM1" ? "mlx90393" : "ds18b20"; });
+  render();
+}
 
 // Los dos unicos valores que ConfigLoader::loadRunType() entiende. Cualquier
 // otro cae en "normal" en el firmware: una tarjeta pensada para banco
@@ -412,7 +466,17 @@ function sDetector(){
     '(A0 para CEM1, A1 para TEMP1 con 0-5 V = 0-50 C) y sirve para provocar cortes en banco. En TEMP1, ' +
     '<code>none</code> no registra ningun termometro: es lo que va sin DS18B20 cableado, que si no ' +
     'bloquea ~750 ms en cada medicion.</p>' +
-    '<div class="grid">' + chk("detector.enabled", "Detector encendido (interruptor general)") + '</div>';
+    '<div class="grid">' + chk("detector.enabled", "Detector encendido (interruptor general)") + '</div>' +
+    '<div class="sub"><h3>Escenarios sinteticos</h3>' +
+    '<p class="hint">Con <code>sensor: scenario</code> el Mega no lee el sensor: calcula la lectura y la ' +
+    'pasa por toda la logica real (Detector, alertas, corte, pantalla y monitor remoto). La senal se mide ' +
+    'en <b>niveles</b> relativos a los rangos que se elijan en pantalla: <b>0</b> = centro del normal, ' +
+    '<b>1</b> = borde del normal, <b>2</b> = borde del critico. Las corridas salen marcadas <b>PRUEBA</b> y, ' +
+    'si CEM1 no es el sensor real, <b>las bobinas no se energizan</b>. Un perfil completa las dos fuentes; ' +
+    'despues se puede ajustar cada numero.</p><div class="grid">' +
+    SCENARIO_PROFILES.map(p => '<button data-profile="' + p[0] + '" title="' + esc(p[2]) + '">' +
+      esc(p[1]) + '</button>').join("") +
+    '<button data-real="1">Volver a sensores reales</button></div></div>';
   state.detector.sources.forEach((s, i) => {
     const sensors = SOURCE_SENSORS[s.name] || [s.sensor];
     h += '<div class="sub"><h3>' + s.name + '</h3><div class="grid">' +
@@ -420,6 +484,13 @@ function sDetector(){
         chk("detector.sources." + i + ".enabled", "Vigilada por el Detector") + '</div>' +
       sel("detector.sources." + i + ".sensor", "Sensor", sensors) +
       num("detector.sources." + i + ".bufferSize", INT, "bufferSize — ventana (8 a 32)");
+    if (s.sensor === "scenario" && s.scenario) {
+      h += '</div><div class="grid" style="margin-top:10px">' +
+        SCENARIO_KEYS.map(([k, kind, lbl]) => num("detector.sources." + i + ".scenario." + k, kind, lbl)).join("") +
+        (s.name === "CEM1"
+          ? num("detector.sources." + i + ".scenario.setpointDuty", FLT, "Duty que da el objetivo (0 = sin planta)")
+          : "");
+    }
     h += s.range.mode === "derived"
       ? num("detector.sources." + i + ".range.criticalMultiplier", FLT, "criticalMultiplier (1,0 a 3,0)")
       : '<label class="f"><span>Rangos</span><input type="text" disabled ' +
@@ -575,6 +646,10 @@ document.addEventListener("click", e => {
   } else if (del){
     state.menus[del].splice(parseInt(e.target.dataset.i, 10), 1);
     render();
+  } else if (e.target.dataset && e.target.dataset.profile){
+    applyProfile(e.target.dataset.profile);
+  } else if (e.target.dataset && e.target.dataset.real){
+    realSensors();
   }
 });
 
@@ -752,6 +827,29 @@ function validate(){
     if (allowed && !allowed.includes(s.sensor))
       err(s.name + ': sensor "' + s.sensor + '" no es valido (' + allowed.join(", ") + '). ' +
           "El Mega lo rechaza y sigue con el driver que tenia, sin avisar en pantalla.");
+    if (s.sensor === "scenario") {
+      const sc = s.scenario || {};
+      const tag = s.name + " / escenario";
+      SCENARIO_KEYS.forEach(([k, , lbl]) => {
+        if (!isNum(sc[k])) err(tag + ": " + lbl + " tiene que ser un numero.");
+      });
+      ["noise", "stepAt", "oscPeriod", "dropAt"].forEach(k => {
+        if (isNum(sc[k]) && sc[k] < 0)
+          err(tag + ": " + k + " no puede ser negativo; el Mega lo ignora y deja el valor anterior.");
+      });
+      if (s.name === "CEM1" && (!isNum(sc.setpointDuty) || sc.setpointDuty < 0 || sc.setpointDuty > 1))
+        err(tag + ": el duty que da el objetivo tiene que estar entre 0 y 1.");
+      if (isNum(sc.oscAmp) && sc.oscAmp !== 0 && !(sc.oscPeriod > 0))
+        warn(tag + ": hay amplitud de oscilacion pero periodo 0, asi que no oscila.");
+      if (isNum(sc.stepAt) && sc.stepAt > 0 && sc.stepAt < 10)
+        warn(tag + ": el salto ocurre antes de los 10 s de estabilizacion; el Detector recien lo ve despues.");
+    }
+    if (s.name === "CEM1" && (s.sensor === "sim" || s.sensor === "scenario"))
+      warn("CEM1 no es el sensor real: el lazo regula contra un campo inventado, asi que la etapa de " +
+           "potencia y las bobinas quedan BLOQUEADAS (el duty se calcula y se muestra, no sale), y las " +
+           "corridas salen marcadas PRUEBA.");
+    if (s.name === "TEMP1" && s.sensor === "scenario")
+      warn("TEMP1 con escenario: la temperatura es calculada, no medida. Las corridas salen marcadas PRUEBA.");
     if (s.name === "TEMP1" && s.sensor === "sim")
       warn("TEMP1 con sensor sim: la temperatura sale de la entrada A1, no del DS18B20. No mide la " +
            "temperatura del gabinete -- nunca para un experimento con animales.");
@@ -1030,6 +1128,12 @@ document.getElementById("file").addEventListener("change", ev => {
     // Un archivo anterior a detector.enabled trae la seccion sin esa clave:
     // en el firmware eso es "encendido", y asi tiene que verse aca.
     if (state.detector.enabled === undefined) state.detector.enabled = true;
+    // Una fuente sin `scenario` toma el de fabrica, para que elegir el
+    // sensor "scenario" en el formulario tenga numeros que editar.
+    state.detector.sources.forEach(s => {
+      const def = DEFAULTS.detector.sources.find(d => d.name === s.name);
+      if (!s.scenario && def) s.scenario = clone(def.scenario);
+    });
     render();
   };
   r.readAsText(f);

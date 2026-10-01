@@ -130,6 +130,29 @@ namespace ConfigLoader {
     uint16_t maxEvents = 0;
   };
 
+  // Senal sintetica de una fuente (`detector.sources[].scenario`, tarjeta
+  // 22). Los valores son NIVELES relativos a los rangos de la corrida, no
+  // valores fisicos: el Mega los convierte en cada start
+  // (mega2560/src/scenario.hpp). Cada clave lleva su `has`: solo viaja lo
+  // que el archivo trae, y el resto queda en el default del Mega.
+  struct ScenarioValue {
+    bool has = false;
+    float value = 0.0f;
+  };
+
+  struct ScenarioConfig {
+    bool present = false;
+    ScenarioValue base;
+    ScenarioValue noise;
+    ScenarioValue ramp;
+    ScenarioValue stepAt;
+    ScenarioValue step;
+    ScenarioValue oscAmp;
+    ScenarioValue oscPeriod;
+    ScenarioValue dropAt;
+    ScenarioValue setpointDuty;
+  };
+
   // Los rangos normal/critico NO estan acá: no salen del archivo sino de lo
   // que elige el operador en la pantalla, y viajan en el comando start.
   // El archivo solo configura el entorno de la fuente (ver seccion 1.2 del
@@ -147,6 +170,7 @@ namespace ConfigLoader {
     RuleConfig critical;
     RuleConfig streak;
     RuleConfig frequency;
+    ScenarioConfig scenario;
   };
 
   // Interruptor general del Detector (`detector.enabled`). Viaja al Mega en
@@ -217,6 +241,24 @@ namespace ConfigLoader {
   inline bool isTestRun() { return _testRun; }
   inline bool requireMega() { return _requireMega; }
   inline const DetectorConfig& detectorConfig() { return _detectorConfig; }
+
+  // true si alguna fuente pide un driver que NO mide nada real ("sim" o
+  // "scenario"). Esas corridas salen marcadas TEST aunque runType diga
+  // normal: datos fabricados nunca pueden entrar al historico como un
+  // experimento. Sin la clave `sensor` cuenta como real: es el default
+  // compilado del Mega para las dos fuentes desde la tarjeta 22.
+  inline bool usesSyntheticSensors() {
+    for (uint8_t i = 0; i < _sourceConfigCount; i++) {
+      const SourceConfigEntry& source = _sourceConfigs[i];
+      if (!source.hasSensor) continue;
+      if (strcmp(source.sensor, "sim") == 0 || strcmp(source.sensor, "scenario") == 0) return true;
+    }
+    return false;
+  }
+
+  // Lo que decide la marca TEST y el aviso MODO PRUEBA: la declaracion del
+  // operador (runType) o datos fabricados.
+  inline bool marksRunsAsTest() { return _testRun || usesSyntheticSensors(); }
 
   namespace {
 
@@ -480,6 +522,28 @@ namespace ConfigLoader {
       DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] seccion 'control' leida, se reenvia al conectar"));
     }
 
+    inline void loadScenarioValue(JsonObjectConst scenario, const char* key, ScenarioValue& target) {
+      if (!scenario[key].is<float>()) return;
+      target.has = true;
+      target.value = scenario[key].as<float>();
+    }
+
+    // Solo tipo: los rangos (no negativos, duty en 0..1) los valida el Mega,
+    // que es quien aplica la senal.
+    inline void loadScenario(JsonObjectConst scenario, ScenarioConfig& target) {
+      if (scenario.isNull()) return;
+      target.present = true;
+      loadScenarioValue(scenario, "base", target.base);
+      loadScenarioValue(scenario, "noise", target.noise);
+      loadScenarioValue(scenario, "ramp", target.ramp);
+      loadScenarioValue(scenario, "stepAt", target.stepAt);
+      loadScenarioValue(scenario, "step", target.step);
+      loadScenarioValue(scenario, "oscAmp", target.oscAmp);
+      loadScenarioValue(scenario, "oscPeriod", target.oscPeriod);
+      loadScenarioValue(scenario, "dropAt", target.dropAt);
+      loadScenarioValue(scenario, "setpointDuty", target.setpointDuty);
+    }
+
     inline void loadRule(JsonObjectConst rules, const char* name, RuleConfig& target) {
       JsonObjectConst rule = rules[name];
       if (rule.isNull()) return;
@@ -567,6 +631,8 @@ namespace ConfigLoader {
           loadRule(rules, "streak", entry.streak);
           loadRule(rules, "frequency", entry.frequency);
         }
+
+        loadScenario(source["scenario"], entry.scenario);
 
         _sourceConfigCount++;
       }

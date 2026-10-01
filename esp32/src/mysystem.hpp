@@ -53,9 +53,9 @@ class MySystem :
     // y reenviados por Tasks::ReSendConfig hasta que cada uno tenga su ack
     // (docs/config-schema.md seccion 10). Tope: 1 (intervals) + 1 (control)
     // + 1 (detector) + 4 (coils) + 2 (sources) + 6 (3 reglas x 2 fuentes)
-    // + 4 (canales de corriente) = 19.
+    // + 2 (escenarios) + 4 (canales de corriente) = 21.
     static constexpr uint8_t MaxPendingConfigFrames =
-      3 + ConfigLoader::MaxCoils + ConfigLoader::MaxDetectorSources * 4
+      3 + ConfigLoader::MaxCoils + ConfigLoader::MaxDetectorSources * 5
       + ConfigLoader::MaxCurrentSensors;
     struct PendingConfigFrame {
       bool active = false;
@@ -100,6 +100,7 @@ class MySystem :
     void _buildConfigControlDoc(JsonDocument& doc);
     void _buildConfigCoilDoc(JsonDocument& doc, const ConfigLoader::CoilConfig& coil);
     void _buildConfigSourceDoc(JsonDocument& doc, const ConfigLoader::SourceConfigEntry& source);
+    void _buildConfigScenarioDoc(JsonDocument& doc, const ConfigLoader::SourceConfigEntry& source);
     void _buildConfigRuleDoc(JsonDocument& doc, const char* sourceName, const char* ruleName, const ConfigLoader::RuleConfig& rule);
     void _buildConfigCurrentDoc(JsonDocument& doc, const ConfigLoader::CurrentSensorConfigEntry& sensor);
     const ConfigLoader::RuleConfig* _findRuleConfig(const ConfigLoader::SourceConfigEntry& source, const char* ruleName);
@@ -478,6 +479,22 @@ inline void MySystem::_buildConfigCoilDoc(JsonDocument& doc, const ConfigLoader:
 // Solo la cabecera de la fuente: las 3 reglas van en frames config_rule
 // aparte porque una fuente entera NO entra en un frame (ver
 // test_serialframes en el Mega, que fija ese limite).
+// Claves cortas: el frame tiene 256 bytes y una fuente puede traer las 9
+// (test_config_scenario_fits_with_every_key, en el Mega, fija el presupuesto).
+inline void MySystem::_buildConfigScenarioDoc(JsonDocument& doc, const ConfigLoader::SourceConfigEntry& source) {
+  const ConfigLoader::ScenarioConfig& s = source.scenario;
+  doc["name"] = source.name;
+  if (s.base.has)         doc["b"]  = s.base.value;
+  if (s.noise.has)        doc["n"]  = s.noise.value;
+  if (s.ramp.has)         doc["r"]  = s.ramp.value;
+  if (s.stepAt.has)       doc["sa"] = s.stepAt.value;
+  if (s.step.has)         doc["s"]  = s.step.value;
+  if (s.oscAmp.has)       doc["oa"] = s.oscAmp.value;
+  if (s.oscPeriod.has)    doc["op"] = s.oscPeriod.value;
+  if (s.dropAt.has)       doc["da"] = s.dropAt.value;
+  if (s.setpointDuty.has) doc["d"]  = s.setpointDuty.value;
+}
+
 inline void MySystem::_buildConfigSourceDoc(JsonDocument& doc, const ConfigLoader::SourceConfigEntry& source) {
   doc["name"] = source.name;
   if (source.hasEnabled) doc["enabled"] = source.enabled;
@@ -568,6 +585,11 @@ inline void MySystem::_sendMegaConfig() {
   const ConfigLoader::SourceConfigEntry* sources = ConfigLoader::sourceConfigs();
   for (uint8_t i = 0; i < sourceCount; i++) {
     _registerPendingConfig(Commands::ConfigSource, sources[i].name);
+    // El escenario viaja aunque la fuente no lo use hoy: es barato, y una
+    // tarjeta que lo trae es porque se piensa usar.
+    if (sources[i].scenario.present) {
+      _registerPendingConfig(Commands::ConfigScenario, sources[i].name);
+    }
 
     for (uint8_t r = 0; r < 3; r++) {
       const ConfigLoader::RuleConfig* rule = _findRuleConfig(sources[i], ruleNames[r]);
@@ -637,6 +659,14 @@ inline void MySystem::_resendPendingConfig() {
       }
       if (source == nullptr) continue;
       _buildConfigSourceDoc(doc, *source);
+    }
+    else if (strcmp(command, Commands::ConfigScenario) == 0) {
+      const ConfigLoader::SourceConfigEntry* source = nullptr;
+      for (uint8_t s = 0; s < sourceCount; s++) {
+        if (strcmp(sources[s].name, key) == 0) source = &sources[s];
+      }
+      if (source == nullptr) continue;
+      _buildConfigScenarioDoc(doc, *source);
     }
     else if (strcmp(command, Commands::ConfigRule) == 0) {
       // key es "<fuente>/<regla>"
@@ -776,8 +806,9 @@ inline void MySystem::_publishTargets() {
   doc["TCMAX"] = critical.tmax;
   // Siempre explicito, true o false: la AUSENCIA de TEST es lo que el monitor
   // lee como "firmware anterior a la marca", y no puede confundirse con un
-  // experimento declarado.
-  doc["TEST"] = ConfigLoader::isTestRun();
+  // experimento declarado. Forzado a true si alguna fuente usa un sensor
+  // simulado o un escenario (ConfigLoader::marksRunsAsTest).
+  doc["TEST"] = ConfigLoader::marksRunsAsTest();
 
   _publishTelemetry(Topics::Targets, doc);
 }
@@ -815,7 +846,7 @@ inline void MySystem::_publishResult() {
   // Tambien en result: si el monitor se perdio el targets (backend caido al
   // arrancar la corrida), la huerfana que arma con este result conserva la
   // marca igual.
-  doc["TEST"] = ConfigLoader::isTestRun();
+  doc["TEST"] = ConfigLoader::marksRunsAsTest();
 
   _publishTelemetry(Topics::Result, doc);
 }
@@ -989,7 +1020,8 @@ inline void MySystem::onCommand(const char* command, JsonVariantConst params) {
               || strcmp(ack, Commands::ConfigDetector) == 0) {
         _cancelPendingConfig(ack, nullptr);
       }
-      else if(strcmp(ack, Commands::ConfigCoil) == 0 || strcmp(ack, Commands::ConfigSource) == 0) {
+      else if(strcmp(ack, Commands::ConfigCoil) == 0 || strcmp(ack, Commands::ConfigSource) == 0
+              || strcmp(ack, Commands::ConfigScenario) == 0) {
         _cancelPendingConfig(ack, params["name"] | "");
       }
       else if(strcmp(ack, Commands::ConfigCurrent) == 0) {

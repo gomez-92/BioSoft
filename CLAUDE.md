@@ -342,14 +342,15 @@ Key collaborators:
   because `removeSource`/`addSource` recreate the `Source` unconfigured and
   `Source::addSample()` is a no-op while `_configured` is false — configure
   first and the config is silently dropped.
-  CEM1 can still be fed by either `MagnetometerVoltageSim` or the real
-  `MagnetometerMlx90393`; the sim reads a plain analog voltage on `A0` and maps
-  it linearly to mT, and does **not** validate `FieldController` against
-  anything physically meaningful.
-- **Which driver feeds each source is a `SensorChoice` (`Real`/`Sim`/`None`,
-  `sensorchoice.hpp`)**, parsed per source by `SensorChoices::parse()` from
-  `config_source`'s `sensor`: CEM1 takes `mlx90393`/`sim`, TEMP1 takes
-  `ds18b20`/`sim`/`none`. Names are **not** interchangeable across sources,
+  CEM1 can be fed by the real `MagnetometerMlx90393` (the compiled default
+  since card 22 — it used to be the sim), `MagnetometerVoltageSim` (a plain
+  analog voltage on `A0` mapped linearly to mT, which does **not** validate
+  `FieldController` against anything physically meaningful), or a scenario
+  (below).
+- **Which driver feeds each source is a `SensorChoice`
+  (`Real`/`Sim`/`Scenario`/`None`, `sensorchoice.hpp`)**, parsed per source by
+  `SensorChoices::parse()` from `config_source`'s `sensor`: CEM1 takes
+  `mlx90393`/`sim`/`scenario`, TEMP1 takes `ds18b20`/`sim`/`scenario`/`none`. Names are **not** interchangeable across sources,
   and an invalid value is rejected whole (returns false, keeps the previous
   driver) — the old code mapped "anything but mlx90393" to sim. **CEM1 refuses
   `none` by design**: it is the `FieldController`'s feedback, and with no
@@ -364,6 +365,49 @@ Key collaborators:
   every menu zone is reachable with a pot). `ThermometerManager::
   addThermometer()` now skips `begin()` on an already-valid sensor, same
   reason as the magnetometer bullet below: it is re-registered every start.
+- **Synthetic scenarios (`sensor: "scenario"`, card 22) generate readings
+  *inside* the Mega** (`scenario.hpp` + `scenariosensors.hpp`), as one more
+  `IMagnetometer`/`IThermometer`, so every sample walks the real path:
+  Detector, rules, flags, `_finish()`, `result_data`, screen, web monitor.
+  Fabricating data on the ESP32 was the first idea and was rejected — it
+  would only test transport, with fake alerts; streaming samples over serial
+  was rejected too (9600 baud shared with everything, and a link drop would
+  freeze the "sensor", which reads like a sensor fault). Only the signal's
+  *definition* travels, once, in `config_scenario` (short keys `b n r sa s
+  oa op da d`, budget pinned in `test_serialframes`), stored in the source
+  template and copied into the sensor at the next start.
+  **The signal is in *levels* relative to the run's ranges, never absolute
+  values** (user requirement): 0 = centre of normal, ±1 = normal edge, ±2 =
+  critical edge, linear in between and beyond (a flush critical/normal pair
+  uses half the normal range as the 1→2 step, or every level > 1 would sit on
+  the edge). Engine hands each scenario sensor the ranges it just gave the
+  Detector (`setRanges(_scenarioRangesOf(config))`, right after
+  `configureSource`), so "temperatura alta" (+2.5) cuts with any range chosen
+  on screen. CEM1 has a plant: `setpointDuty` is the common duty that yields
+  the target, field = target·duty/setpointDuty + (level value − target), so
+  the `FieldController` really regulates — and can legitimately *compensate*
+  a slow disturbance; `setpointDuty: 0` drops the plant to force the field
+  out of range. Time is `Scenario::startMs`, reset in `_start()`; noise is a
+  local xorshift32 (no `random()` in native).
+  **With CEM1 not real (`sim` or `scenario`) nothing is energized**:
+  `_applySourceSettings()` sets `_syntheticField`, `_start()` calls
+  `CoilChannels::setOutputsInhibited()` *before* `enableAll()` (which then
+  enables no channel; `writeAll()` still records `appliedDuty()`, so the
+  screen shows the duty that would apply) and skips `_mainPowerSwitch.enable()`.
+  That is why CEM1's compiled default moved from `sim` to `mlx90393`: with the
+  block, a sim default would leave a Mega without SD unable to ever drive the
+  coils. On the ESP32, `ConfigLoader::marksRunsAsTest()` (= `runType` test
+  **or** any source on `sim`/`scenario`) forces `TEST` and the MODO PRUEBA
+  notice — fabricated data never enters the history as an experiment.
+  RAM cost on the Mega is ~320 bytes (two signal templates + two sensors),
+  leaving it at ~76%.
+  **Known gap, made visible by the "sensor caido" profile (`dropAt`): a
+  watched source that goes silent never cuts the run** — the Detector only
+  evaluates samples that arrive, so a DS18B20 unplugged mid-run lets the
+  experiment finish as `completed`. Trello card 25 (silence cut, plus cutting
+  on CEM1 silence while the control loop is active even if CEM1 isn't
+  watched) is the fix; until it lands, don't treat that profile's outcome as
+  correct behaviour.
 - **`detector.enabled` is a master switch inside `Detector` itself**
   (`setEnabled()`: `addSample()` drops everything, sources and config stay
   intact), not a gate scattered across Engine's three sample handlers — which
@@ -728,7 +772,8 @@ and `StateListener` (own app state, from `SystemData`).
   §15) is a declaration, not an operating mode.** It switches nothing on or
   off — every relaxation (detector, sources, sensors, control loop) lives in
   its own section, and there is deliberately no master key gating them. All
-  it does is mark runs: `ConfigLoader::isTestRun()` puts `TEST` in both
+  it does is mark runs: `ConfigLoader::marksRunsAsTest()` (runType test, or
+  any source on a `sim`/`scenario` sensor) puts `TEST` in both
   `targets` and `result` (in `result` too, so an orphan run built from a
   `result` alone keeps the mark), and `TestRunNotice` (`testrunnotice.hpp`,
   called from `setup()` after `mySystem.begin()`) draws a "MODO PRUEBA"
@@ -870,8 +915,9 @@ NULO"` placeholder the SquareLine export ships with.
 - `MySystem::_sendMegaConfig()` (called from `onSerialConnected()`, so it
   fires on every connect *and* reconnect) generalizes that same ack/retry
   pattern to an arbitrary set of frames instead of one fixed command: up to
-  19 (1 `config_intervals` + 1 `config_control` + 1 `config_detector` + 4
-  `config_coil` + 2 `config_source` + 6 `config_rule` + 4 `config_current`),
+  21 (1 `config_intervals` + 1 `config_control` + 1 `config_detector` + 4
+  `config_coil` + 2 `config_source` + 6 `config_rule` + 2 `config_scenario`
+  + 4 `config_current`),
   each tracked as an entry in
   `_pendingConfig[]`, with a single `Tasks::ReSendConfig` task (not one per
   frame) sending whatever is still active until `Commands::Ack` clears it.

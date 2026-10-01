@@ -146,6 +146,25 @@ void test_config_detector_fits(void) {
     TEST_ASSERT_TRUE(survivesTransport(Commands::ConfigDetector, doc));
 }
 
+// config_scenario: la senal sintetica de una fuente, con las 9 claves y
+// valores de 7 cifras significativas. Si se truncara, la fuente se quedaria
+// con parte del escenario anterior -- un "temperatura alta" sin su salto.
+void test_config_scenario_fits_with_every_key(void) {
+    JsonDocument doc;
+    doc["name"] = "123456789012345";
+    doc["b"] = -1.234567f;
+    doc["n"] = 1.234567f;
+    doc["r"] = -1.234567f;
+    doc["sa"] = 12345.67f;
+    doc["s"] = -1.234567f;
+    doc["oa"] = 1.234567f;
+    doc["op"] = 12345.67f;
+    doc["da"] = 12345.67f;
+    doc["d"] = 0.1234567f;
+
+    TEST_ASSERT_TRUE(survivesTransport(Commands::ConfigScenario, doc));
+}
+
 // =====================================================================
 // config_source / config_rule -- la fragmentacion de detector.sources
 // =====================================================================
@@ -283,6 +302,7 @@ void test_every_command_name_fits_in_the_command_field(void) {
     TEST_ASSERT_LESS_THAN(MAX_COMMAND_SIZE, strlen(Commands::ConfigRule) + 1);
     TEST_ASSERT_LESS_THAN(MAX_COMMAND_SIZE, strlen(Commands::ConfigCurrent) + 1);
     TEST_ASSERT_LESS_THAN(MAX_COMMAND_SIZE, strlen(Commands::ConfigDetector) + 1);
+    TEST_ASSERT_LESS_THAN(MAX_COMMAND_SIZE, strlen(Commands::ConfigScenario) + 1);
 }
 
 int main(int argc, char** argv) {
@@ -294,6 +314,7 @@ int main(int argc, char** argv) {
     RUN_TEST(test_config_control_fits);
     RUN_TEST(test_config_coil_fits_with_max_length_name);
     RUN_TEST(test_config_detector_fits);
+    RUN_TEST(test_config_scenario_fits_with_every_key);
 
     RUN_TEST(test_config_current_fits);
 

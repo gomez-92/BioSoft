@@ -222,5 +222,48 @@ const out2 = T.buildJson();
 check("requireMega va despues de runType", Object.keys(out2)[2] === "requireMega");
 check("detector.enabled va antes de sources", Object.keys(out2.detector)[0] === "enabled");
 
+console.log("\n== Escenarios sinteticos (tarjeta 22) ==");
+reset(); T.validate();
+check("de fabrica CEM1 es el sensor real (mlx90393)",
+      T.state.detector.sources[0].sensor === "mlx90393");
+check("de fabrica ninguna fuente usa escenario",
+      T.state.detector.sources.every(s => s.sensor !== "scenario"));
+expectWarn("CEM1 en sim avisa que las bobinas quedan bloqueadas",
+  st => { st.detector.sources[0].sensor = "sim"; }, "BLOQUEADAS");
+expectError("noise negativo en un escenario bloquea la descarga",
+  st => { st.detector.sources[1].sensor = "scenario"; st.detector.sources[1].scenario.noise = -1; }, "noise");
+expectError("setpointDuty fuera de 0..1 bloquea la descarga",
+  st => { st.detector.sources[0].sensor = "scenario"; st.detector.sources[0].scenario.setpointDuty = 1.5; }, "duty que da el objetivo");
+expectWarn("oscilacion sin periodo avisa que no oscila",
+  st => { st.detector.sources[0].sensor = "scenario"; st.detector.sources[0].scenario.oscAmp = 1; }, "no oscila");
+
+// Los perfiles: tienen que dejar las dos fuentes en escenario, con la senal
+// que dicen, y sin errores -- un perfil que no se puede descargar no sirve.
+const profileOf = key => {
+  reset();
+  ctx.applyProfile(key);
+  T.validate();
+  return T.state.detector.sources;
+};
+let src = profileOf("tempAlta");
+check("perfil temperatura alta: las dos fuentes en escenario",
+      src.every(s => s.sensor === "scenario"));
+check("perfil temperatura alta: TEMP1 salta a +2,5 a los 60 s",
+      src[1].scenario.stepAt === 60 && src[1].scenario.step === 2.5);
+check("perfil temperatura alta: sin errores", T.errors.length === 0, T.errors.join(" | "));
+src = profileOf("campoInestable");
+check("perfil campo inestable: prende CEM1 en el Detector (viene apagada)", src[0].enabled === true);
+check("perfil campo inestable: CEM1 conserva la planta", src[0].scenario.setpointDuty === 0.5);
+src = profileOf("campoFuera");
+check("perfil campo fuera de rango: CEM1 sin planta", src[0].scenario.setpointDuty === 0);
+src = profileOf("normal");
+check("perfil todo normal: sin errores", T.errors.length === 0, T.errors.join(" | "));
+check("perfil todo normal: CEM1 sigue apagada en el Detector", src[0].enabled === false);
+reset();
+ctx.applyProfile("tempAlta");
+ctx.realSensors();
+check("volver a sensores reales restaura mlx90393 / ds18b20",
+      T.state.detector.sources[0].sensor === "mlx90393" && T.state.detector.sources[1].sensor === "ds18b20");
+
 console.log(fails === 0 ? "\nTODO OK\n" : "\n" + fails + " FALLA(S)\n");
 process.exit(fails ? 1 : 0);

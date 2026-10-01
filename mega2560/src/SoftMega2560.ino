@@ -10,6 +10,7 @@
 #include "thermometermanager.hpp"
 #include "thermometerds18b20.hpp"
 #include "thermometervoltagesim.hpp"
+#include "scenariosensors.hpp"
 #include "currentmanager.hpp"
 #include "currentsensorsct013.hpp"
 #include "mainpowerswitch.hpp"
@@ -146,6 +147,15 @@ ThermometerManager thermometermanager;
 // volt son 10 grados, asi que con un potenciometro se recorren todas las
 // zonas de los menus (normal 30~40, critico 25~45 de fabrica).
 ThermometerVoltageSim thermometerSim("TEMP1", TEMP_SIM_PIN, 50.0f);
+
+// Lecturas sinteticas (tarjeta 22): CEM1 y TEMP1 calculados a partir del
+// escenario de la tarjeta SD (detector.sources[].scenario), sin sensores. Su
+// valor recorre toda la logica real: Detector, flags, corte, pantalla y
+// monitor remoto. El de CEM1 responde al duty comun del lazo (la "planta"),
+// que se lee de fieldController -- declarado mas abajo, por eso una funcion.
+float currentCommonDuty();
+MagnetometerScenario magnetometerScenario("CEM1", currentCommonDuty);
+ThermometerScenario thermometerScenario("TEMP1");
 // DOS modulos ADS1115: cada uno tiene solo 2 pares diferenciales (AIN0-AIN1
 // y AIN2-AIN3) y el SCT013 se lee en diferencial, asi que los 4 canales del
 // gabinete necesitan dos chips. 0x48 es ADDR a GND (el default) y 0x49 es
@@ -278,11 +288,14 @@ void setup() {
   // es seguro llamarlo aunque el MLX90393 todavia no este cableado.
   magnetometerSim.begin();
   magnetometerReal.begin();
-  // Default compilado: el sim, igual que docs/config.example.json. Hace
-  // falta registrarlo aca y no solo en el start para que haya lecturas de
-  // CEM1 en pantalla desde el arranque; Engine lo reemplaza por el real si
-  // el archivo lo pide.
-  magnetometermanager.addMagnetometer(&magnetometerSim);
+  // Default compilado: el MLX90393 real, igual que docs/config.example.json
+  // (hasta la tarjeta 22 era el sim de A0; ver Engine::_syntheticField).
+  // Hace falta registrarlo aca y no solo en el start para que haya lecturas
+  // de CEM1 en pantalla desde el arranque; Engine lo reemplaza por el sim o
+  // el escenario si el archivo lo pide. Sin MLX cableado, simplemente no
+  // hay lecturas.
+  magnetometermanager.addMagnetometer(&magnetometerReal);
+  engine.registerScenarioSensors(&magnetometerScenario, &thermometerScenario);
 
   /* ===== thermometers =====*/
   thermometermanager.clearThermometers();
@@ -363,4 +376,12 @@ void loop() {
     DEBUG_PRINTLN(DEBUG_MAIN, freeMemory());
   }
   engine.update();
+}
+
+// Duty comun que calcula el lazo (antes de los factores por bobina): es la
+// entrada de la planta del escenario de CEM1. Con las bobinas bloqueadas
+// (campo sintetico) ese duty no sale a ningun pin, pero es el que el lazo
+// "cree" estar aplicando, y eso es lo que hay que simular.
+float currentCommonDuty() {
+  return fieldController.getOutput();
 }

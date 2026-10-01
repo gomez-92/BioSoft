@@ -7,6 +7,8 @@
 //
 //   Real -- el sensor fisico (MLX90393 para CEM1, DS18B20 para TEMP1)
 //   Sim  -- la entrada analogica simulada (A0 para CEM1, A1 para TEMP1)
+//   Scenario -- lecturas sinteticas que describe la tarjeta SD
+//           (scenario.hpp): recorren toda la logica sin sensores.
 //   None -- ningun sensor registrado. Solo TEMP1: sin DS18B20 cableado, es
 //           lo que evita los ~750 ms que requestTemperatures() bloquea en
 //           cada medicion aunque no haya nadie en el bus.
@@ -15,7 +17,7 @@
 // magnetometro el lazo empujaria el duty a fondo buscando un campo que no
 // puede medir. Para "no mirar el campo" esta detector.sources[CEM1].enabled,
 // y para "no excitar" esta control.enabled.
-enum class SensorChoice : uint8_t { Real, Sim, None };
+enum class SensorChoice : uint8_t { Real, Sim, Scenario, None };
 
 namespace SensorChoices {
 
@@ -30,12 +32,14 @@ namespace SensorChoices {
     if (strcmp(source, "CEM1") == 0) {
       if (strcmp(value, "mlx90393") == 0) { out = SensorChoice::Real; return true; }
       if (strcmp(value, "sim") == 0)      { out = SensorChoice::Sim;  return true; }
+      if (strcmp(value, "scenario") == 0) { out = SensorChoice::Scenario; return true; }
       return false;
     }
 
     if (strcmp(source, "TEMP1") == 0) {
       if (strcmp(value, "ds18b20") == 0) { out = SensorChoice::Real; return true; }
       if (strcmp(value, "sim") == 0)     { out = SensorChoice::Sim;  return true; }
+      if (strcmp(value, "scenario") == 0) { out = SensorChoice::Scenario; return true; }
       if (strcmp(value, "none") == 0)    { out = SensorChoice::None; return true; }
       return false;
     }
@@ -47,6 +51,7 @@ namespace SensorChoices {
     switch (choice) {
       case SensorChoice::Real: return "real";
       case SensorChoice::Sim:  return "sim";
+      case SensorChoice::Scenario: return "scenario";
       case SensorChoice::None: return "none";
     }
     return "?";

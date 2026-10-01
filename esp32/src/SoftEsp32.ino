@@ -201,8 +201,8 @@ void setup() {
   mySystem.begin();
 
   // Despues de begin(), que es quien inicializa LVGL. Con runType "normal"
-  // (o sin tarjeta) no crea nada.
-  TestRunNotice::begin(ConfigLoader::isTestRun());
+  // y sensores reales (o sin tarjeta) no crea nada.
+  TestRunNotice::begin(ConfigLoader::marksRunsAsTest());
 
   // Referencia para diagnosticar el heap: begin() ya creo las seis pantallas
   // de LVGL, que con LV_USE_STDLIB_MALLOC en CLIB salen de este mismo heap y

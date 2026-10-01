@@ -6,8 +6,9 @@
 // el interruptor maestro).
 constexpr bool DEBUG_TESTRUNNOTICE = true;
 
-// Aviso de que la configuracion cargada declara corridas de PRUEBA
-// (`runType: "test"` en la tarjeta SD, ver ConfigLoader::loadRunType()).
+// Aviso de que la configuracion cargada es de PRUEBA: `runType: "test"` en la
+// tarjeta SD, o alguna fuente con un sensor simulado o un escenario
+// sintetico (ConfigLoader::marksRunsAsTest()).
 //
 // Una corrida de prueba se ve en pantalla exactamente igual que un
 // experimento, y el operador no tiene otra forma de saber que lo que esta por
@@ -89,9 +90,9 @@ namespace TestRunNotice {
       lv_label_set_long_mode(body, LV_LABEL_LONG_WRAP);
       lv_obj_set_width(body, LV_PCT(100));
       lv_label_set_text(body,
-        "La tarjeta SD declara corridas de prueba. Todo lo que se corra "
-        "queda marcado como PRUEBA en el monitor remoto y no se mezcla con "
-        "los experimentos.");
+        "La tarjeta SD declara corridas de prueba, o usa sensores simulados "
+        "o escenarios sinteticos. Todo lo que se corra queda marcado como "
+        "PRUEBA en el monitor remoto y no se mezcla con los experimentos.");
       lv_obj_set_style_text_font(body, &lv_font_montserrat_12, LV_PART_MAIN);
       lv_obj_set_style_text_color(body, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
 

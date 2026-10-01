@@ -378,8 +378,13 @@ por una eleccion explicita en configuracion (ver seccion 1.4).
 
 | Fuente | Valores validos |
 |---|---|
-| `CEM1` | `"sim"` (`MagnetometerVoltageSim`, entrada `A0`) o `"mlx90393"` (sensor real por I2C) |
-| `TEMP1` | `"ds18b20"` (sensor real por OneWire), `"sim"` (`ThermometerVoltageSim`, entrada `A1`, 0-5 V = 0-50 C) o `"none"` (ningun termometro) |
+| `CEM1` | `"mlx90393"` (sensor real por I2C, **default**), `"sim"` (`MagnetometerVoltageSim`, entrada `A0`) o `"scenario"` (lecturas sinteticas) |
+| `TEMP1` | `"ds18b20"` (sensor real por OneWire, **default**), `"sim"` (`ThermometerVoltageSim`, entrada `A1`, 0-5 V = 0-50 C), `"scenario"` (lecturas sinteticas) o `"none"` (ningun termometro) |
+
+El default de CEM1 era `sim` hasta la tarjeta 22. Cambio porque **con CEM1 en
+`sim` o `scenario` las bobinas quedan bloqueadas** (ver `scenario` mas abajo), y
+con ese default un Mega sin tarjeta SD no podria excitar nunca. Sin MLX90393
+cableado, el default real simplemente no da lecturas.
 
 Un valor que no vale **para esa fuente** se rechaza y queda el driver que
 habia (`SensorChoices::parse` en `mega2560/src/sensorchoice.hpp`): los nombres
@@ -397,6 +402,79 @@ no son intercambiables, `"mlx90393"` no es un termometro.
   magnetometro el lazo empujaria el duty a fondo buscando un campo que no
   puede medir. Para no vigilar el campo esta `enabled`; para no excitar las
   bobinas, `control.enabled`.
+- **Bobinas bloqueadas**: con CEM1 en `sim` o `scenario`, el lazo regula
+  contra un campo que no existe. El Mega calcula y reporta el duty (se ve en
+  pantalla y en el monitor) pero **no habilita la etapa de potencia ni los
+  canales** (`CoilChannels::setOutputsInhibited`). Un escenario nunca energiza
+  nada.
+- **`TEST` forzado**: con cualquier fuente en `sim` o `scenario` las corridas
+  salen marcadas como prueba aunque `runType` diga `normal` (seccion 15):
+  datos fabricados nunca entran al historico como experimento.
+
+### `scenario` — lecturas sinteticas
+
+Con `sensor: "scenario"` el Mega no lee el sensor: **calcula** la lectura y la
+pasa por toda la logica real (Detector, reglas, flags, corte, `result_data`,
+pantalla y monitor remoto). Sirve para validar el proceso entero sin sensores.
+Se aplica en el proximo start, como el resto de la fuente.
+
+```json
+"scenario": {
+  "base": 0, "noise": 0.1, "ramp": 0,
+  "stepAt": 60, "step": 2.5,
+  "oscAmp": 0, "oscPeriod": 0,
+  "dropAt": 0,
+  "setpointDuty": 0.5
+}
+```
+
+La senal **no lleva valores fisicos**: se mide en *niveles* relativos a los
+rangos de la corrida, los que el operador elige en pantalla (TEMP1) o los que
+el Mega deriva del objetivo y la tolerancia (CEM1):
+
+| Nivel | Valor |
+|---|---|
+| `0` | centro del rango normal |
+| `+1` / `-1` | borde superior / inferior del normal |
+| `+2` / `-2` | borde superior / inferior del critico |
+| mas alla de 2 | adentro de la zona critica, con el mismo paso que de 1 a 2 |
+
+Entre esos puntos, lineal. Asi un escenario significa lo mismo con cualquier
+rango: "temperatura alta" (salto a +2,5) corta igual con 30~40/25~45 que con
+26~44/20~50. Con valores fijos, cambiar un combo en pantalla dejaria el
+escenario adentro del rango normal sin que nadie lo note. Si el critico
+coincide con el normal (sin franja de advertencia), el paso de 1 a 2 se toma
+igual a medio rango normal.
+
+| Clave | Que es |
+|---|---|
+| `base` | nivel de partida |
+| `noise` | amplitud de un ruido uniforme, en niveles (>= 0) |
+| `ramp` | niveles por minuto |
+| `stepAt`, `step` | a los `stepAt` segundos del start se suman `step` niveles (0 = sin salto) |
+| `oscAmp`, `oscPeriod` | oscilacion senoidal; sin periodo (0) no oscila |
+| `dropAt` | a partir de ese segundo el sensor deja de dar lecturas (0 = nunca) |
+| `setpointDuty` | **solo CEM1**: el duty comun con el que las bobinas alcanzan el objetivo (0..1) |
+
+`setpointDuty` es la *planta* de CEM1: el campo es lo que producen las bobinas
+(`objetivo x duty / setpointDuty`) mas la perturbacion del nivel. El lazo
+regula de verdad contra el escenario, y por eso puede **compensar** una
+perturbacion lenta, como haria con bobinas reales. Con `setpointDuty: 0` no hay
+planta y el campo es el nivel tal cual: es lo que se usa para forzar un campo
+fuera de rango.
+
+Los tiempos cuentan desde el start, e incluyen los 10 s de estabilizacion
+(`settlingTime`) en los que el Detector no evalua: un salto antes de eso se ve
+recien al terminar la ventana.
+
+El generador trae perfiles listos (todo normal, temperatura alta, temperatura
+que sube, campo inestable, campo fuera de rango, sensor de temperatura caido)
+que completan los numeros de las dos fuentes. "Sensor caido" documenta un
+hueco real: hoy el silencio de un sensor **no** corta el experimento.
+
+Por serie viaja en `config_scenario` (seccion 10.1) con claves cortas
+(`b n r sa s oa op da d`) porque una fuente con las 9 apenas entra en 256
+bytes.
 
 ### `range`
 
@@ -692,6 +770,7 @@ trajo. Por eso la configuracion se envia **fragmentada** y
 | 9..14 | `config_rule` | una regla de una fuente (`source`, `rule`, threshold, cooldown, maxEvents) |
 | 15..18 | `config_current` | un canal de `currentSensors` cada uno, identificado por (`address`, `channel`) |
 | 19 | `config_detector` | `enabled` (el interruptor general del Detector), solo si el archivo lo trae |
+| 20..21 | `config_scenario` | la senal sintetica de una fuente, con claves cortas, solo si el archivo la trae |
 
 Una fuente entera en un solo frame ronda los 290 caracteres con el envelope
 y **no entra**: de ahi la division cabecera + 3 reglas. Hay un test que lo
@@ -725,6 +804,7 @@ constexpr const char* ConfigSource    = "config_source";
 constexpr const char* ConfigRule      = "config_rule";
 constexpr const char* ConfigCurrent   = "config_current";
 constexpr const char* ConfigDetector  = "config_detector";
+constexpr const char* ConfigScenario  = "config_scenario";
 ```
 
 El `Engine::_configureSource()` que estaba comentado en `engine.hpp` **no se
