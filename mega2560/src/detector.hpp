@@ -591,15 +591,22 @@ class Detector : public SourceListener {
     bool addSample(const char* name, float sample);
     bool publishSource(const char* name, JsonDocument& document);
     void setListener(DetectorListener* listener);
+    // Interruptor general (`detector.enabled` de la tarjeta SD). Apagado,
+    // addSample() descarta todo: ninguna fuente acumula muestras ni levanta
+    // flags, asi que ninguna corta el experimento. Las fuentes NO se borran
+    // ni se reconfiguran -- volver a encenderlo las encuentra como estaban.
+    void setEnabled(bool enabled);
+    bool isEnabled() const;
   public:
     void onSourceEvent(SourceEvent& event) override;
   private:
     DetectorListener* _listener;
+    bool _enabled;
     Source* _sources[MAX_SOURCES];
     uint8_t _count;
 };
 
-inline Detector::Detector() : _listener(nullptr), _count(0) {
+inline Detector::Detector() : _listener(nullptr), _enabled(true), _count(0) {
   for (uint8_t i = 0; i < MAX_SOURCES; i++) {
     _sources[i] = nullptr;
   }
@@ -676,10 +683,19 @@ inline bool Detector::configureSource(const char* name, const SourceConfig& conf
 }
 
 inline bool Detector::addSample(const char* name, float sample) {
+  if (!_enabled) return false;
   Source* source = findSource(name);
   if (source == nullptr) return false;
   source->addSample(sample);
   return true;
+}
+
+inline void Detector::setEnabled(bool enabled) {
+  _enabled = enabled;
+}
+
+inline bool Detector::isEnabled() const {
+  return _enabled;
 }
 
 inline bool Detector::publishSource(const char* name, JsonDocument& document) {

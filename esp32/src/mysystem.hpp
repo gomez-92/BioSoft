@@ -24,20 +24,9 @@
 // el interruptor maestro).
 constexpr bool DEBUG_MYSYSTEM = true;
 
-// Banco sin Mega2560: al vencer el splash, si el serial todavia no esta
-// conectado, se pasa a Principal igual (forzando Ready) en vez de quedarse
-// clavado esperando el primer state_data del Mega. Sirve para probar la HMI
-// sola -- p.ej. verificar que los menus cargados desde la SD llegaron bien a
-// la pantalla de Configuracion -- sin la otra placa enchufada. Con el Mega
-// conectado no cambia nada: el flujo normal (state_data -> _processState)
-// sigue mandando. Dejar en false para el firmware de produccion.
-//
-// Con el flag activo y sin Mega tambien se puentea el resto del recorrido,
-// para poder navegar todas las pantallas: Iniciar pasa directo a Running
-// (sin Busy ni reintentos de `start`) y Detener fabrica un result_data
-// local ("stopped") que lleva a Resultado. Nada de esto manda comandos al
-// serial ni toca el flujo con el Mega conectado.
-constexpr bool BENCH_SIN_MEGA = true;
+// El antiguo BENCH_SIN_MEGA (constante de compilacion, que habia quedado en
+// true en el firmware de produccion) es ahora `requireMega` de la tarjeta
+// SD, con default true. Ver MySystem::_benchWithoutMega().
 
 
 
@@ -63,10 +52,10 @@ class MySystem :
     // Frames de configuracion en vuelo, mandados desde onSerialConnected()
     // y reenviados por Tasks::ReSendConfig hasta que cada uno tenga su ack
     // (docs/config-schema.md seccion 10). Tope: 1 (intervals) + 1 (control)
-    // + 4 (coils) + 2 (sources) + 6 (3 reglas x 2 fuentes) + 4 (canales de
-    // corriente) = 18.
+    // + 1 (detector) + 4 (coils) + 2 (sources) + 6 (3 reglas x 2 fuentes)
+    // + 4 (canales de corriente) = 19.
     static constexpr uint8_t MaxPendingConfigFrames =
-      2 + ConfigLoader::MaxCoils + ConfigLoader::MaxDetectorSources * 4
+      3 + ConfigLoader::MaxCoils + ConfigLoader::MaxDetectorSources * 4
       + ConfigLoader::MaxCurrentSensors;
     struct PendingConfigFrame {
       bool active = false;
@@ -95,6 +84,14 @@ class MySystem :
     void _sendReset();
 
     void _sendMegaConfig();
+    // Banco sin Mega2560: `requireMega: false` en la tarjeta Y el serial sin
+    // conectar. Al vencer el splash se pasa a Principal igual (forzando
+    // Ready) en vez de esperar el primer state_data; Iniciar pasa directo a
+    // Running (sin Busy ni reintentos de `start`) y Detener fabrica un
+    // result_data local ("stopped") que lleva a Resultado. Nada de esto
+    // manda comandos al serial. Con el Mega conectado no cambia nada: el
+    // flujo normal manda aunque la tarjeta diga false.
+    bool _benchWithoutMega();
     void _resendPendingConfig();
     void _cancelPendingConfig(const char* command, const char* key);
     void _registerPendingConfig(const char* command, const char* key);
@@ -554,6 +551,11 @@ inline void MySystem::_sendMegaConfig() {
 
   _registerPendingConfig(Commands::ConfigIntervals, nullptr);
   _registerPendingConfig(Commands::ConfigControl, nullptr);
+  // Solo si el archivo trae detector.enabled: sin la clave no hay nada que
+  // pisar y el Mega se queda con el detector encendido.
+  if (ConfigLoader::detectorConfig().hasEnabled) {
+    _registerPendingConfig(Commands::ConfigDetector, nullptr);
+  }
 
   uint8_t coilCount = ConfigLoader::coilConfigCount();
   const ConfigLoader::CoilConfig* coils = ConfigLoader::coilConfigs();
@@ -616,6 +618,9 @@ inline void MySystem::_resendPendingConfig() {
     }
     else if (strcmp(command, Commands::ConfigControl) == 0) {
       _buildConfigControlDoc(doc);
+    }
+    else if (strcmp(command, Commands::ConfigDetector) == 0) {
+      doc["enabled"] = ConfigLoader::detectorConfig().enabled;
     }
     else if (strcmp(command, Commands::ConfigCoil) == 0) {
       const ConfigLoader::CoilConfig* coil = nullptr;
@@ -980,7 +985,8 @@ inline void MySystem::onCommand(const char* command, JsonVariantConst params) {
       else if(strcmp(ack, Commands::Stop) == 0) {
         _timer.removeTask(Tasks::ReSendStop);
       }
-      else if(strcmp(ack, Commands::ConfigIntervals) == 0 || strcmp(ack, Commands::ConfigControl) == 0) {
+      else if(strcmp(ack, Commands::ConfigIntervals) == 0 || strcmp(ack, Commands::ConfigControl) == 0
+              || strcmp(ack, Commands::ConfigDetector) == 0) {
         _cancelPendingConfig(ack, nullptr);
       }
       else if(strcmp(ack, Commands::ConfigCoil) == 0 || strcmp(ack, Commands::ConfigSource) == 0) {
@@ -1128,12 +1134,16 @@ inline void MySystem::onSerialConnected() {
   _sendMegaConfig();
 }
 
+inline bool MySystem::_benchWithoutMega() {
+  return !ConfigLoader::requireMega() && !_serial.isConnected();
+}
+
 inline void MySystem::onSerialDisconnected() {
   _data.communication.serialOk = false;
 }
 
 // Guarda el resultado y navega a Resultado. Lo llama el handler de
-// result_data y, con BENCH_SIN_MEGA, el puente de Detener sin Mega.
+// result_data y, en banco sin Mega, el puente de Detener.
 inline void MySystem::_applyResult(const char* reason, const char* description) {
   _applyResult(reason, description, JsonVariantConst());
 }
@@ -1217,8 +1227,8 @@ inline void MySystem::onScreenEvent(ScreenEvent e) {
 
   if(e.type == ScreenType::SPLASH && e.name == EventName::Timeout) {
     _data.setInitialized(true);
-    if(BENCH_SIN_MEGA && !_serial.isConnected()) {
-      DEBUG_PRINTLN(DEBUG_MYSYSTEM, "BENCH_SIN_MEGA: sin Mega, paso a Principal sin esperar state_data");
+    if(_benchWithoutMega()) {
+      DEBUG_PRINTLN(DEBUG_MYSYSTEM, "requireMega=false: sin Mega, paso a Principal sin esperar state_data");
       _processState(StateData::Ready, true);
     }
   }
@@ -1227,9 +1237,18 @@ inline void MySystem::onScreenEvent(ScreenEvent e) {
   }
   else if(e.type == ScreenType::PRINCIPAL && e.name == EventName::Start) {
     DEBUG_PRINTLN(DEBUG_MYSYSTEM, "Procesando start!");
-    if(BENCH_SIN_MEGA && !_serial.isConnected()) {
-      DEBUG_PRINTLN(DEBUG_MYSYSTEM, "BENCH_SIN_MEGA: sin Mega, paso a Running sin mandar start");
+    if(_benchWithoutMega()) {
+      DEBUG_PRINTLN(DEBUG_MYSYSTEM, "requireMega=false: sin Mega, paso a Running sin mandar start");
       _processState(StateData::Running);
+      return;
+    }
+    // Con requireMega (el default) Iniciar exige la placa de control: es
+    // quien energiza las bobinas y quien corta por seguridad. Normalmente
+    // sin Mega ni se llega a Principal, pero el enlace puede caerse estando
+    // ahi; mandar start a nadie solo dejaria al operador en Esperando hasta
+    // el timeout.
+    if(!_serial.isConnected()) {
+      DEBUG_PRINTLN(DEBUG_MYSYSTEM, "Iniciar ignorado: sin conexion con el Mega (requireMega)");
       return;
     }
     _sendStart();
@@ -1243,8 +1262,8 @@ inline void MySystem::onScreenEvent(ScreenEvent e) {
   }
   else if(e.type == ScreenType::RUNNING && e.name == EventName::Stop) {
     DEBUG_PRINTLN(DEBUG_MYSYSTEM, "Procesando stop!");
-    if(BENCH_SIN_MEGA && !_serial.isConnected()) {
-      DEBUG_PRINTLN(DEBUG_MYSYSTEM, "BENCH_SIN_MEGA: sin Mega, fabrico result_data stopped");
+    if(_benchWithoutMega()) {
+      DEBUG_PRINTLN(DEBUG_MYSYSTEM, "requireMega=false: sin Mega, fabrico result_data stopped");
       _data.setState(StateData::Ready);
       _applyResult("stopped", "Detenido desde el banco (sin Mega)");
       return;
@@ -1279,9 +1298,13 @@ inline void MySystem::onScreenEvent(ScreenEvent e) {
     DEBUG_PRINTLN(DEBUG_MYSYSTEM, "Procesando repetir!");
     _data.result = ResultData();
 
-    if(BENCH_SIN_MEGA && !_serial.isConnected()) {
-      DEBUG_PRINTLN(DEBUG_MYSYSTEM, "BENCH_SIN_MEGA: sin Mega, paso a Running sin mandar start");
+    if(_benchWithoutMega()) {
+      DEBUG_PRINTLN(DEBUG_MYSYSTEM, "requireMega=false: sin Mega, paso a Running sin mandar start");
       _processState(StateData::Running);
+      return;
+    }
+    if(!_serial.isConnected()) {
+      DEBUG_PRINTLN(DEBUG_MYSYSTEM, "Repetir ignorado: sin conexion con el Mega (requireMega)");
       return;
     }
     _sendStart();

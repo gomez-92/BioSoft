@@ -24,4 +24,5 @@ namespace Commands {
   constexpr const char* ConfigSource          = "config_source";
   constexpr const char* ConfigRule            = "config_rule";
   constexpr const char* ConfigCurrent         = "config_current";
+  constexpr const char* ConfigDetector        = "config_detector";
 };

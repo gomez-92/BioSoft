@@ -195,11 +195,25 @@ void test_publishMeasures_includes_every_registered_name_regardless_of_validity(
     TEST_ASSERT_EQUAL_FLOAT(-1.0f, doc["TEMP2"].as<float>());
 }
 
+// Engine re-registra el termometro en cada start: uno que ya lee bien no se
+// reinicializa (en el DS18B20, begin() re-escanea el bus OneWire).
+void test_addThermometer_skips_begin_when_already_valid(void) {
+    ThermometerManager manager;
+    FakeThermometer t0("TEMP1");
+    t0.valid = true;
+
+    manager.addThermometer(&t0);
+
+    TEST_ASSERT_EQUAL_UINT8(0, t0.beginCalls);
+    TEST_ASSERT_EQUAL_UINT8(1, manager.thermometerCount());
+}
+
 int main(int argc, char** argv) {
     UNITY_BEGIN();
 
     RUN_TEST(test_addThermometer_assigns_sequential_ids_and_calls_begin);
     RUN_TEST(test_addThermometer_rejects_null_without_adding);
+    RUN_TEST(test_addThermometer_skips_begin_when_already_valid);
     RUN_TEST(test_addThermometer_rejects_when_full_returns_0xFF);
 
     RUN_TEST(test_clearThermometers_resets_count_and_forgets_all);

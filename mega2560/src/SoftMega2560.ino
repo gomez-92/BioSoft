@@ -9,6 +9,7 @@
 #include "magnetometervoltagesim.hpp"
 #include "thermometermanager.hpp"
 #include "thermometerds18b20.hpp"
+#include "thermometervoltagesim.hpp"
 #include "currentmanager.hpp"
 #include "currentsensorsct013.hpp"
 #include "mainpowerswitch.hpp"
@@ -118,6 +119,7 @@ int freeMemory() {
 #define COIL4_ENABLE_PIN 26
 
 #define SPI_CS_PIN 5
+#define TEMP_SIM_PIN A1     // Entrada del termometro simulado (0-5 V -> 0-50 C).
 #define FIELD_MODE_PIN 22  // Selector del mux de fase (campo X / campo nulo).
                            // Pin sin timer a proposito: es una senal digital
                            // simple y los pines con PWM (2-13, 44-46) quedan
@@ -139,6 +141,11 @@ MagnetometerManager magnetometermanager;
 MagnetometerVoltageSim magnetometerSim("CEM1", A0);
 MagnetometerMlx90393 magnetometerReal("CEM1");
 ThermometerManager thermometermanager;
+// TEMP1 simulado: solo se registra si la tarjeta SD pide
+// detector.sources[TEMP1].sensor = "sim". Con la escala 0-5 V -> 0-50 C cada
+// volt son 10 grados, asi que con un potenciometro se recorren todas las
+// zonas de los menus (normal 30~40, critico 25~45 de fabrica).
+ThermometerVoltageSim thermometerSim("TEMP1", TEMP_SIM_PIN, 50.0f);
 // DOS modulos ADS1115: cada uno tiene solo 2 pares diferenciales (AIN0-AIN1
 // y AIN2-AIN3) y el SCT013 se lee en diferencial, asi que los 4 canales del
 // gabinete necesitan dos chips. 0x48 es ADDR a GND (el default) y 0x49 es
@@ -289,7 +296,12 @@ void setup() {
   dallas->begin();
   DeviceAddress temp1Address = TEMP1_ADDRESS;
   ThermometerDS18B20* thermometer1 = new ThermometerDS18B20(*dallas, "TEMP1", temp1Address);
+  // Default compilado: el DS18B20, registrado ya para que haya lecturas de
+  // TEMP1 en pantalla desde el arranque. En cada start Engine lo reemplaza
+  // por el simulado, o no registra ninguno, segun la clave `sensor` de
+  // detector.sources[TEMP1] (_applySourceSettings).
   thermometermanager.addThermometer(thermometer1);
+  engine.registerThermometers(thermometer1, &thermometerSim);
 
   /* ===== current sensors =====*/
   // No se llama begin() a los ADS acá: lo hace CurrentSensorSct013::begin()

@@ -64,7 +64,14 @@ inline ThermometerManager::ThermometerManager() : _thermometerCount(0), _listene
 // =====================================================
 inline uint8_t ThermometerManager::addThermometer(IThermometer* thermometer) {
   if (_thermometerCount >= MAX_THERMOMETERS || thermometer == nullptr) return 0xFF;
-  thermometer->begin();
+  // Mismo criterio que MagnetometerManager::addMagnetometer(): Engine vuelve
+  // a registrar el termometro en cada start (_applySourceSettings), y uno que
+  // ya esta leyendo bien no necesita reinicializarse -- en el DS18B20,
+  // begin() vuelve a escanear el bus OneWire. Uno que nunca leyo, o que dejo
+  // de leer, si se reintenta.
+  if (!thermometer->isValid()) {
+    thermometer->begin();
+  }
   ManagedThermometer& t = _thermometers[_thermometerCount];
   t.thermometer = thermometer;
   t.thermometerId = _thermometerCount;

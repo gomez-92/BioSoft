@@ -197,5 +197,30 @@ check("el archivo generado lleva el runType elegido", T.buildJson().runType === 
 check("runType va justo despues de schemaVersion (archivo diffeable contra el ejemplo)",
       Object.keys(T.buildJson())[1] === "runType");
 
+console.log("\n== Interruptores de banco (requireMega, detector.enabled, sensor de TEMP1) ==");
+reset(); T.validate();
+check("los defaults exigen el Mega y dejan el detector encendido",
+      T.state.requireMega === true && T.state.detector.enabled === true);
+expectWarn("requireMega false avisa que es solo para banco",
+  st => { st.requireMega = false; }, "placa de control");
+expectError("requireMega no booleano bloquea la descarga",
+  st => { st.requireMega = "false"; }, "requireMega");
+expectWarn("detector apagado avisa que nada puede cortar",
+  st => { st.detector.enabled = false; }, "Detector apagado");
+expectError("detector.enabled no booleano bloquea la descarga",
+  st => { st.detector.enabled = "no"; }, "detector.enabled");
+expectWarn("TEMP1 en sim avisa que no mide el gabinete",
+  st => { st.detector.sources[1].sensor = "sim"; }, "TEMP1 con sensor sim");
+expectWarn("TEMP1 none vigilada avisa que nunca corta por temperatura",
+  st => { st.detector.sources[1].sensor = "none"; }, "sin termometro");
+expectError("CEM1 no acepta none (es la realimentacion del lazo)",
+  st => { st.detector.sources[0].sensor = "none"; }, "CEM1: sensor");
+expectError("TEMP1 no acepta un driver de CEM1",
+  st => { st.detector.sources[1].sensor = "mlx90393"; }, "TEMP1: sensor");
+reset();
+const out2 = T.buildJson();
+check("requireMega va despues de runType", Object.keys(out2)[2] === "requireMega");
+check("detector.enabled va antes de sources", Object.keys(out2.detector)[0] === "enabled");
+
 console.log(fails === 0 ? "\nTODO OK\n" : "\n" + fails + " FALLA(S)\n");
 process.exit(fails ? 1 : 0);

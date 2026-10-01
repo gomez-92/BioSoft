@@ -89,6 +89,7 @@
 const DEFAULTS = {
   schemaVersion: 1,
   runType: "normal",
+  requireMega: true,
   menus: {
     fieldIntensity: [{label:"1.0 mT",value:1.0},{label:"2.0 mT",value:2.0}],
     frequency: [{label:"10 Hz",value:10},{label:"50 Hz",value:50}],
@@ -115,7 +116,7 @@ const DEFAULTS = {
     {name:"BOB3",enabled:false,calibrationFactor:1.0},
     {name:"BOB4",enabled:false,calibrationFactor:1.0}
   ],
-  detector: { sources: [
+  detector: { enabled: true, sources: [
     {name:"CEM1",enabled:false,sensor:"sim",bufferSize:32,
      range:{mode:"derived",criticalMultiplier:1.25},
      rules:{critical:{threshold:3,cooldown:1,maxEvents:2},
@@ -203,6 +204,13 @@ let state = clone(DEFAULTS);
  * con esta herramienta en vez de editarlo a mano.
  * =========================================================================== */
 const INT = "int", FLT = "float";
+
+// Drivers que el Mega acepta para cada fuente (SensorChoices::parse en
+// mega2560/src/sensorchoice.hpp). Un valor fuera de la lista lo rechaza y se
+// queda con el anterior: la tarjeta diria "sim" y el equipo seguiria
+// leyendo el sensor real, o al reves. CEM1 no admite "none": es la
+// realimentacion del lazo de control.
+const SOURCE_SENSORS = { CEM1: ["sim", "mlx90393"], TEMP1: ["ds18b20", "sim", "none"] };
 
 // Los dos unicos valores que ConfigLoader::loadRunType() entiende. Cualquier
 // otro cae en "normal" en el firmware: una tarjeta pensada para banco
@@ -312,7 +320,13 @@ function sRunType(){
     'control) se configura en su propia seccion. Lo que hace es <b>marcar las corridas</b> (TEST en la ' +
     'telemetria) para que el monitor remoto no mezcle datos de banco con experimentos, y en ' +
     '<code>test</code> la pantalla muestra una franja MODO PRUEBA y un aviso al arrancar. Solo ESP32.</p>' +
-    '<div class="grid">' + sel("runType", "Tipo", RUN_TYPES) + '</div></section>';
+    '<div class="grid">' + sel("runType", "Tipo", RUN_TYPES) + '</div>' +
+    '<p class="hint" style="margin-top:12px"><b>Exigir la placa de control</b> deja iniciar un ' +
+    'experimento solo con el Mega conectado, que es quien energiza las bobinas y corta por seguridad. ' +
+    'Desmarcarlo es para el banco: recorrer las pantallas y probar el envio de datos con la pantalla ' +
+    'sola. Con el Mega conectado no cambia nada.</p>' +
+    '<div class="grid">' + chk("requireMega", "Exigir la placa de control (Mega) para iniciar") +
+    '</div></section>';
 }
 
 function sMenus(){
@@ -393,9 +407,14 @@ function sDetector(){
     'cuando se corta el experimento. Las fuentes son fijas (CEM1 y TEMP1); lo configurable es el sensor, ' +
     'los rangos y las reglas. El Mega <b>descarta la regla entera</b> si algun campo cae fuera de rango, ' +
     'en vez de recortarla: media regla corta (o no corta) un experimento con numeros que no eligio nadie. ' +
-    'Se guarda al recibirse pero se aplica recien al arrancar el proximo experimento.</p>';
+    'Se guarda al recibirse pero se aplica recien al arrancar el proximo experimento.</p>' +
+    '<p class="hint"><b>Sensor:</b> <code>sim</code> lee una entrada analogica en vez del sensor ' +
+    '(A0 para CEM1, A1 para TEMP1 con 0-5 V = 0-50 C) y sirve para provocar cortes en banco. En TEMP1, ' +
+    '<code>none</code> no registra ningun termometro: es lo que va sin DS18B20 cableado, que si no ' +
+    'bloquea ~750 ms en cada medicion.</p>' +
+    '<div class="grid">' + chk("detector.enabled", "Detector encendido (interruptor general)") + '</div>';
   state.detector.sources.forEach((s, i) => {
-    const sensors = s.name === "CEM1" ? ["sim", "mlx90393"] : ["ds18b20"];
+    const sensors = SOURCE_SENSORS[s.name] || [s.sensor];
     h += '<div class="sub"><h3>' + s.name + '</h3><div class="grid">' +
       '<div style="align-self:end;padding-bottom:6px">' +
         chk("detector.sources." + i + ".enabled", "Vigilada por el Detector") + '</div>' +
@@ -590,6 +609,11 @@ function validate(){
   else if (state.runType === "test")
     warn("Tipo de corrida test: todas las corridas con esta tarjeta salen marcadas como PRUEBA y el " +
          "monitor remoto no las lista junto a los experimentos. Para un experimento real, volver a normal.");
+  if (state.requireMega === false)
+    warn("No se exige la placa de control: sin Mega conectado se puede iniciar y recorrer las " +
+         "pantallas sin que nada se energice. Solo para banco.");
+  else if (state.requireMega !== true)
+    err("requireMega tiene que ser true o false: con cualquier otra cosa el ESP32 lo ignora y exige el Mega.");
 
   /* --- 1. menus --- */
   MENUS.forEach(m => {
@@ -717,7 +741,23 @@ function validate(){
          "el modo de campo nulo no cancelaria nada y no seria verificable.");
 
   /* --- 5. detector --- */
+  if (state.detector.enabled === false)
+    warn("Detector apagado: ninguna fuente puede generar flags ni cortar el experimento, aunque " +
+         "la temperatura o el campo salgan de rango. Solo para banco.");
+  else if (state.detector.enabled !== true)
+    err("detector.enabled tiene que ser true o false: con cualquier otra cosa el ESP32 no lo manda " +
+        "y el Mega se queda con el detector encendido.");
   state.detector.sources.forEach(s => {
+    const allowed = SOURCE_SENSORS[s.name];
+    if (allowed && !allowed.includes(s.sensor))
+      err(s.name + ': sensor "' + s.sensor + '" no es valido (' + allowed.join(", ") + '). ' +
+          "El Mega lo rechaza y sigue con el driver que tenia, sin avisar en pantalla.");
+    if (s.name === "TEMP1" && s.sensor === "sim")
+      warn("TEMP1 con sensor sim: la temperatura sale de la entrada A1, no del DS18B20. No mide la " +
+           "temperatura del gabinete -- nunca para un experimento con animales.");
+    if (s.name === "TEMP1" && s.sensor === "none" && s.enabled)
+      warn("TEMP1 vigilada sin termometro (sensor none): la fuente no recibe muestras y nunca va a " +
+           "cortar por temperatura.");
     const bs = s.bufferSize;
     if (!isInt(bs) || bs < 8 || bs > 32)
       err(s.name + ": bufferSize tiene que ser un entero entre 8 y 32 (tope de RAM del Mega).");
@@ -926,6 +966,7 @@ function buildJson(){
   return {
     schemaVersion: 1,
     runType: state.runType,
+    requireMega: state.requireMega,
     menus: state.menus,
     intervals: state.intervals,
     control: state.control,
@@ -984,8 +1025,11 @@ document.getElementById("file").addEventListener("change", ev => {
       alert("schemaVersion " + parsed.schemaVersion + " — el firmware solo entiende la 1 y " +
             "descartaria el archivo entero. Se carga igual para que lo puedas corregir.");
     state = clone(DEFAULTS);
-    ["runType", "menus", "intervals", "control", "coils", "detector", "currentSensors", "telemetry"]
+    ["runType", "requireMega", "menus", "intervals", "control", "coils", "detector", "currentSensors", "telemetry"]
       .forEach(k => { if (parsed[k] !== undefined) state[k] = parsed[k]; });
+    // Un archivo anterior a detector.enabled trae la seccion sin esa clave:
+    // en el firmware eso es "encendido", y asi tiene que verse aca.
+    if (state.detector.enabled === undefined) state.detector.enabled = true;
     render();
   };
   r.readAsText(f);

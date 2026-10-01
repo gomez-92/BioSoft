@@ -1312,6 +1312,32 @@ table.pins tbody td{padding:7px 12px 7px 0}
         la configuración, en ningún tipo de corrida.</p>
     </div>
 
+    <h3>Ajustes de banco</h3>
+
+    <p>Tres ajustes del archivo existen para trabajar en el banco sin el
+      equipo completo. Los tres vienen de fábrica en su valor más seguro, y
+      el generador avisa cuando se cambian:</p>
+
+    <div class="tablewrap"><table>
+      <thead><tr><th>Ajuste</th><th>De fábrica</th><th>Para qué cambiarlo</th></tr></thead>
+      <tbody>
+        <tr><td>Exigir la placa de control</td><td>Sí</td><td>Desmarcado, la
+          pantalla funciona sola: se puede recorrer y «correr» un experimento
+          sin la placa de control conectada. Nada se energiza.</td></tr>
+        <tr><td>Detector encendido</td><td>Sí</td><td>Apagado, ninguna
+          alerta puede cortar el experimento. Se sigue midiendo y
+          mostrando.</td></tr>
+        <tr><td>Sensor de TEMP1</td><td>DS18B20</td><td><em>sim</em> lee la
+          temperatura de una entrada analógica (0–5 V equivale a 0–50 °C), para
+          provocar un corte con un potenciómetro; <em>none</em> no usa
+          termómetro, para cuando no hay uno conectado.</td></tr>
+      </tbody>
+    </table></div>
+
+    <p>Con TEMP1 en <em>sim</em> o <em>none</em> el equipo <strong>no está
+      midiendo la temperatura del gabinete</strong>. Ninguno de estos ajustes
+      es apto para un experimento con animales.</p>
+
     <div class="callout">
       <span class="tag">Edición del archivo</span>
       <p>Se recomienda emplear el generador de configuración que acompaña al

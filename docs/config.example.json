@@ -1,6 +1,7 @@
 {
   "schemaVersion": 1,
   "runType": "normal",
+  "requireMega": true,
   "menus": {
     "fieldIntensity": [
       {
@@ -145,6 +146,7 @@
     }
   ],
   "detector": {
+    "enabled": true,
     "sources": [
       {
         "name": "CEM1",

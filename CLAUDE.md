@@ -346,6 +346,33 @@ Key collaborators:
   `MagnetometerMlx90393`; the sim reads a plain analog voltage on `A0` and maps
   it linearly to mT, and does **not** validate `FieldController` against
   anything physically meaningful.
+- **Which driver feeds each source is a `SensorChoice` (`Real`/`Sim`/`None`,
+  `sensorchoice.hpp`)**, parsed per source by `SensorChoices::parse()` from
+  `config_source`'s `sensor`: CEM1 takes `mlx90393`/`sim`, TEMP1 takes
+  `ds18b20`/`sim`/`none`. Names are **not** interchangeable across sources,
+  and an invalid value is rejected whole (returns false, keeps the previous
+  driver) — the old code mapped "anything but mlx90393" to sim. **CEM1 refuses
+  `none` by design**: it is the `FieldController`'s feedback, and with no
+  magnetometer the loop would push duty to the rail chasing a field it can't
+  see. TEMP1's two drivers reach Engine through `registerThermometers(real,
+  sim)` (the DS18B20 is `new`'d in `setup()`, after Engine exists), and
+  `_applySourceSettings()` re-registers the chosen one on every `start` —
+  `none` registers nothing, the only safe bring-up state without a DS18B20
+  since `requestTemperatures()` blocks ~750 ms even on an empty bus. TEMP1
+  watched with no thermometer is legal but never cuts; Engine logs it.
+  `ThermometerVoltageSim` reads **A1, 0–5 V → 0–50 °C** (10 °C per volt, so
+  every menu zone is reachable with a pot). `ThermometerManager::
+  addThermometer()` now skips `begin()` on an already-valid sensor, same
+  reason as the magnetometer bullet below: it is re-registered every start.
+- **`detector.enabled` is a master switch inside `Detector` itself**
+  (`setEnabled()`: `addSample()` drops everything, sources and config stay
+  intact), not a gate scattered across Engine's three sample handlers — which
+  is what lets `test_detector` pin "disabled never flags". It travels in its
+  own `config_detector` frame (sent only if the file carries the key; acked
+  with no key, like `config_control`) and, like the sources, Engine stores it
+  in `_detectorEnabled` and applies it at the **next `start`**: switching the
+  detector off mid-run because the ESP32 reconnected with a different card
+  would leave a run that started watched without a watcher.
 - `MagnetometerManager::addMagnetometer()` only calls `magnetometer->begin()`
   if the magnetometer is not already `isValid()`. Needed because
   `_applySourceSettings()` re-runs `clearMagnetometers()`/`addMagnetometer()` on every
@@ -397,10 +424,9 @@ Key collaborators:
   the log, and `update()` returns before touching the bus. That is what makes
   it safe to leave a channel on the second module (0x49) configured in the SD
   file while that module doesn't physically exist yet.
-  The thermometer has no such guard, and `ThermometerManager::updateAll()` /
-  `CurrentSensorsManager::updateAll()` are still safe no-ops with zero sensors
-  registered, so for bring-up without a DS18B20 wired it's still better to not
-  register it than to leave it registered "because it's probably fine".
+  The thermometer has no such guard, so for bring-up without a DS18B20 wired
+  it must not be registered — which is now an SD setting,
+  `detector.sources[TEMP1].sensor: "none"`, not an `.ino` edit.
 - `PWM_PIN` is `44` (Timer5/OC5C), not `A0` — `A0`..`A15` have no hardware timer
   on the Mega2560, so `analogWrite()` there silently degrades to a binary
   `digitalWrite`, not real PWM. `PwmDriver`'s `frequency` constructor param is
@@ -714,11 +740,16 @@ and `StateListener` (own app state, from `SystemData`).
   would turn every new experiment into `unknown`. Absent or unrecognised
   `runType` ⇒ normal (logged); the generator refuses any other value. The
   emergency stop is **not** configurable in any run type, by design.
-- `MySystem`'s `BENCH_SIN_MEGA` flag (`mysystem.hpp`) lets the HMI leave the
-  splash and reach Principal without a Mega connected (on splash timeout, if
-  `!_serial.isConnected()`, it forces `Ready`). Bench-only: with it on and no
-  Mega, Iniciar would sit retrying `start` until the Busy timeout. Set it to
-  `false` for the production build.
+- **`requireMega`** (top-level SD key, default `true`) replaced the
+  compile-time `BENCH_SIN_MEGA`, which had been left at `true` in the
+  production firmware. `MySystem::_benchWithoutMega()` is `!requireMega &&
+  !_serial.isConnected()` — both conditions: with the Mega plugged in the
+  normal flow rules even if the card says `false`. In bench mode the splash
+  timeout forces `Ready`, Iniciar/Repetir go straight to Running without
+  sending `start`, and Detener fabricates a local `stopped` result. With
+  `requireMega` on, Iniciar/Repetir now **return early when the link is
+  down** instead of sending `start` into the void and parking the operator on
+  Esperando until the timeout.
 - `ConfigLoader` (`configloader.hpp`) reads that file at boot and applies it.
   It runs in `setup()` **before** `MySystem` registers its tasks and before the
   Configuración screen builds its dropdowns, because it overwrites what both of
@@ -839,8 +870,9 @@ NULO"` placeholder the SquareLine export ships with.
 - `MySystem::_sendMegaConfig()` (called from `onSerialConnected()`, so it
   fires on every connect *and* reconnect) generalizes that same ack/retry
   pattern to an arbitrary set of frames instead of one fixed command: up to
-  18 (1 `config_intervals` + 1 `config_control` + 4 `config_coil` + 2
-  `config_source` + 6 `config_rule` + 4 `config_current`), each tracked as an entry in
+  19 (1 `config_intervals` + 1 `config_control` + 1 `config_detector` + 4
+  `config_coil` + 2 `config_source` + 6 `config_rule` + 4 `config_current`),
+  each tracked as an entry in
   `_pendingConfig[]`, with a single `Tasks::ReSendConfig` task (not one per
   frame) sending whatever is still active until `Commands::Ack` clears it.
   Entries are matched by `command` plus a `key` that disambiguates several

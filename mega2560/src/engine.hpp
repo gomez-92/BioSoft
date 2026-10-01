@@ -22,6 +22,7 @@
 #include "emergencybutton.hpp"
 #include "safetymargins.hpp"
 #include "detectorconfigbuilder.hpp"
+#include "sensorchoice.hpp"
 #include "debugconfig.hpp"
 
 // Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
@@ -76,6 +77,21 @@ class Engine :
     // experimento completo, como antes del bring-up.
     bool _controlLoopEnabled = true;
 
+    // Interruptor general del Detector (`detector.enabled` de la SD, llega
+    // en config_detector). Como las fuentes, se guarda al recibirlo y se
+    // aplica en el proximo start (_applySourceSettings): apagar el detector
+    // a mitad de una corrida porque el ESP32 se reconecto con otra tarjeta
+    // dejaria sin vigilancia un experimento que arranco vigilado. Default
+    // true: sin tarjeta, el equipo corta como siempre.
+    bool _detectorEnabled = true;
+
+    // Los dos termometros que pueden alimentar a TEMP1, segun
+    // detector.sources[TEMP1].sensor. Punteros y no referencias porque el
+    // DS18B20 se crea con new en setup() y llega por registerThermometers(),
+    // despues de construido el Engine. nullptr = no registrado.
+    IThermometer* _realThermometer = nullptr;
+    IThermometer* _simThermometer = nullptr;
+
     // Plantillas de configuracion del Detector, una por fuente. Traen el
     // bufferSize y las 3 reglas: arrancan en los defaults compilados y las
     // pisa el archivo de la SD (config_source/config_rule). Los RANGOS que
@@ -86,7 +102,7 @@ class Engine :
     struct SourceSettings {
       const char* name;
       bool enabled;
-      bool useRealSensor;        // solo CEM1
+      SensorChoice sensor;       // que driver la alimenta (ver sensorchoice.hpp)
       float criticalMultiplier;  // solo CEM1 (sus rangos son derivados)
       SourceConfig config;
     };
@@ -142,6 +158,9 @@ class Engine :
     // Default compilado de un slot, para el `.ino`: que canales estan
     // habilitados si no hay tarjeta SD o si el archivo no trae la seccion.
     bool enableCurrentSensor(uint8_t address, uint8_t channel, bool enabled);
+    // Los dos drivers posibles de TEMP1 (DS18B20 y simulado). Se llama en
+    // setup(); cual queda registrado lo decide _applySourceSettings().
+    void registerThermometers(IThermometer* real, IThermometer* sim);
 
   private:
     void _start();
@@ -237,13 +256,13 @@ inline Engine::Engine(
   // habilita cuando el hardware esta listo, sin recompilar.
   _sourceSettings[0].name = "CEM1";
   _sourceSettings[0].enabled = false;
-  _sourceSettings[0].useRealSensor = false;
+  _sourceSettings[0].sensor = SensorChoice::Sim;
   _sourceSettings[0].criticalMultiplier = SafetyMargins::CemCriticalMultiplier;
   _sourceSettings[0].config = DetectorConfigBuilder::defaultConfig();
 
   _sourceSettings[1].name = "TEMP1";
   _sourceSettings[1].enabled = true;
-  _sourceSettings[1].useRealSensor = false;
+  _sourceSettings[1].sensor = SensorChoice::Real;
   _sourceSettings[1].criticalMultiplier = SafetyMargins::CemCriticalMultiplier;
   _sourceSettings[1].config = DetectorConfigBuilder::defaultConfig();
 
@@ -314,6 +333,11 @@ inline void Engine::_reset() {
 
 // Bring-up temporal INT-001: ver comentario de _controlLoopEnabled en la
 // declaracion de la clase y testmoderesolver.hpp para la tabla completa.
+inline void Engine::registerThermometers(IThermometer* real, IThermometer* sim) {
+  _realThermometer = real;
+  _simThermometer = sim;
+}
+
 inline bool Engine::registerCurrentSensor(CurrentSensorSct013* sensor, uint8_t address, uint8_t channel) {
   if (sensor == nullptr) return false;
 
@@ -417,7 +441,7 @@ inline void Engine::_applySourceSettings() {
   }
 
   SourceSettings* cem = _findSourceSettings("CEM1");
-  bool useRealSensor = (cem != nullptr) && cem->useRealSensor;
+  bool useRealSensor = (cem != nullptr) && cem->sensor == SensorChoice::Real;
   _magnetometerManager.addMagnetometer(
     useRealSensor ? &_realMagnetometer : &_simMagnetometer
   );
@@ -425,6 +449,32 @@ inline void Engine::_applySourceSettings() {
   DEBUG_PRINT(DEBUG_ENGINE, F("[SOURCES] CEM1 sensor="));
   DEBUG_PRINT(DEBUG_ENGINE, useRealSensor ? F("real") : F("sim"));
   DEBUG_PRINTLN(DEBUG_ENGINE, _controlLoopEnabled ? F(" control=on") : F(" control=off"));
+
+  // TEMP1: "none" no registra ningun termometro. Es lo que hay que usar sin
+  // DS18B20 cableado: registrado, requestTemperatures() bloquea ~750 ms en
+  // cada medicion aunque no haya nadie en el bus.
+  _thermometerManager.clearThermometers();
+  SourceSettings* temp = _findSourceSettings("TEMP1");
+  SensorChoice tempSensor = (temp != nullptr) ? temp->sensor : SensorChoice::Real;
+  IThermometer* thermometer = nullptr;
+  if (tempSensor == SensorChoice::Real) thermometer = _realThermometer;
+  else if (tempSensor == SensorChoice::Sim) thermometer = _simThermometer;
+  if (thermometer != nullptr) _thermometerManager.addThermometer(thermometer);
+
+  DEBUG_PRINT(DEBUG_ENGINE, F("[SOURCES] TEMP1 sensor="));
+  DEBUG_PRINTLN(DEBUG_ENGINE, SensorChoices::name(tempSensor));
+  // Vigilar TEMP1 sin termometro no falla: la fuente simplemente no recibe
+  // muestras y nunca corta. Es una combinacion de banco valida, pero en un
+  // experimento significaria no estar mirando la temperatura -- que quede
+  // en el log.
+  if (thermometer == nullptr && temp != nullptr && temp->enabled) {
+    DEBUG_PRINTLN(DEBUG_ENGINE, F("[SOURCES][AVISO] TEMP1 vigilada sin termometro: nunca va a cortar por temperatura"));
+  }
+
+  _detector.setEnabled(_detectorEnabled);
+  DEBUG_PRINTLN(DEBUG_ENGINE, _detectorEnabled
+    ? F("[SOURCES] detector=on")
+    : F("[SOURCES][AVISO] detector=off: ninguna fuente puede cortar el experimento"));
 }
 
 // Punto unico donde termina un experimento (tiempo cumplido, stop manual o
@@ -1165,9 +1215,14 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
       settings->enabled = params["enabled"].as<bool>();
     }
 
-    // Solo CEM1 tiene dos drivers posibles; para TEMP1 la clave se ignora.
+    // Un valor que no vale para esa fuente se rechaza y queda el anterior
+    // (ver SensorChoices::parse).
     if (params["sensor"].is<const char*>()) {
-      settings->useRealSensor = (strcmp(params["sensor"].as<const char*>(), "mlx90393") == 0);
+      const char* value = params["sensor"].as<const char*>();
+      if (!SensorChoices::parse(settings->name, value, settings->sensor)) {
+        DEBUG_PRINT(DEBUG_ENGINE, F("[CONFIG_SOURCE] sensor no valido para esta fuente -- se ignora: "));
+        DEBUG_PRINTLN(DEBUG_ENGINE, value);
+      }
     }
 
     if (params["bufferSize"].is<size_t>()) {
@@ -1314,6 +1369,26 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
     doc["command"] = Commands::ConfigCurrent;
     doc["address"] = address;
     doc["channel"] = channel;
+
+    _serial.sendCommand(
+      Commands::Ack,
+      doc
+    );
+  }
+
+  // Interruptor general del Detector. Se guarda y se aplica en el proximo
+  // start, como config_source (ver _detectorEnabled).
+  else if (strcmp(command, Commands::ConfigDetector) == 0) {
+    if (params["enabled"].is<bool>()) {
+      _detectorEnabled = params["enabled"].as<bool>();
+      DEBUG_PRINT(DEBUG_ENGINE, F("[CONFIG_DETECTOR] enabled="));
+      DEBUG_PRINTLN(DEBUG_ENGINE, _detectorEnabled ? F("true (desde el proximo start)") : F("false (desde el proximo start)"));
+    } else {
+      DEBUG_PRINTLN(DEBUG_ENGINE, F("[CONFIG_DETECTOR] sin 'enabled' booleano -- se ignora"));
+    }
+
+    JsonDocument doc;
+    doc["command"] = Commands::ConfigDetector;
 
     _serial.sendCommand(
       Commands::Ack,

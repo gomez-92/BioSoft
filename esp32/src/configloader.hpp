@@ -149,6 +149,14 @@ namespace ConfigLoader {
     RuleConfig frequency;
   };
 
+  // Interruptor general del Detector (`detector.enabled`). Viaja al Mega en
+  // config_detector solo si el archivo lo trae: sin la clave, el Mega se
+  // queda con su default (encendido).
+  struct DetectorConfig {
+    bool hasEnabled = false;
+    bool enabled = true;
+  };
+
   struct CoilConfig {
     char name[ConfigurationOptions::MaxLabelLength] = "";
     bool hasEnabled = false;
@@ -184,6 +192,11 @@ namespace ConfigLoader {
   // false (experimento) -- es lo que corre sin tarjeta, sin archivo o con un
   // valor que no se entiende. Ver loadRunType().
   inline bool _testRun = false;
+  // `requireMega`: si Iniciar exige la placa de control conectada. Default
+  // true, el unico valor seguro en produccion; false es la prueba de envio
+  // de datos sin Mega (banco). Ver loadRequireMega().
+  inline bool _requireMega = true;
+  inline DetectorConfig _detectorConfig;
 
   // MySystem los lee para armar los frames config_intervals/config_control/
   // config_coil al reconectar (ver mysystem.hpp::_sendMegaConfig()).
@@ -202,6 +215,8 @@ namespace ConfigLoader {
   inline uint8_t wifiNetworkCount() { return _wifiNetworkCount; }
   inline const BrokerConfig& brokerConfig() { return _brokerConfig; }
   inline bool isTestRun() { return _testRun; }
+  inline bool requireMega() { return _requireMega; }
+  inline const DetectorConfig& detectorConfig() { return _detectorConfig; }
 
   namespace {
 
@@ -493,6 +508,16 @@ namespace ConfigLoader {
         return;
       }
 
+      // Solo un booleano de verdad: un "false" de texto no apaga nada, se
+      // ignora y el Mega sigue con el detector encendido.
+      if (detector["enabled"].is<bool>()) {
+        _detectorConfig.hasEnabled = true;
+        _detectorConfig.enabled = detector["enabled"].as<bool>();
+        if (!_detectorConfig.enabled) {
+          DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG][AVISO] detector.enabled=false: ninguna fuente va a poder cortar el experimento"));
+        }
+      }
+
       JsonArrayConst sources = detector["sources"];
       if (sources.isNull()) return;
 
@@ -760,6 +785,22 @@ namespace ConfigLoader {
       }
     }
 
+    // Ausente o no booleano => true. Es el valor restrictivo: Iniciar solo
+    // con la placa de control conectada, que es quien energiza las bobinas y
+    // corta por seguridad. false es para el banco (tarjeta 22): recorrer las
+    // pantallas y probar el envio de datos con el ESP32 solo.
+    inline void loadRequireMega(JsonVariantConst value) {
+      if (value.isNull()) return;
+      if (!value.is<bool>()) {
+        DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] requireMega no es booleano: se exige el Mega"));
+        return;
+      }
+      _requireMega = value.as<bool>();
+      if (!_requireMega) {
+        DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG][AVISO] requireMega=false: se puede iniciar sin la placa de control"));
+      }
+    }
+
     inline void loadTelemetry(JsonObjectConst telemetry) {
       if (telemetry.isNull()) {
         DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] sin seccion 'telemetry': se conservan los defaults"));
@@ -889,6 +930,7 @@ namespace ConfigLoader {
     DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F(" bytes"));
 
     loadRunType(doc["runType"]);
+    loadRequireMega(doc["requireMega"]);
     loadMenus(doc["menus"]);
     loadIntervals(doc["intervals"]);
     loadMegaIntervals(doc["intervals"]);

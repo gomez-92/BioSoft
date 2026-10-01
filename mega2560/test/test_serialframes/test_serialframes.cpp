@@ -136,6 +136,16 @@ void test_config_coil_fits_with_max_length_name(void) {
     TEST_ASSERT_TRUE(survivesTransport(Commands::ConfigCoil, doc));
 }
 
+// config_detector: el interruptor general del Detector. Es chico, pero es
+// el que decide si algo puede cortar el experimento: si se truncara,
+// llegaria sin `enabled` y el Mega se quedaria con el valor anterior.
+void test_config_detector_fits(void) {
+    JsonDocument doc;
+    doc["enabled"] = false;
+
+    TEST_ASSERT_TRUE(survivesTransport(Commands::ConfigDetector, doc));
+}
+
 // =====================================================================
 // config_source / config_rule -- la fragmentacion de detector.sources
 // =====================================================================
@@ -272,6 +282,7 @@ void test_every_command_name_fits_in_the_command_field(void) {
     TEST_ASSERT_LESS_THAN(MAX_COMMAND_SIZE, strlen(Commands::ConfigSource) + 1);
     TEST_ASSERT_LESS_THAN(MAX_COMMAND_SIZE, strlen(Commands::ConfigRule) + 1);
     TEST_ASSERT_LESS_THAN(MAX_COMMAND_SIZE, strlen(Commands::ConfigCurrent) + 1);
+    TEST_ASSERT_LESS_THAN(MAX_COMMAND_SIZE, strlen(Commands::ConfigDetector) + 1);
 }
 
 int main(int argc, char** argv) {
@@ -282,6 +293,7 @@ int main(int argc, char** argv) {
 
     RUN_TEST(test_config_control_fits);
     RUN_TEST(test_config_coil_fits_with_max_length_name);
+    RUN_TEST(test_config_detector_fits);
 
     RUN_TEST(test_config_current_fits);
 

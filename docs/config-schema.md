@@ -69,11 +69,12 @@ implementar la seccion 7. Sus tres ejes se repartieron asi:
 {
   "schemaVersion": 1,
   "runType": "normal",
+  "requireMega": true,
   "menus": { },
   "intervals": { "esp32": { }, "mega": { } },
   "control": { },
   "coils": [ ],
-  "detector": { "sources": [ ] },
+  "detector": { "enabled": true, "sources": [ ] },
   "currentSensors": [ ],
   "telemetry": { }
 }
@@ -318,6 +319,7 @@ reglas.
 
 ```json
 "detector": {
+  "enabled": true,
   "sources": [
     {
       "name": "CEM1",
@@ -347,7 +349,21 @@ reglas.
 }
 ```
 
-### `enabled`
+### `detector.enabled` — interruptor general
+
+Con `false`, el Detector descarta todas las muestras (`Detector::setEnabled`):
+ninguna fuente acumula, levanta flags ni corta el experimento, aunque la
+temperatura o el campo salgan de rango. Las fuentes no se borran ni se
+reconfiguran; se siguen midiendo y mostrando en pantalla. Ausente, o no
+booleano, queda **encendido**, que es el default restrictivo.
+
+Viaja en su propio frame (`config_detector`, seccion 10.1) y, como las
+fuentes, se aplica en el **proximo start**: apagar el detector a mitad de una
+corrida porque el ESP32 se reconecto con otra tarjeta dejaria sin vigilancia
+un experimento que arranco vigilado. Es solo para banco; el generador lo
+avisa.
+
+### `enabled` (por fuente)
 
 Reemplaza el `detector.addSource("CEM1")` comentado a mano en
 `SoftMega2560.ino`. Con `false`, la fuente no se registra: se sigue midiendo y
@@ -362,8 +378,25 @@ por una eleccion explicita en configuracion (ver seccion 1.4).
 
 | Fuente | Valores validos |
 |---|---|
-| `CEM1` | `"sim"` (`MagnetometerVoltageSim`, entrada analogica) o `"mlx90393"` (sensor real por I2C) |
-| `TEMP1` | `"ds18b20"` |
+| `CEM1` | `"sim"` (`MagnetometerVoltageSim`, entrada `A0`) o `"mlx90393"` (sensor real por I2C) |
+| `TEMP1` | `"ds18b20"` (sensor real por OneWire), `"sim"` (`ThermometerVoltageSim`, entrada `A1`, 0-5 V = 0-50 C) o `"none"` (ningun termometro) |
+
+Un valor que no vale **para esa fuente** se rechaza y queda el driver que
+habia (`SensorChoices::parse` en `mega2560/src/sensorchoice.hpp`): los nombres
+no son intercambiables, `"mlx90393"` no es un termometro.
+
+- **`sim`** sirve para provocar cortes en banco con un potenciometro. En
+  TEMP1, cada volt son 10 grados. No mide nada: nunca para un experimento con
+  animales.
+- **`none`** existe solo para TEMP1 y es lo que va sin DS18B20 cableado:
+  registrado, `requestTemperatures()` bloquea ~750 ms en cada medicion aunque
+  no haya nadie en el bus. Con TEMP1 `enabled` y sin termometro la fuente
+  existe pero no recibe muestras, asi que **nunca corta por temperatura**; el
+  Mega y el generador lo avisan.
+- CEM1 **no acepta `none`**: es la realimentacion del `FieldController`, y sin
+  magnetometro el lazo empujaria el duty a fondo buscando un campo que no
+  puede medir. Para no vigilar el campo esta `enabled`; para no excitar las
+  bobinas, `control.enabled`.
 
 ### `range`
 
@@ -658,6 +691,7 @@ trajo. Por eso la configuracion se envia **fragmentada** y
 | 7..8 | `config_source` | la CABECERA de una fuente (nombre, enabled, sensor, bufferSize, criticalMultiplier) |
 | 9..14 | `config_rule` | una regla de una fuente (`source`, `rule`, threshold, cooldown, maxEvents) |
 | 15..18 | `config_current` | un canal de `currentSensors` cada uno, identificado por (`address`, `channel`) |
+| 19 | `config_detector` | `enabled` (el interruptor general del Detector), solo si el archivo lo trae |
 
 Una fuente entera en un solo frame ronda los 290 caracteres con el envelope
 y **no entra**: de ahi la division cabecera + 3 reglas. Hay un test que lo
@@ -689,8 +723,8 @@ constexpr const char* ConfigControl   = "config_control";
 constexpr const char* ConfigCoil      = "config_coil";
 constexpr const char* ConfigSource    = "config_source";
 constexpr const char* ConfigRule      = "config_rule";
-// Falta, junto con la seccion 8:
-// constexpr const char* ConfigCurrent = "config_current";
+constexpr const char* ConfigCurrent   = "config_current";
+constexpr const char* ConfigDetector  = "config_detector";
 ```
 
 El `Engine::_configureSource()` que estaba comentado en `engine.hpp` **no se
@@ -704,8 +738,9 @@ experimento (ver 10.4).
 `intervals.mega`, `control` y `coils` se aplican **al recibirse**: pisan un
 valor y listo.
 
-`detector.sources` NO: se guarda en una plantilla por fuente y se aplica al
-arrancar el experimento. `enabled` implica registrar o desregistrar la fuente
+`detector.sources` y `detector.enabled` NO: se guardan (una plantilla por
+fuente, un booleano para el interruptor general) y se aplican al arrancar el
+experimento. `enabled` implica registrar o desregistrar la fuente
 en el Detector, y eso destruye y recrea el `Source`, que vuelve sin
 configurar (`Source::addSample()` es un no-op mientras `_configured` sea
 false). Aplicarlo al vuelo por una reconexion serie a mitad de experimento
@@ -846,7 +881,7 @@ texto plano.
 
 ---
 
-## 15. `runType` — corridas normales o de prueba
+## 15. `runType` y `requireMega` — corridas de prueba y banco
 
 Declara si las corridas hechas con esta configuracion son **experimentos** o
 **pruebas de banco**. Solo ESP32; el Mega no lo recibe porque no cambia nada
@@ -883,6 +918,24 @@ Un valor invalido (`"prueba"`, `"Test"`) cae en `normal` y queda en el log: es
 el default restrictivo del resto del esquema. El generador de `tools/` no deja
 descargar un valor fuera de los dos validos, asi que esto solo pasa editando
 el archivo a mano.
+
+### `requireMega` — exigir la placa de control
+
+```json
+"requireMega": true
+```
+
+Solo ESP32. Con `true` (default, y lo que rige si falta o no es booleano)
+Iniciar y Repetir solo hacen algo con el Mega conectado: es quien energiza las
+bobinas y quien corta por seguridad. Con `false` y **sin** Mega conectado, la
+pantalla funciona sola para el banco: pasa del splash a Principal sin esperar
+`state_data`, Iniciar va directo a En curso sin mandar `start`, y Detener
+arma un resultado local. Con el Mega conectado no cambia nada.
+
+Reemplaza la constante de compilacion `BENCH_SIN_MEGA` de `mysystem.hpp`, que
+habia quedado en `true` en el firmware de produccion. Va junto a `runType`
+porque los dos son decisiones de banco, pero son independientes: una corrida
+sin Mega no tiene mediciones reales y deberia declararse `test`.
 
 ---
 

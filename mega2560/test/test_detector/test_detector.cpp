@@ -575,6 +575,53 @@ void test_detector_addSample_on_unknown_source_returns_false(void) {
     TEST_ASSERT_FALSE(detector.addSample("NOPE", 1.0f));
 }
 
+// `detector.enabled: false` es el interruptor general de la tarjeta SD: con
+// el apagado ninguna fuente puede cortar un experimento, aunque las muestras
+// esten muy por encima del critico. Si esto se rompe, una corrida de banco
+// con el detector "apagado" se cortaria igual, o -- peor -- uno "encendido"
+// dejaria de vigilar.
+void test_detector_disabled_never_flags(void) {
+    Detector detector;
+    RecordingDetectorListener listener;
+    detector.setListener(&listener);
+    detector.addSource("TEMP1");
+    detector.configureSource("TEMP1", makeRealTemp1Config());
+
+    detector.setEnabled(false);
+    for (int i = 0; i < 10; i++) {
+        TEST_ASSERT_FALSE(detector.addSample("TEMP1", 100.0f));
+    }
+
+    TEST_ASSERT_EQUAL_UINT8(0, listener.flagCount);
+    TEST_ASSERT_FALSE(detector.isEnabled());
+}
+
+void test_detector_reenabled_keeps_sources_and_config(void) {
+    Detector detector;
+    RecordingDetectorListener listener;
+    detector.setListener(&listener);
+    detector.addSource("TEMP1");
+    detector.configureSource("TEMP1", makeRealTemp1Config());
+
+    detector.setEnabled(false);
+    detector.addSample("TEMP1", 100.0f);
+    detector.setEnabled(true);
+
+    // Las muestras de cuando estaba apagado NO cuentan para la racha: hace
+    // falta la racha completa de 3 desde que se volvio a encender.
+    detector.addSample("TEMP1", 100.0f);
+    detector.addSample("TEMP1", 100.0f);
+    TEST_ASSERT_EQUAL_UINT8(0, listener.flagCount);
+    detector.addSample("TEMP1", 100.0f);
+    TEST_ASSERT_EQUAL_UINT8(1, listener.flagCount);
+    TEST_ASSERT_EQUAL_UINT8(1, detector.getCount());
+}
+
+void test_detector_is_enabled_by_default(void) {
+    Detector detector;
+    TEST_ASSERT_TRUE(detector.isEnabled());
+}
+
 int main(int argc, char** argv) {
     UNITY_BEGIN();
 
@@ -606,6 +653,9 @@ int main(int argc, char** argv) {
     RUN_TEST(test_detector_forwards_onFlag_to_its_listener);
     RUN_TEST(test_detector_real_temp1_config_reaches_limit_on_fourth_consecutive_critical);
     RUN_TEST(test_detector_addSample_on_unknown_source_returns_false);
+    RUN_TEST(test_detector_disabled_never_flags);
+    RUN_TEST(test_detector_reenabled_keeps_sources_and_config);
+    RUN_TEST(test_detector_is_enabled_by_default);
 
     return UNITY_END();
 }
