@@ -118,6 +118,12 @@ ausente y cae a su default.
 
 `label` se limita a 15 caracteres mas terminador; lo que exceda se trunca.
 
+**`fieldIntensity` y `frequency` admiten 3 opciones como maximo** (los demas
+menus, 8). El mapa de calibracion del campo nulo (seccion 5) tiene un punto por
+combinacion intensidad x frecuencia, y 3 x 3 = 9 es lo que se guarda en el
+Mega. El ESP32 ignora (con log) las opciones a partir de la cuarta, y el
+generador bloquea la descarga si se pasa.
+
 **Los dos menus de temperatura estan relacionados.** El Detector del Mega da
 por sentado que los rangos estan *anidados*
 (`criticalMin <= normalMin < normalMax <= criticalMax`, ver `Source::addSample`
@@ -218,7 +224,10 @@ Hoy viven en `SoftMega2560.ino`, que es el punto donde este archivo los pisa.
   "enabled": true,
   "kp": 0.1,
   "maxStep": 0.05,
-  "deadBand": 0.01
+  "deadBand": 0.01,
+  "balanceMax": 0.2,
+  "tare": { "samples": 4, "maxSpread": 10, "maxAmbient": 300 },
+  "map": []
 }
 ```
 
@@ -228,6 +237,11 @@ Hoy viven en `SoftMega2560.ino`, que es el punto donde este archivo los pisa.
 | `kp` | duty/mT | ganancia proporcional: el paso de duty es `kp * error` |
 | `maxStep` | duty | clamp del paso por llamada a `update()` |
 | `deadBand` | mT | error por debajo del cual no se toca el output |
+| `balanceMax` | adimensional, 0 a 0,5 | tope operativo del `balance` de cada punto del mapa (campo nulo) |
+| `tare.samples` | entero, 2 a 6 | lecturas del ambiente que se promedian en la tara |
+| `tare.maxSpread` | uT, 1 a 100 | dispersion maxima (max - min) por eje entre esas lecturas; mas que eso, la tara se rechaza |
+| `tare.maxAmbient` | uT, 50 a 1000 | magnitud maxima del ambiente aceptada; mas que eso no es campo ambiente sino una fuente cerca |
+| `map` | lista, hasta 9 puntos | mapa de calibracion intensidad x frecuencia -> duty y balance (abajo) |
 
 `enabled: false` es el modo "solo sensado" que antes daban los `testMode`
 1 y 4: sirve para verificar el sensado y la telemetria sin excitar las
@@ -247,6 +261,115 @@ el clamp actua siempre y el control degenera en pasos fijos.
 real de medicion (`intervals.mega.measureMagneticField`) via
 `makeFieldControllerConfig()`. Exponerlo como clave independiente permitiria
 desincronizarlo justamente de lo que tiene que seguir.
+
+**`enabled` ahora si llega al Mega.** `ConfigLoader` lo leia desde el principio
+pero `MySystem::_buildConfigControlDoc()` no lo incluia en el frame, de modo que
+`control.enabled: false` en la tarjeta no tenia ningun efecto. Una tarjeta que lo
+tenia escrito en `false` sin que nadie lo notara va a empezar a *no* excitar las
+bobinas despues de actualizar el firmware.
+
+### `map` — mapa campo, duty y balance
+
+```json
+"map": [
+  { "intensity": 1.0, "frequency": 10, "duty": 0.30, "balance": 0.05 },
+  { "intensity": 1.0, "frequency": 50, "duty": 0.31, "balance": 0.04 }
+]
+```
+
+| Clave | Unidad | Que es |
+|---|---|---|
+| `intensity` | mT | intensidad de campo objetivo del punto (0 excluido, hasta 100) |
+| `frequency` | Hz | frecuencia del punto (0 excluido, hasta 1000) |
+| `duty` | 0 a 1 | duty **comun** que da esa intensidad, medido en banco |
+| `balance` | +-0,5 | delta de balance entre grupos de fase, solo lo usa el campo nulo |
+
+**Que hace con el mapa cada modo de exposicion** (el modo lo elige el operador
+en la pantalla):
+
+- **Campo X.** Si hay punto para la combinacion elegida, el experimento
+  arranca con ese duty ya aplicado y el `FieldController` solo corrige a partir
+  de ahi (antes partia de 0 y subia hasta el objetivo). Sin punto arranca de
+  0, como siempre: el campo X nunca se rechaza por falta de mapa.
+- **Campo nulo.** Hay que someter a los animales a todo el estres de la
+  experiencia, pero sin campo efectivo. Se excita con el **mismo duty mapeado**,
+  con las bobinas directas (1 y 3) a `duty x (1 + balance)` y las del mux
+  invertido (2 y 4) a `duty x (1 - balance)`, **sin lazo**: el objetivo medido es
+  0 y regular hacia arriba no tiene sentido. La banda del Detector se centra en
+  0 y conserva la **tolerancia % del operador sobre la intensidad elegida**
+  (±tol% x intensidad). **Sin punto, o con `|balance| > balanceMax`, el Mega
+  rechaza el arranque entero** (rechazar, no recortar): no hay duty que aplicar
+  y excitar "a ojo" daria un grupo control de mentira.
+
+**Un arranque rechazado se muestra como un experimento terminado antes de
+empezar.** El Mega ya acepto el `start` (ack), asi que informa el rechazo con un
+`result_data` de `reason: "refused"` mas `cause` (`nomap`, `balance`, `tare`,
+`taretime`); no pasa por `_finish()` porque nunca arranco nada. La ESP32 abre
+la pantalla Resultado en el panel de Falla con el titulo **NO INICIO**, el
+modo elegido, el motivo y el detalle redactados desde `cause`, y progreso 0 %.
+Despues el flujo sigue normal: VOLVER lleva a Principal. REPETIR solo aparece
+cuando la causa puede ser momentanea (`tare`, `taretime`); con `nomap` o
+`balance` fallaria igual hasta cambiar la configuracion o el mapa. Un rechazo
+**no se publica por MQTT**: sin un `targets` previo el monitor web armaria con
+ese `result` una corrida huerfana de un experimento que nunca existio.
+
+**El balance no es unico.** Depende de la intensidad *y* de la frecuencia (la
+inductancia de las bobinas y la etapa de potencia no responden igual), por eso
+se mide por punto. Con una sola constante, un grupo ganaria sobre el otro en
+cuanto se cambiara la combinacion.
+
+**El mapa se indexa por valor, no por posicion en el menu.** Los menus de
+`fieldIntensity` y `frequency` son configurables, asi que las combinaciones
+posibles cambian de una tarjeta a otra. El Mega busca por coincidencia exacta
+(±0,001 mT, ±0,5 Hz), sin interpolar: un campo que no se midio no se estima.
+Por el mismo motivo hay **un tope de 3 intensidades x 3 frecuencias** (seccion 3),
+que acota el mapa a 9 puntos.
+
+**Tara del campo ambiente.** El MLX90393 mide el campo total (bobinas mas
+ambiente, ~0,025 a 0,065 mT), y con 1 mT una banda de 5 % es ±0,05 mT: el
+ambiente puede ocuparla entera, y en campo nulo es lo unico que se lee. Por eso,
+al arrancar con el lazo activo y el sensor real, el Mega **mide el ambiente con
+las bobinas apagadas** (4 lecturas del vector x, y, z, unos 2,5 s) y de ahi en
+adelante el campo es |medido - ambiente|, restando el *vector* y no la
+magnitud (|B + A| - |A| solo vale |B| si B y A son paralelos). Rige igual en
+campo X y en campo nulo, y el mapa se calibra ya con esa medicion.
+La tara se **rechaza entera** (no se recorta ni se usa a medias) si las
+lecturas difieren mas de 10 uT en algun eje, si el ambiente pasa de 300 uT, si
+una lectura no es un numero o si no termina en 4 s: el arranque se aborta, se
+loguea `Tara del campo ambiente rechazada` y la pantalla Resultado muestra
+NO INICIO (arriba). Tampoco se tara con `control.enabled: false` (no se
+excita nada y la lectura cruda es lo que se quiere ver) ni con CEM1 en `sim` o
+`scenario` (ya no traen ambiente). Los tres umbrales salen de `control.tare`
+(tabla de la seccion 5) y viajan en `config_control` como `tareSamples`,
+`tareSpread`, `tareAmbient`; fuera de rango el Mega descarta ese valor entero y
+conserva el anterior (`TareLimits`, `fieldtare.hpp`). Los valores de fabrica
+(4 lecturas, 10 uT, 300 uT) son de partida y se verifican en banco con el
+log de la tara. Lo que **no** se configura es el vencimiento (4 s, constante
+`TareTiming::TimeoutMs`, por debajo del de la pantalla Procesando): por eso
+el tope de lecturas es 6 con la cadencia de fabrica de CEM1 (500 ms); si se
+sube `measureMagneticField`, menos lecturas.
+
+El generador avisa cuales combinaciones del menu quedan sin punto ("campo nulo
+no disponible para X mT / Y Hz") y cuales puntos del mapa no coinciden con
+ninguna combinacion. Los valores de fabrica son un mapa **vacio**: ningun duty
+ni balance se inventa, salen de la calibracion de banco (ver
+`docs/protocolo-calibracion-intensidad.md`).
+
+**Limitaciones conocidas** (mejoras futuras, no de esta version):
+
+- Una tarjeta **sin** mapa manda igual un unico `config_map` con `k = 0, n = 0`,
+  que le dice al Mega que vacie el que tuviera de una conexion anterior.
+- El MLX90393 entrega la magnitud sin signo, asi que el sistema no sabe de que
+  lado se desvia el campo nulo.
+- La tara del ambiente (abajo) supone que el ambiente no cambia durante la
+  corrida: si cambia (un equipo que se enciende cerca, mover la jaula), el
+  campo medido lo arrastra.
+- **Ajuste online del balance (opcion B).** Hoy el balance es fijo, el de la
+  calibracion. La mejora seria un ajuste en caliente: variar el delta de a
+  pasos chicos y quedarse con el sentido que baja |B|, que ahora dispone de
+  la tara del campo ambiente pero aun necesita filtrar la medicion. Se
+  descarto en esta version porque, sin signo en la medicion, el ajuste
+  perseguiria ruido y podria desbalancear los grupos justo durante el experimento.
 
 Esta seccion viaja al Mega2560 (ver seccion 10).
 
@@ -798,13 +921,14 @@ trajo. Por eso la configuracion se envia **fragmentada** y
 | Frame | Comando | Contenido |
 |---|---|---|
 | 1 | `config_intervals` | las 9 claves de `intervals.mega` |
-| 2 | `config_control` | las 4 claves de `control` |
+| 2 | `config_control` | las claves escalares de `control` (kp, maxStep, deadBand, balanceMax, enabled, tareSamples, tareSpread, tareAmbient) |
 | 3..6 | `config_coil` | un canal de `coils` cada uno (nombre, enabled, factor) |
 | 7..8 | `config_source` | la CABECERA de una fuente (nombre, enabled, sensor, bufferSize, maxMissedSamples, criticalMultiplier) |
 | 9..14 | `config_rule` | una regla de una fuente (`source`, `rule`, threshold, cooldown, maxEvents) |
 | 15..18 | `config_current` | un canal de `currentSensors` cada uno, identificado por (`address`, `channel`) |
 | 19 | `config_detector` | `enabled` (el interruptor general del Detector), solo si el archivo lo trae |
 | 20..21 | `config_scenario` | la senal sintetica de una fuente, con claves cortas, solo si el archivo la trae |
+| 22..30 | `config_map` | un punto de `control.map`: `k` (indice), `n` (cuantos trae la tarjeta), `i` intensidad, `f` frecuencia, `d` duty, `b` balance |
 
 Una fuente entera en un solo frame ronda los 290 caracteres con el envelope
 y **no entra**: de ahi la division cabecera + 3 reglas. Hay un test que lo
@@ -839,6 +963,7 @@ constexpr const char* ConfigRule      = "config_rule";
 constexpr const char* ConfigCurrent   = "config_current";
 constexpr const char* ConfigDetector  = "config_detector";
 constexpr const char* ConfigScenario  = "config_scenario";
+constexpr const char* ConfigMap       = "config_map";
 ```
 
 El `Engine::_configureSource()` que estaba comentado en `engine.hpp` **no se
@@ -849,8 +974,9 @@ experimento (ver 10.4).
 
 ### 10.4 Cuando se aplica cada seccion
 
-`intervals.mega`, `control` y `coils` se aplican **al recibirse**: pisan un
-valor y listo.
+`intervals.mega`, `control` (incluido `config_map`) y `coils` se aplican **al
+recibirse**: pisan un valor y listo. El mapa solo se *consulta* en el `start`,
+asi que no cambia nada de un experimento en curso.
 
 `detector.sources` y `detector.enabled` NO: se guardan (una plantilla por
 fuente, un booleano para el interruptor general) y se aplican al arrancar el

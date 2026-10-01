@@ -3,6 +3,8 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 
+#include "fieldtare.hpp"
+
 #define MAX_MAGNETOMETERS 10
 
 class IMagnetometer {
@@ -13,6 +15,15 @@ class IMagnetometer {
     virtual float getMagneticField() const = 0;
     virtual bool isValid() const = 0;
     virtual const char* getName() const = 0;
+
+    // Tara del campo ambiente (fieldtare.hpp). Solo un sensor que mide el
+    // vector real puede tararlo: los simulados y los escenarios generan un
+    // campo ya sin ambiente, asi que heredan estos no-op y supportsTare() en
+    // false. Engine solo pide tara a quien la soporta.
+    virtual bool supportsTare() const { return false; }
+    virtual void tareBegin(const TareConfig& config) {}
+    virtual void tareClear() {}
+    virtual TareStatus tareStatus() const { return TareStatus::Idle; }
 };
 
 class IMagnetometerListener {

@@ -55,7 +55,7 @@ function check(name, cond, extra){
 console.log("\n== 1. Defaults ==");
 T.validate();
 check("los defaults no producen ningun error", T.errors.length === 0, T.errors.join("\n       "));
-check("el unico aviso con defaults es CEM1 deshabilitada", T.warns.length === 1,
+check("los unicos avisos con defaults son CEM1 deshabilitada y campo nulo sin mapa", T.warns.length === 2,
       "avisos: " + T.warns.length + "\n       " + T.warns.join("\n       "));
 T.warns.forEach(w => console.log("       aviso: " + w.slice(0, 90) + "..."));
 
@@ -284,6 +284,100 @@ check("cargar conserva el broker del archivo", conCred.broker.server === "b.exam
 check("las filas de WiFi del formulario quedan completas", T.state.wifi.length === 5);
 check("abierto con doble clic (no embebido) el archivo lleva wifi y broker",
       "wifi" in conCred && "broker" in conCred);
+
+console.log("\n== Mapa de calibracion y campo nulo ==");
+const punto = (i, f, d, b) => ({ intensity: i, frequency: f, duty: d, balance: b });
+const completo = s => {
+  s.control.map = [punto(1, 10, 0.3, 0.05), punto(1, 50, 0.31, 0.04),
+                   punto(2, 10, 0.6, -0.03), punto(2, 50, 0.62, 0.02)];
+};
+reset(); completo(T.state); T.validate();
+check("un mapa completo no da errores ni el aviso de cobertura",
+      T.errors.length === 0 && !T.warns.some(w => w.includes("Campo nulo no disponible")),
+      T.errors.concat(T.warns).join(" | "));
+
+expectError("mas de 3 intensidades en el menu",
+  s => s.menus.fieldIntensity.push({label:"3 mT", value:3}, {label:"4 mT", value:4}), "no pasa de 3 x 3");
+expectError("mas de 3 frecuencias en el menu",
+  s => s.menus.frequency.push({label:"20 Hz", value:20}, {label:"30 Hz", value:30}), "no pasa de 3 x 3");
+check("3 intensidades y 3 frecuencias entran (9 combinaciones)", (() => {
+  reset();
+  T.state.menus.fieldIntensity.push({label:"3 mT", value:3});
+  T.state.menus.frequency.push({label:"20 Hz", value:20});
+  T.validate();
+  return !T.errors.some(e => e.includes("no pasa de 3 x 3"));
+})());
+expectError("mas de 9 puntos en el mapa",
+  s => { s.control.map = Array.from({length: 10}, (_, k) => punto(1 + k, 10, 0.3, 0)); }, "9 como maximo");
+expectError("punto con duty 0 (sin medir)",
+  s => { completo(s); s.control.map[0].duty = 0; }, "todavia sin medir");
+expectError("punto con duty mayor que 1",
+  s => { completo(s); s.control.map[0].duty = 1.2; }, "el duty tiene que ser mayor que 0");
+expectError("punto con intensidad 0",
+  s => { completo(s); s.control.map[0].intensity = 0; }, "la intensidad tiene que estar");
+expectError("balance mayor que balanceMax (el Mega rechazaria el arranque)",
+  s => { completo(s); s.control.map[0].balance = 0.3; }, "supera control.balanceMax");
+expectError("balance fuera del tope absoluto 0.5",
+  s => { completo(s); s.control.map[0].balance = 0.7; }, "entre -0.5 y 0.5");
+expectError("balanceMax fuera de 0..0.5",
+  s => { s.control.balanceMax = 0.9; }, "control.balanceMax tiene que estar");
+expectError("dos puntos para la misma combinacion",
+  s => { completo(s); s.control.map[1] = punto(1, 10, 0.4, 0.0); }, "Un punto por combinacion");
+expectWarn("combinaciones del menu sin punto: campo nulo no disponible",
+  s => { completo(s); s.control.map.pop(); }, "Campo nulo no disponible para 2 mT / 50 Hz");
+expectWarn("punto del mapa que no coincide con ningun menu",
+  s => { completo(s); s.control.map[0].intensity = 1.5; }, "no coinciden con ninguna combinacion");
+check("la frecuencia del mapa puede escribirse entera o con decimales (el firmware la lee como float)", (() => {
+  reset(); completo(T.state); T.state.control.map[0].frequency = 10.0; T.validate();
+  return T.errors.length === 0;
+})());
+check("el mapa sigue indexado por valor si se cambia el menu de frecuencias", (() => {
+  reset(); completo(T.state);
+  T.state.menus.frequency = [{label:"20 Hz", value:20}, {label:"50 Hz", value:50}];
+  T.validate();
+  return T.warns.some(w => w.includes("1 mT / 20 Hz")) && T.warns.some(w => w.includes("no coinciden"));
+})());
+check("'agregar las combinaciones que faltan' deja los puntos sin medir (duty 0) y no inventa valores", (() => {
+  reset(); T.state.control.map = [punto(1, 10, 0.3, 0.05)];
+  ctx.fillMapGaps();
+  const m = T.state.control.map;
+  return m.length === 4 && m.slice(1).every(p => p.duty === 0 && p.balance === 0);
+})());
+check("el mapa se serializa dentro de control y sobrevive a cargar el archivo", (() => {
+  reset(); completo(T.state);
+  const json = JSON.parse(JSON.stringify(T.buildJson()));
+  reset(); T.loadParsed(json);
+  return JSON.stringify(T.buildJson().control.map) === JSON.stringify(json.control.map) &&
+         T.buildJson().control.balanceMax === 0.2;
+})());
+check("un archivo sin mapa (anterior a esta clave) carga con balanceMax y mapa de fabrica", (() => {
+  reset(); T.loadParsed({ schemaVersion: 1, control: { enabled: true, kp: 0.1, maxStep: 0.05, deadBand: 0.01 } });
+  return T.state.control.balanceMax === 0.2 && Array.isArray(T.state.control.map) && T.state.control.map.length === 0;
+})());
+
+expectError("tare.samples fuera de rango",
+  s => { s.control.tare.samples = 9; }, "control.tare.samples");
+expectError("tare.samples con decimales (el Mega lo descartaria en silencio)",
+  s => { s.control.tare.samples = 4.5; }, "control.tare.samples");
+expectError("tare.maxSpread fuera de rango",
+  s => { s.control.tare.maxSpread = 0; }, "control.tare.maxSpread");
+expectError("tare.maxAmbient fuera de rango",
+  s => { s.control.tare.maxAmbient = 5000; }, "control.tare.maxAmbient");
+check("un archivo sin control.tare carga con los umbrales de fabrica", (() => {
+  reset(); T.loadParsed({ schemaVersion: 1, control: { enabled: true, kp: 0.1, maxStep: 0.05, deadBand: 0.01 } });
+  const t = T.state.control.tare;
+  return t.samples === 4 && t.maxSpread === 10 && t.maxAmbient === 300;
+})());
+check("un archivo con solo algunos umbrales de tara completa el resto", (() => {
+  reset(); T.loadParsed({ schemaVersion: 1, control: { tare: { maxSpread: 20 } } });
+  const t = T.state.control.tare;
+  return t.samples === 4 && t.maxSpread === 20 && t.maxAmbient === 300;
+})());
+check("los umbrales de tara se serializan dentro de control.tare", (() => {
+  reset(); T.state.control.tare.maxSpread = 25;
+  const j = JSON.parse(JSON.stringify(T.buildJson()));
+  return j.control.tare && j.control.tare.maxSpread === 25 && j.control.tare.samples === 4;
+})());
 
 console.log(fails === 0 ? "\nTODO OK\n" : "\n" + fails + " FALLA(S)\n");
 process.exit(fails ? 1 : 0);

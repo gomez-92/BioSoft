@@ -319,6 +319,39 @@ void test_setters_do_not_affect_each_other(void) {
     TEST_ASSERT_EQUAL_FLOAT(originalDeadBand, controller.deadBand());
 }
 
+// =====================================================================
+// preload: duty de partida (mapa de calibracion)
+// =====================================================================
+
+void test_preload_sets_the_starting_output(void) {
+    FieldController::Config cfg;
+    FieldController controller(cfg);
+    controller.setSetpoint(1.0f);
+    controller.preload(0.4f);
+
+    TEST_ASSERT_EQUAL_FLOAT(0.4f, controller.getOutput());
+    // Con el campo ya en el objetivo el lazo no mueve lo precargado.
+    TEST_ASSERT_EQUAL_FLOAT(0.4f, controller.update(1.0f));
+}
+
+void test_preload_is_clamped_to_the_output_limits(void) {
+    FieldController::Config cfg;
+    FieldController controller(cfg);
+
+    controller.preload(2.0f);
+    TEST_ASSERT_EQUAL_FLOAT(cfg.outputMax, controller.getOutput());
+    controller.preload(-1.0f);
+    TEST_ASSERT_EQUAL_FLOAT(cfg.outputMin, controller.getOutput());
+}
+
+void test_reset_discards_a_preload(void) {
+    FieldController::Config cfg;
+    FieldController controller(cfg);
+    controller.preload(0.4f);
+    controller.reset();
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, controller.getOutput());
+}
+
 int main(int argc, char** argv) {
     UNITY_BEGIN();
 
@@ -349,6 +382,10 @@ int main(int argc, char** argv) {
     RUN_TEST(test_setDeadBand_applies_valid_value_including_zero);
     RUN_TEST(test_setDeadBand_rejects_negative);
     RUN_TEST(test_setters_do_not_affect_each_other);
+
+    RUN_TEST(test_preload_sets_the_starting_output);
+    RUN_TEST(test_preload_is_clamped_to_the_output_limits);
+    RUN_TEST(test_reset_discards_a_preload);
 
     return UNITY_END();
 }

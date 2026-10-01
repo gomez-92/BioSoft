@@ -279,6 +279,78 @@ tratado sin que nadie lo sepa.
 > mitad de una corrida cambiaría la condición experimental de animales ya
 > expuestos.
 
+## 7.1 Paso 5 — Mapa campo, duty y balance (`control.map`)
+
+Los pasos 1 a 4 calibran el *lazo*. Este paso deja medido, **para cada
+combinación de intensidad y frecuencia que ofrece el menú**, desde qué duty
+arrancar y cómo balancear los dos grupos de bobinas en campo nulo. Es lo que
+consume `control.map` (`docs/config-schema.md`, sección 5).
+
+**Cuántos puntos.** Uno por combinación intensidad x frecuencia de los menús de
+la tarjeta, con un tope de 3 intensidades y 3 frecuencias: 9 puntos como
+máximo. Si los menús cambian, el mapa se rehace solo para las combinaciones
+nuevas; el generador avisa cuáles quedaron sin punto.
+
+**Para cada combinación:**
+
+1. **Duty en campo X.** Con el lazo cerrado, modo **campo X** y las bobinas
+   montadas como van en el experimento, dejar que el campo converja al
+   objetivo (paso 4) y anotar el duty común estable. Ese es `duty`. A partir de
+   la tarjeta, el experimento arranca con ese duty ya aplicado y el lazo solo
+   corrige. (Conviene promediar varios minutos: el duty en equilibrio tiene un
+   poco de rizado.)
+2. **Balance `balance` en campo nulo.** Con modo **nulo**, cargar ese `duty` en
+   el punto con `balance: 0` y arrancar: el Mega excita con el duty fijo, sin
+   lazo, y el campo medido es el residual. Subir o bajar `balance` (de a
+   0,01 a 0,02) hasta minimizar |B|. El signo importa: **positivo** da más
+   amplitud a las bobinas 1 y 3 (grupo directo) y menos a las 2 y 4 (grupo del
+   mux); si el residual crece, probar el signo contrario. Anotar el balance
+   que da el mínimo.
+3. Cargar `duty` y `balance` en `control.map` y repetir con la siguiente
+   combinación.
+
+**El balance no se transfiere entre puntos.** Cambia con la intensidad y con la
+frecuencia, así que cada combinación se mide por separado. Usar el de una
+combinación en otra deja un grupo ganando sobre el otro.
+
+**Criterio de aceptación.** En campo nulo, el campo medido tiene que quedar
+dentro de la banda que arma el Mega: **±tol% de la intensidad elegida**, centrada
+en 0. Si no entra, el firmware cortará la corrida como crítica por campo
+fuera de rango: revisar el balance, o la etapa de fase (ADR-001).
+
+**Límites que hay que conocer.**
+
+- **Campo ambiente: ya se descuenta.** Es de ~0,025 a 0,065 mT. Al arrancar,
+  con las bobinas apagadas, el Mega mide el ambiente (el log dice `tara OK:
+  ambiente = ... uT`) y de ahí en adelante todo lo que lee `FieldController`,
+  el Detector y la pantalla es |medido - ambiente|. Por eso el mapa de este paso
+  se mide **con la tara puesta**: dejar la jaula, los cables y el equipo del
+  laboratorio como van en el experimento *antes* de arrancar, y no tocar nada
+  durante los ~2,5 s de la tara. Si la tara se rechaza (`Tara del campo ambiente
+  rechazada`), la corrida no arranca y la pantalla Resultado muestra NO INICIO
+  con el motivo (REPETIR queda disponible): revisar que nada se mueva y que no haya
+  una fuente de campo cerca del sensor.
+- **La tara supone un ambiente constante.** Si durante la corrida cambia el
+  campo de fondo (un equipo que se enciende cerca), el desvío entra en la
+  medición. Para juzgar un mínimo de balance conviene repetir con el entorno
+  quieto.
+- **Verificar los umbrales de la tara en banco** (`control.tare` de la tarjeta:
+  dispersión máxima 10 uT, 4 lecturas, ambiente máximo 300 uT; se cambian con
+  el generador, sin reflashear). Con el sensor montado y todo quieto, el log de la
+  tara informa la dispersión máxima: si ronda los 10 uT hay que revisar el
+  montaje o subir el umbral.
+- **El MLX90393 entrega la magnitud sin signo.** Sirve para minimizar |B|, pero
+  no dice de qué lado está el desbalance: el signo de `balance` se encuentra
+  probando.
+- **|balance| tiene que ser ≤ `control.balanceMax`** (por defecto 0,2). Si un
+  punto lo supera, el Mega rechaza el arranque de campo nulo en vez de
+  recortarlo. Subir `balanceMax` solo si el desbalance físico lo justifica
+  (el tope absoluto es 0,5).
+- **Ajuste online (mejora futura).** Hoy el balance es fijo, el medido acá. Un
+  ajuste en caliente (variar el delta y quedarse con el sentido que baja |B|)
+  requeriría además filtrar la medición (la tara del ambiente ya existe); queda
+  como mejora.
+
 ## 8. Qué queda registrado
 
 Al terminar, estos valores tienen que quedar asentados **y cargados en
@@ -288,6 +360,8 @@ Al terminar, estos valores tienen que quedar asentados **y cargados en
 |---|---|
 | `kp`, `maxStep`, `deadBand` | `control` |
 | Los 4 factores `f_i` | `coils[].calibrationFactor` |
+| `duty` y `balance` de cada combinación intensidad x frecuencia | `control.map` |
+| `balanceMax` elegido y por qué | `control.balanceMax` |
 | `K` medido y si resultó lineal | bitácora (el firmware no lo usa) |
 | El `α` usado y la bobina de referencia | bitácora |
 | Posición del sensor y fecha | bitácora |
@@ -304,6 +378,10 @@ consume el firmware, pero es de donde sale `kp`: sin registrarlo, recalcular
 - Si se modifica la etapa de potencia (amplificador, filtro, alimentación).
 - Si se cambia la frecuencia de trabajo, en caso de que la respuesta de la
   etapa dependa de ella.
+- Si se agrega una intensidad o una frecuencia a los menús: la combinación
+  nueva no tiene punto en el mapa y, sin él, el campo nulo se rechaza.
+- Si cambia cualquiera de los factores `f_i`: el `duty` común del mapa se midió
+  con los factores de ese momento.
 
 Un factor que vuelve a 1,0 en el archivo, por la razón que sea, no es un valor
 neutro: es una bobina sin compensar.

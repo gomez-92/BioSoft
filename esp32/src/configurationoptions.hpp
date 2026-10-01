@@ -25,6 +25,14 @@ namespace ConfigurationOptions {
   constexpr uint8_t MaxOptions = 8;
   constexpr uint8_t MaxLabelLength = 16;   // 15 caracteres + terminador
 
+  // Intensidad y frecuencia tienen un tope MAS BAJO que el resto, porque cada
+  // combinacion (intensidad x frecuencia) necesita un punto en el mapa de
+  // calibracion del Mega (controlmap.hpp): el campo nulo se rechaza sin el.
+  // 3 x 3 = 9 puntos como maximo es lo que se acordo calibrar en banco y lo
+  // que cabe en la RAM del Mega. Duplicado en ControlMap::MaxPoints.
+  constexpr uint8_t MaxFieldIntensityOptions = 3;
+  constexpr uint8_t MaxFrequencyOptions = 3;
+
   struct OptionFieldIntensity { char label[MaxLabelLength]; float intensity; };
   struct OptionFrequency { char label[MaxLabelLength]; int freq; };
   struct OptionDuration { char label[MaxLabelLength]; unsigned long duration; };

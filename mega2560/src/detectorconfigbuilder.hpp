@@ -126,6 +126,21 @@ namespace DetectorConfigBuilder {
     config.normalMax   = cemTarget * (1.0f + cemTol / 100.0f);
   }
 
+  // CEM1 en CAMPO NULO: el objetivo es 0, asi que la banda no se puede
+  // derivar multiplicando el target (daria un rango de ancho cero). Se
+  // mantiene la tolerancia del operador, pero medida sobre la INTENSIDAD que
+  // eligio (1 mT al 5% => +-0.05 mT alrededor de 0), no sobre el cero. El
+  // magnetometro entrega modulo (sin signo), asi que en la practica solo
+  // cuenta el borde superior; la banda se arma simetrica igual para que el
+  // rango sea el que describe el contrato.
+  inline void applyCemNullRanges(SourceConfig& config, float chosenIntensity, int cemTol, float criticalMultiplier) {
+    float band = chosenIntensity * cemTol / 100.0f;
+    config.normalMin   = -band;
+    config.normalMax   =  band;
+    config.criticalMin = -criticalMultiplier * band;
+    config.criticalMax =  criticalMultiplier * band;
+  }
+
   // TEMP1: los rangos vienen tal cual de los parametros del comando start
   // (los dos combos de temperatura de la pantalla), sin derivacion.
   inline void applyTempRanges(SourceConfig& config, float normalMin, float normalMax, float criticalMin, float criticalMax) {

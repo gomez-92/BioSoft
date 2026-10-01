@@ -67,6 +67,11 @@ class FieldController {
     float update(float measuredField);
     float getOutput() const;
     void reset();
+    // Duty de partida: el que el mapa de calibracion (controlmap.hpp) dice que
+    // da la intensidad pedida. Sin esto el lazo arranca en 0 y tarda en subir
+    // hasta donde ya se sabe que hay que estar; con esto solo ajusta el
+    // residuo. Se llama despues de reset(), que lo pondria en 0.
+    void preload(float output);
 
     // Setters de calibracion, para pisar Config despues de construido el
     // objeto -- lo usa Engine al aplicar la seccion `control` que llega por
@@ -188,6 +193,10 @@ inline void FieldController::reset() {
   for (uint8_t i = 0; i < MAX_WINDOW_SIZE; i++) {
     _window[i] = 0.0f;
   }
+}
+
+inline void FieldController::preload(float output) {
+  _output = clamp(output, _config.outputMin, _config.outputMax);
 }
 
 inline void FieldController::updateWindow(float value) {

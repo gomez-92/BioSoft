@@ -375,6 +375,58 @@ void test_lifting_the_inhibit_lets_enableAll_work_again(void) {
     TEST_ASSERT_FALSE(channels.outputsInhibited());
 }
 
+// =====================================================================
+// Balance entre grupos de fase (campo nulo)
+// =====================================================================
+
+void test_balance_boosts_fixed_group_and_trims_invertible_group(void) {
+    PwmDriver pwm1(PwmPin1);
+    PwmDriver pwm2(PwmPin2);
+    CoilChannel fixed(pwm1, EnablePin1, "BOB1", HIGH, CoilGroup::Fixed);
+    CoilChannel inv(pwm2, EnablePin2, "BOB2", HIGH, CoilGroup::Invertible);
+    CoilChannels channels;
+    channels.addChannel(&fixed);
+    channels.addChannel(&inv);
+    channels.enableAll();
+
+    TEST_ASSERT_TRUE(channels.setBalance(0.1f));
+    channels.writeAll(0.5f);   // fijo 0.55 -> 140, invertible 0.45 -> 114
+
+    Verify(Method(ArduinoFake(), analogWrite).Using(PwmPin1, 140)).AtLeast(1);
+    Verify(Method(ArduinoFake(), analogWrite).Using(PwmPin2, 114)).AtLeast(1);
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.55f, fixed.appliedDuty());
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.45f, inv.appliedDuty());
+}
+
+void test_zero_balance_leaves_both_groups_equal(void) {
+    PwmDriver pwm1(PwmPin1);
+    PwmDriver pwm2(PwmPin2);
+    CoilChannel fixed(pwm1, EnablePin1, "BOB1", HIGH, CoilGroup::Fixed);
+    CoilChannel inv(pwm2, EnablePin2, "BOB2", HIGH, CoilGroup::Invertible);
+    CoilChannels channels;
+    channels.addChannel(&fixed);
+    channels.addChannel(&inv);
+    channels.enableAll();
+
+    channels.writeAll(0.5f);
+
+    TEST_ASSERT_EQUAL_FLOAT(fixed.appliedDuty(), inv.appliedDuty());
+}
+
+void test_balance_outside_the_cap_is_rejected_and_keeps_the_previous(void) {
+    CoilChannels channels;
+    TEST_ASSERT_TRUE(channels.setBalance(0.1f));
+    TEST_ASSERT_FALSE(channels.setBalance(CoilChannels::MaxBalance + 0.1f));
+    TEST_ASSERT_FALSE(channels.setBalance(-CoilChannels::MaxBalance - 0.1f));
+    TEST_ASSERT_EQUAL_FLOAT(0.1f, channels.balance());
+}
+
+void test_default_group_is_fixed(void) {
+    PwmDriver pwm(PwmPin1);
+    CoilChannel channel(pwm, EnablePin1, "BOB1");
+    TEST_ASSERT_TRUE(channel.group() == CoilGroup::Fixed);
+}
+
 int main(int argc, char** argv) {
     UNITY_BEGIN();
 
@@ -404,6 +456,11 @@ int main(int argc, char** argv) {
     RUN_TEST(test_findByName_returns_matching_channel);
     RUN_TEST(test_findByName_returns_null_when_not_found);
     RUN_TEST(test_findByName_returns_null_with_no_channels);
+
+    RUN_TEST(test_balance_boosts_fixed_group_and_trims_invertible_group);
+    RUN_TEST(test_zero_balance_leaves_both_groups_equal);
+    RUN_TEST(test_balance_outside_the_cap_is_rejected_and_keeps_the_previous);
+    RUN_TEST(test_default_group_is_fixed);
 
     return UNITY_END();
 }

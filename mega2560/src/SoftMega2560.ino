@@ -216,9 +216,9 @@ PwmDriver pwmCoil4(COIL4_PWM_PIN, 3906);
 // ejercitar los dos modos; con 1 y 2 en el mismo grupo, el campo nulo no
 // seria probable hasta tener las 4 montadas.
 CoilChannel coil1(pwmCoil1, COIL1_ENABLE_PIN, "BOB1");  // grupo fijo
-CoilChannel coil2(pwmCoil2, COIL2_ENABLE_PIN, "BOB2");  // grupo invertible
+CoilChannel coil2(pwmCoil2, COIL2_ENABLE_PIN, "BOB2", HIGH, CoilGroup::Invertible);  // grupo invertible
 CoilChannel coil3(pwmCoil3, COIL3_ENABLE_PIN, "BOB3");  // grupo fijo
-CoilChannel coil4(pwmCoil4, COIL4_ENABLE_PIN, "BOB4");  // grupo invertible
+CoilChannel coil4(pwmCoil4, COIL4_ENABLE_PIN, "BOB4", HIGH, CoilGroup::Invertible);  // grupo invertible
 CoilChannels coilChannels;
 // Parametros del regulador de intensidad. Este es el UNICO lugar donde se
 // fijan: cuando la configuracion por SD este implementada (ver

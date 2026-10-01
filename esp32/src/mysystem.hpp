@@ -69,10 +69,10 @@ class MySystem :
     // y reenviados por Tasks::ReSendConfig hasta que cada uno tenga su ack
     // (docs/config-schema.md seccion 10). Tope: 1 (intervals) + 1 (control)
     // + 1 (detector) + 4 (coils) + 2 (sources) + 6 (3 reglas x 2 fuentes)
-    // + 2 (escenarios) + 4 (canales de corriente) = 21.
+    // + 2 (escenarios) + 4 (canales de corriente) + 9 (puntos del mapa) = 30.
     static constexpr uint8_t MaxPendingConfigFrames =
       3 + ConfigLoader::MaxCoils + ConfigLoader::MaxDetectorSources * 5
-      + ConfigLoader::MaxCurrentSensors;
+      + ConfigLoader::MaxCurrentSensors + ConfigLoader::MaxMapPoints;
     struct PendingConfigFrame {
       bool active = false;
       const char* command = nullptr;
@@ -115,6 +115,7 @@ class MySystem :
     bool _sendConfigFrame(const char* command, JsonDocument& doc, const char* key);
     void _buildConfigIntervalsDoc(JsonDocument& doc);
     void _buildConfigControlDoc(JsonDocument& doc);
+    void _buildConfigMapDoc(JsonDocument& doc, uint8_t index);
     void _buildConfigCoilDoc(JsonDocument& doc, const ConfigLoader::CoilConfig& coil);
     void _buildConfigSourceDoc(JsonDocument& doc, const ConfigLoader::SourceConfigEntry& source);
     void _buildConfigScenarioDoc(JsonDocument& doc, const ConfigLoader::SourceConfigEntry& source);
@@ -528,6 +529,33 @@ inline void MySystem::_buildConfigControlDoc(JsonDocument& doc) {
   if (control.hasKp) doc["kp"] = control.kp;
   if (control.hasMaxStep) doc["maxStep"] = control.maxStep;
   if (control.hasDeadBand) doc["deadBand"] = control.deadBand;
+  if (control.hasBalanceMax) doc["balanceMax"] = control.balanceMax;
+  // Umbrales de la tara: claves planas aca (el frame no anida), `control.tare`
+  // en la tarjeta.
+  if (control.hasTareSamples) doc["tareSamples"] = control.tareSamples;
+  if (control.hasTareSpread) doc["tareSpread"] = control.tareSpread;
+  if (control.hasTareAmbient) doc["tareAmbient"] = control.tareAmbient;
+  // `enabled` se leia de la SD pero nunca llegaba al Mega: control.enabled
+  // = false no tenia efecto. Va en el mismo frame que el resto del control.
+  if (control.hasEnabled) doc["enabled"] = control.enabled;
+}
+
+// Un punto del mapa de calibracion. Claves cortas por el presupuesto del
+// frame (test_config_map_fits_with_every_key): k indice, n cuantos puntos
+// trae la tarjeta, i intensidad, f frecuencia, d duty, b balance.
+inline void MySystem::_buildConfigMapDoc(JsonDocument& doc, uint8_t index) {
+  const auto& control = ConfigLoader::controlConfig();
+  doc["k"] = index;
+  doc["n"] = control.mapCount;
+  // Tarjeta sin mapa: el frame es solo k=0, n=0, y le dice al Mega que vacie
+  // el que tuviera de antes (si no, el campo nulo correria con puntos que
+  // esta tarjeta no dice).
+  if (control.mapCount == 0) return;
+  const ConfigLoader::ControlMapPoint& point = control.map[index];
+  doc["i"] = point.intensity;
+  doc["f"] = point.frequency;
+  doc["d"] = point.duty;
+  doc["b"] = point.balance;
 }
 
 inline void MySystem::_buildConfigCoilDoc(JsonDocument& doc, const ConfigLoader::CoilConfig& coil) {
@@ -664,6 +692,16 @@ inline void MySystem::_sendMegaConfig() {
     }
   }
 
+  // Los puntos del mapa de calibracion se identifican por su indice.
+  const ConfigLoader::ControlConfig& controlCfg = ConfigLoader::controlConfig();
+  // Sin puntos va igual UN frame (k=0, n=0): vacia el mapa del Mega.
+  uint8_t mapFrames = controlCfg.mapCount == 0 ? 1 : controlCfg.mapCount;
+  for (uint8_t i = 0; i < mapFrames; i++) {
+    char key[ConfigurationOptions::MaxLabelLength];
+    snprintf(key, sizeof(key), "%u", i);
+    _registerPendingConfig(Commands::ConfigMap, key);
+  }
+
   // La clave de un canal de corriente es "<address>/<channel>": el Mega
   // matchea por esas dos, no por nombre, y las devuelve en el ack.
   uint8_t currentCount = ConfigLoader::currentSensorConfigCount();
@@ -743,6 +781,13 @@ inline void MySystem::_resendPendingConfig() {
       const ConfigLoader::RuleConfig* rule = _findRuleConfig(*source, separator + 1);
       if (rule == nullptr) continue;
       _buildConfigRuleDoc(doc, source->name, separator + 1, *rule);
+    }
+    else if (strcmp(command, Commands::ConfigMap) == 0) {
+      // key es el indice del punto
+      uint8_t index = (uint8_t)atoi(key);
+      uint8_t mapCount = ConfigLoader::controlConfig().mapCount;
+      if (index >= (mapCount == 0 ? 1 : mapCount)) continue;
+      _buildConfigMapDoc(doc, index);
     }
     else if (strcmp(command, Commands::ConfigCurrent) == 0) {
       // key es "<address>/<channel>"
@@ -1089,6 +1134,11 @@ inline void MySystem::onCommand(const char* command, JsonVariantConst params) {
               || strcmp(ack, Commands::ConfigScenario) == 0) {
         _cancelPendingConfig(ack, params["name"] | "");
       }
+      else if(strcmp(ack, Commands::ConfigMap) == 0) {
+        char key[ConfigurationOptions::MaxLabelLength];
+        snprintf(key, sizeof(key), "%d", params["k"] | -1);
+        _cancelPendingConfig(ack, key);
+      }
       else if(strcmp(ack, Commands::ConfigCurrent) == 0) {
         char key[ConfigurationOptions::MaxLabelLength];
         snprintf(key, sizeof(key), "%u/%u",
@@ -1260,7 +1310,11 @@ inline void MySystem::_applyResult(const char* reason, const char* description, 
   _data.result.count = 0;
   _data.result.limit = 0;
   _data.result.fromEmergency = false;
+  _data.result.cause[0] = '\0';
 
+  if (params["cause"].is<const char*>()) {
+    snprintf(_data.result.cause, sizeof(_data.result.cause), "%s", params["cause"].as<const char*>());
+  }
   if (params["source"].is<const char*>()) {
     snprintf(_data.result.source, sizeof(_data.result.source), "%s", params["source"].as<const char*>());
   }
@@ -1282,9 +1336,31 @@ inline void MySystem::_applyResult(const char* reason, const char* description, 
   _data.result.meanMagneticField = _data.meanMagneticField();
   _data.result.alertCount = _data.activeAlertCount();
 
-  // Se publica DESPUES de armar el snapshot completo: el mensaje lleva el
-  // progreso y el transcurrido congelados, no los getters en vivo.
-  _publishResult();
+  // Start rechazado: el experimento termino antes de empezar. Los getters
+  // de arriba leyeron el progreso de la corrida ANTERIOR (startTime y
+  // duration siguen siendo los suyos), asi que se ponen a cero a mano.
+  // Tampoco se publica: sin un targets previo, el monitor web armaria con
+  // este result una corrida huerfana de un experimento que nunca existio.
+  bool refused = strcmp(reason, "refused") == 0;
+  if (refused) {
+    _data.result.progressPercent = 0.0f;
+    snprintf(_data.result.elapsed, sizeof(_data.result.elapsed), "00:00:00");
+    _data.result.elapsedSeconds = 0;
+    _data.result.hasMeanMagneticField = false;
+    _data.result.meanMagneticField = 0.0f;
+    _data.result.alertCount = 0;
+
+    // El Mega sigue en Ready: se cierra aca la espera del start. Sin esto el
+    // estado quedaria en Starting y el reenvio de start vivo.
+    if (strcmp(_data.getState(), StateData::Starting) == 0) {
+      _data.setState(StateData::Ready);
+    }
+  }
+  else {
+    // Se publica DESPUES de armar el snapshot completo: el mensaje lleva el
+    // progreso y el transcurrido congelados, no los getters en vivo.
+    _publishResult();
+  }
 
   DEBUG_PRINT(DEBUG_MYSYSTEM, F("[RESULT] reason="));
   DEBUG_PRINT(DEBUG_MYSYSTEM, reason);

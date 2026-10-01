@@ -5,6 +5,7 @@
 #include <Adafruit_MLX90393.h>
 
 #include "magnetometermanager.hpp"
+#include "fieldtare.hpp"
 #include "debugconfig.hpp"
 
 // Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
@@ -25,6 +26,12 @@ private:
 
     bool _isValid;
 
+    // Ambiente medido con las bobinas apagadas, que se descuenta del
+    // vector leido (fieldtare.hpp). Sin tara lista, el campo es el total.
+    FieldTare _tare;
+
+    void logTareOutcome(TareStatus before) const;
+
 public:
     MagnetometerMlx90393(const char* name, uint8_t address = 0x0C);
     void begin() override;
@@ -33,6 +40,11 @@ public:
     float getMagneticField() const override;
     bool isValid() const override;
     const char* getName() const override;
+
+    bool supportsTare() const override { return true; }
+    void tareBegin(const TareConfig& config) override;
+    void tareClear() override;
+    TareStatus tareStatus() const override;
 
     float getX() const;
     float getY() const;
@@ -80,7 +92,14 @@ inline void MagnetometerMlx90393::update() {
         // DetectorConfigBuilder) trabaja en mT, asi que se convierte aca antes
         // de que el valor salga de esta clase. Sin esta conversion el sensor
         // real reportaria ~1000x lo que el resto del sistema espera.
-        float magneticFieldUt = sqrtf(_x * _x + _y * _y + _z * _z);
+        // Con la tara lista se descuenta el ambiente del VECTOR antes de
+        // sacar la magnitud (ver fieldtare.hpp); sin ella, es el campo total.
+        TareStatus before = _tare.status();
+        if (before == TareStatus::Collecting) {
+            _tare.addSample(_x, _y, _z);
+            logTareOutcome(before);
+        }
+        float magneticFieldUt = _tare.apply(_x, _y, _z);
         _magneticField = magneticFieldUt / 1000.0f;
         _isValid = true;
 
@@ -101,6 +120,41 @@ inline void MagnetometerMlx90393::update() {
         _isValid = false;
         DEBUG_PRINTLN(DEBUG_MAGNETOMETER_MLX90393, F("[MLX90393] readData() fallo"));
     }
+}
+
+inline void MagnetometerMlx90393::logTareOutcome(TareStatus before) const {
+    TareStatus after = _tare.status();
+    if (after == before || after == TareStatus::Collecting) return;
+    if (after == TareStatus::Ready) {
+        DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, F("[MLX90393] tara OK: ambiente = "));
+        DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, _tare.ambientMagnitude(), 2);
+        DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, F(" uT (x="));
+        DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, _tare.ambientX(), 2);
+        DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, F(" y="));
+        DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, _tare.ambientY(), 2);
+        DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, F(" z="));
+        DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, _tare.ambientZ(), 2);
+        DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, F("), dispersion max = "));
+        DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, _tare.worstSpread(), 2);
+        DEBUG_PRINTLN(DEBUG_MAGNETOMETER_MLX90393, F(" uT"));
+    } else {
+        DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, F("[MLX90393] tara RECHAZADA: dispersion = "));
+        DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, _tare.worstSpread(), 2);
+        DEBUG_PRINTLN(DEBUG_MAGNETOMETER_MLX90393, F(" uT, o ambiente fuera de rango (se movio algo, o hay una fuente de campo cerca)"));
+    }
+}
+
+inline void MagnetometerMlx90393::tareBegin(const TareConfig& config) {
+    _tare.begin(config);
+    DEBUG_PRINTLN(DEBUG_MAGNETOMETER_MLX90393, F("[MLX90393] tara: juntando lecturas del ambiente (bobinas apagadas)"));
+}
+
+inline void MagnetometerMlx90393::tareClear() {
+    _tare.clear();
+}
+
+inline TareStatus MagnetometerMlx90393::tareStatus() const {
+    return _tare.status();
 }
 
 inline float MagnetometerMlx90393::getMagneticField() const {

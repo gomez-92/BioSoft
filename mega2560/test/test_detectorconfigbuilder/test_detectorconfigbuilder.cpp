@@ -201,6 +201,41 @@ void test_applying_ranges_does_not_touch_the_rules(void) {
     TEST_ASSERT_EQUAL_UINT16(4, config.frequency.maxEvents);
 }
 
+// =====================================================================
+// applyCemNullRanges: campo nulo, banda centrada en 0
+// =====================================================================
+
+void test_applyCemNullRanges_centres_the_band_on_zero_keeping_tol_of_the_chosen_field(void) {
+    SourceConfig config = DetectorConfigBuilder::defaultConfig();
+
+    DetectorConfigBuilder::applyCemNullRanges(config, 2.0f, 5, 1.25f);
+
+    // normal: +-5% de 2.0 = +-0.10 alrededor de 0
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, -0.10f, config.normalMin);
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.10f, config.normalMax);
+    // critico: +-6.25% de 2.0 = +-0.125
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, -0.125f, config.criticalMin);
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.125f, config.criticalMax);
+}
+
+void test_applyCemNullRanges_keeps_the_critical_band_wider_than_the_normal(void) {
+    SourceConfig config = DetectorConfigBuilder::defaultConfig();
+
+    DetectorConfigBuilder::applyCemNullRanges(config, 1.0f, 10, 2.0f);
+
+    TEST_ASSERT_TRUE(config.criticalMin < config.normalMin);
+    TEST_ASSERT_TRUE(config.criticalMax > config.normalMax);
+}
+
+void test_applyCemNullRanges_keeps_the_template_rules(void) {
+    SourceConfig config = DetectorConfigBuilder::defaultConfig();
+    config.critical.threshold = 9;
+
+    DetectorConfigBuilder::applyCemNullRanges(config, 2.0f, 5, 1.25f);
+
+    TEST_ASSERT_EQUAL_UINT16(9, config.critical.threshold);
+}
+
 int main(int argc, char** argv) {
     UNITY_BEGIN();
 
@@ -223,6 +258,10 @@ int main(int argc, char** argv) {
     RUN_TEST(test_applyCemRanges_keeps_critical_band_wider_than_normal);
     RUN_TEST(test_applyTempRanges_copies_the_operator_values_verbatim);
     RUN_TEST(test_applying_ranges_does_not_touch_the_rules);
+
+    RUN_TEST(test_applyCemNullRanges_centres_the_band_on_zero_keeping_tol_of_the_chosen_field);
+    RUN_TEST(test_applyCemNullRanges_keeps_the_critical_band_wider_than_the_normal);
+    RUN_TEST(test_applyCemNullRanges_keeps_the_template_rules);
 
     return UNITY_END();
 }

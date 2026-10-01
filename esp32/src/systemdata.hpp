@@ -90,6 +90,10 @@ struct ResultData {
   uint16_t limit = 0;
   // Con reason == "stopped": si vino del pulsador fisico de emergencia.
   bool fromEmergency = false;
+  // Con reason == "refused" (el start no pudo arrancar, ni siquiera hubo
+  // experimento): codigo de la causa -- "nomap", "balance", "tare" o
+  // "taretime". La pantalla redacta el texto con esto.
+  char cause[12] = "";
 };
 
 // Bobinas que muestra la pantalla En curso, una fila por cada una. Es el

@@ -254,6 +254,28 @@ void test_resultdata_fits_with_critical_fields(void) {
     TEST_ASSERT_TRUE(survivesTransport(Commands::ResultData, doc));
 }
 
+// result_data de un start rechazado: el experimento termino antes de
+// empezar y la pantalla Resultado redacta el texto con `cause`. Si el frame
+// llegara truncado, la ESP32 mostraria un rechazo sin causa.
+void test_resultdata_fits_with_refused_cause(void) {
+    JsonDocument doc;
+    doc["reason"] = "refused";
+    doc["description"] = "Campo nulo sin punto en el mapa";
+    doc["cause"] = "taretime";   // el codigo mas largo
+
+    TEST_ASSERT_TRUE(survivesTransport(Commands::ResultData, doc));
+}
+
+// config_map de una tarjeta sin mapa: k=0, n=0 y nada mas. Le dice al Mega
+// que vacie el que tenia de una conexion anterior.
+void test_config_map_fits_when_the_card_has_no_map(void) {
+    JsonDocument doc;
+    doc["k"] = 0;
+    doc["n"] = 0;
+
+    TEST_ASSERT_TRUE(survivesTransport(Commands::ConfigMap, doc));
+}
+
 // coil_data lleva duty Y corriente de las 4 bobinas en un solo frame. El
 // caso peor es el de arriba: 8 claves con el valor mas largo que el Engine
 // puede producir despues de redondear (100.0 de duty, corrientes de dos
@@ -306,6 +328,50 @@ void test_every_command_name_fits_in_the_command_field(void) {
     TEST_ASSERT_LESS_THAN(MAX_COMMAND_SIZE, strlen(Commands::ConfigScenario) + 1);
 }
 
+// config_map: un punto del mapa de calibracion (k, n, intensidad,
+// frecuencia, duty, balance). Con los valores mas anchos que admite el
+// esquema; si se truncara, llegaria un punto sin balance o sin duty.
+void test_config_map_fits_with_every_key(void) {
+    JsonDocument doc;
+    doc["k"] = 7;
+    doc["n"] = 8;
+    doc["i"] = 100.123456f;
+    doc["f"] = 1000.123456f;
+    doc["d"] = 0.123456f;
+    doc["b"] = -0.123456f;
+
+    TEST_ASSERT_TRUE(survivesTransport(Commands::ConfigMap, doc));
+}
+
+// config_control con la clave nueva: el tope del balance viaja junto a las
+// otras ganancias y el frame sigue entrando.
+void test_config_control_fits_with_balance_max(void) {
+    JsonDocument doc;
+    doc["kp"] = 0.123456f;
+    doc["maxStep"] = 0.123456f;
+    doc["deadBand"] = 0.123456f;
+    doc["balanceMax"] = 0.123456f;
+    doc["enabled"] = true;
+
+    TEST_ASSERT_TRUE(survivesTransport(Commands::ConfigControl, doc));
+}
+
+// Y con los tres umbrales de la tara: si el frame no entrara, la tarjeta
+// perderia claves en silencio (serializeJson trunca con CRC valido).
+void test_config_control_fits_with_tare_thresholds(void) {
+    JsonDocument doc;
+    doc["kp"] = 0.123456f;
+    doc["maxStep"] = 0.123456f;
+    doc["deadBand"] = 0.123456f;
+    doc["balanceMax"] = 0.123456f;
+    doc["tareSamples"] = 6;
+    doc["tareSpread"] = 100.123456f;
+    doc["tareAmbient"] = 1000.123456f;
+    doc["enabled"] = true;
+
+    TEST_ASSERT_TRUE(survivesTransport(Commands::ConfigControl, doc));
+}
+
 int main(int argc, char** argv) {
     UNITY_BEGIN();
 
@@ -329,6 +395,12 @@ int main(int argc, char** argv) {
     RUN_TEST(test_coildata_fits_with_four_coils);
 
     RUN_TEST(test_every_command_name_fits_in_the_command_field);
+
+    RUN_TEST(test_config_map_fits_with_every_key);
+    RUN_TEST(test_resultdata_fits_with_refused_cause);
+    RUN_TEST(test_config_map_fits_when_the_card_has_no_map);
+    RUN_TEST(test_config_control_fits_with_balance_max);
+    RUN_TEST(test_config_control_fits_with_tare_thresholds);
 
     return UNITY_END();
 }

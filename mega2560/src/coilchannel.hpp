@@ -9,6 +9,14 @@
 // el interruptor maestro).
 constexpr bool DEBUG_COILCHANNEL = true;
 
+// Grupo de fase al que pertenece una bobina (cableado, no software): el
+// FIJO recibe la senoidal directa, el INVERTIBLE la que pasa por el mux de
+// CoilExcitation (en fase con el otro en campo X, a 180 grados en campo
+// nulo). Software solo lo necesita para el BALANCE del campo nulo: en esa
+// condicion los dos grupos se cancelan y un duty algo mayor en uno que en el
+// otro es lo unico que mueve el residuo.
+enum class CoilGroup : uint8_t { Fixed, Invertible };
+
 // =====================================================
 // Un canal = una bobina
 // =====================================================
@@ -39,7 +47,8 @@ constexpr bool DEBUG_COILCHANNEL = true;
 // correcto mientras no haya calibracion real.
 class CoilChannel {
   public:
-    CoilChannel(PwmDriver& pwm, uint8_t enablePin, const char* name, uint8_t activeLevel = HIGH);
+    CoilChannel(PwmDriver& pwm, uint8_t enablePin, const char* name, uint8_t activeLevel = HIGH,
+                CoilGroup group = CoilGroup::Fixed);
 
     void begin();
     void enable();
@@ -62,19 +71,21 @@ class CoilChannel {
     float appliedDuty() const;
 
     const char* getName() const;
+    CoilGroup group() const;
 
   private:
     PwmDriver& _pwm;
     uint8_t _enablePin;
     const char* _name;
     uint8_t _activeLevel;
+    CoilGroup _group;
     float _factor;
     bool _enabled;
     float _appliedDuty;
 };
 
-inline CoilChannel::CoilChannel(PwmDriver& pwm, uint8_t enablePin, const char* name, uint8_t activeLevel)
-  : _pwm(pwm), _enablePin(enablePin), _name(name), _activeLevel(activeLevel), _factor(1.0f), _enabled(false), _appliedDuty(0.0f) {
+inline CoilChannel::CoilChannel(PwmDriver& pwm, uint8_t enablePin, const char* name, uint8_t activeLevel, CoilGroup group)
+  : _pwm(pwm), _enablePin(enablePin), _name(name), _activeLevel(activeLevel), _group(group), _factor(1.0f), _enabled(false), _appliedDuty(0.0f) {
 }
 
 inline void CoilChannel::begin() {
@@ -155,6 +166,10 @@ inline const char* CoilChannel::getName() const {
   return _name;
 }
 
+inline CoilGroup CoilChannel::group() const {
+  return _group;
+}
+
 // =====================================================
 // Conjunto de canales
 // =====================================================
@@ -197,13 +212,24 @@ class CoilChannels {
     // Reparte el duty comun del lazo a todos los canales habilitados.
     void writeAll(float duty);
 
+    // BALANCE entre grupos de fase (campo nulo): el grupo fijo recibe
+    // duty*(1+delta) y el invertible duty*(1-delta), sobre el factor propio de
+    // cada bobina. Con delta = 0 (campo X, y el default) no cambia nada. Es el
+    // unico grado de libertad que mueve el residuo del campo nulo: los dos
+    // grupos se restan, asi que un grupo "ganando" deja campo del signo del
+    // ganador. Se rechaza |delta| > MaxBalance sin tocar el valor actual.
+    static constexpr float MaxBalance = 0.5f;
+    bool setBalance(float delta);
+    float balance() const;
+
   private:
     CoilChannel* _channels[MAX_COIL_CHANNELS];
     uint8_t _count;
     bool _inhibited;
+    float _balance;
 };
 
-inline CoilChannels::CoilChannels() : _count(0), _inhibited(false) {
+inline CoilChannels::CoilChannels() : _count(0), _inhibited(false), _balance(0.0f) {
   for (uint8_t i = 0; i < MAX_COIL_CHANNELS; i++) {
     _channels[i] = nullptr;
   }
@@ -286,6 +312,21 @@ inline void CoilChannels::disableAll() {
 // pasa igual para que al habilitarlo no arranque con un duty viejo.
 inline void CoilChannels::writeAll(float duty) {
   for (uint8_t i = 0; i < _count; i++) {
-    if (_channels[i]) _channels[i]->setIntensity(duty);
+    if (!_channels[i]) continue;
+    float gain = (_channels[i]->group() == CoilGroup::Fixed) ? (1.0f + _balance) : (1.0f - _balance);
+    _channels[i]->setIntensity(duty * gain);
   }
+}
+
+inline bool CoilChannels::setBalance(float delta) {
+  if (delta > MaxBalance || delta < -MaxBalance) {
+    DEBUG_PRINTLN(DEBUG_COILCHANNEL, F("[COIL] Balance fuera de rango -- se ignora"));
+    return false;
+  }
+  _balance = delta;
+  return true;
+}
+
+inline float CoilChannels::balance() const {
+  return _balance;
 }

@@ -46,6 +46,12 @@ struct ResultData {
   // experimento es lo mismo, pero no es lo mismo para quien despues lee el
   // resultado.
   bool fromEmergency = false;
+
+  // Solo con reason == "refused": el experimento ni siquiera arranco, y esto
+  // dice por que, como codigo corto ("nomap", "balance", "tare", "taretime").
+  // La pantalla Resultado de la ESP32 redacta el texto con el codigo; viaja
+  // ademas de `description` por la misma razon que los campos de arriba.
+  char cause[12] = "";
 };
 
 class RuntimeState {

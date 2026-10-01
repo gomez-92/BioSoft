@@ -587,6 +587,35 @@ Key collaborators:
   calibration factor, already saturated, and reset to 0 by `disable()` — not
   the `FieldController` setpoint, so a coil running short is visible on
   screen.
+- **Map duty/field and null-field mode (card 135)** (`controlmap.hpp`,
+  `fieldtare.hpp`, `taresequencer.hpp`). Intensity is no longer found by the
+  controller from zero: `ControlMap` holds up to 9 points (3 intensities x 3
+  frequencies, the menus' cap) with the duty measured on the bench for each,
+  and `start` begins at that duty, the controller only trimming. Points come
+  from `control.map` of the SD through `config_map` (one frame per point;
+  `n=0,k=0` is the **clear** frame: a card without map must empty what the Mega
+  kept from a previous connection, or null field would run on points the card
+  does not say). Null field **drives the coils at the mapped current but the
+  target is 0**, and the tolerance stays the percentage of the *chosen*
+  intensity (user decision), not an absolute one. The residual is corrected by
+  the *direction* of the measured vector (which group wins), through a
+  per-point `balance` bounded by `control.balanceMax`; the fixed-sigma variant
+  was chosen over an adaptive one (documented as future improvement).
+  **A start that cannot begin is refused, not run degraded**: null field with
+  no point for that intensity/frequency, a balance over the cap, or a rejected
+  tare. `Engine::_refuseStart()` sends `result_data` with `reason: "refused"` +
+  `cause` (`nomap`/`balance`/`tare`/`taretime`) and never goes through
+  `_finish()` (nothing ran, Engine stays Ready).
+  **Ambient-field tare**: with the coils off and before enabling anything, the
+  Mega averages a few magnetometer readings and subtracts the ambient *vector*;
+  `FieldTare` is the pure calculation, `TareSequencer` the pure timing
+  (settle 500 ms, fixed 4 s timeout, below the ESP32's 6 s Busy). The thresholds
+  are `control.tare` (`samples` 2-6, `maxSpread` 1-100 uT, `maxAmbient`
+  50-1000 uT, `TareLimits`), rejected whole per key when out of range. The
+  6-sample cap is not arbitrary: settle + 5 x 500 ms must fit the 4 s timeout
+  at CEM1's factory cadence. Assumes the ambient stays constant during the run;
+  the MLX reports no sign. Defaults are starting values, **not verified on the
+  bench**. `config_control` frame width is pinned in `test_serialframes`.
 - Current (`SCT013-1`) is measured and sent to the ESP32 but is not, and was
   never meant to be, a Detector source — by design the only sources are `TEMP1`
   and `CEM1`. `Engine::onCurrentSensorSample` still calls
@@ -1155,6 +1184,14 @@ NULO"` placeholder the SquareLine export ships with.
   `PRINCIPAL`/`CONFIG` (early-return, doesn't auto-navigate away) — otherwise
   that stale "ready" broadcast would silently bounce the operator back to
   Principal a few seconds after arriving, before they could read the result.
+  A start the Mega **refused** (`reason: "refused"`, `cause`) is shown on the
+  same Falla panel retitled **NO INICIO**, with headline/detail written from
+  the cause code (`ResultadoController::_buildRefusedTexts`), progress and
+  elapsed forced to zero (the getters would read the *previous* run), and
+  state closed to Ready if it was Starting. REPETIR is offered only for
+  `tare`/`taretime` (momentary), not for config causes. **It is not published
+  to MQTT**: with no `targets` before it, the web monitor would build an orphan
+  run from an experiment that never existed.
   Leaving Resultado is manual only, via `ui_ResultadoBtnVolver` (already built in
   SquareLine, just needed wiring) → `EventName::Back` → resets `_data.result` and
   shows `PRINCIPAL`.
@@ -1184,6 +1221,11 @@ Two things there are worth knowing before touching it:
   and the operator gets a menu entry of 0 ms. The generator blocks the download
   on any non-integer in an int-typed field; that check is the main reason to
   generate the file rather than hand-edit it.
+- **`control.map` and `control.tare` are validated here against the same
+  limits as the Mega** (`TARE_*`, `MAX_BALANCE` constants mirror
+  `TareLimits`/`CoilChannels::MaxBalance` — same drift hazard as the two
+  `seriallink.hpp`). The web copy (`client/public/`) must stay identical:
+  `npm run sync:generador` after every edit.
 - **The 128-byte telemetry payload cannot overflow**, so the generator
   deliberately does *not* validate it. `Topics::TelemetryField::name` is a
   `char[16]` and the topic a `char[64]`, so every key is truncated to 15

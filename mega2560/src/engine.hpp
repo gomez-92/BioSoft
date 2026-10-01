@@ -17,6 +17,8 @@
 #include "pwmdriver.hpp"
 #include "coilchannel.hpp"
 #include "fieldcontroller.hpp"
+#include "controlmap.hpp"
+#include "taresequencer.hpp"
 #include "mainpowerswitch.hpp"
 #include "detector.hpp"
 #include "emergencybutton.hpp"
@@ -77,6 +79,28 @@ class Engine :
     // default compilado es true para que sin tarjeta SD el equipo corra un
     // experimento completo, como antes del bring-up.
     bool _controlLoopEnabled = true;
+
+    // Mapa intensidad x frecuencia -> duty y balance (controlmap.hpp), que
+    // llega por config_map. Sin tarjeta queda vacio: el campo X parte de duty
+    // 0 como siempre y el campo nulo se rechaza.
+    ControlMap _controlMap;
+    // Tope operativo del |delta| de balance (`control.balanceMax` de la SD).
+    float _balanceMax = 0.2f;
+    // true en una corrida de campo nulo con el lazo activo: el duty es el del
+    // mapa, fijo, y FieldController NO corre (el objetivo es 0, regular
+    // hacia arriba no tiene sentido). Lo fija _start().
+    bool _nullRun = false;
+
+    // Tara del campo ambiente (fieldtare.hpp). Se toma ANTES de excitar:
+    // el handler de Start, en vez de llamar a _start(), deja la tara
+    // pendiente y update() la va completando sin bloquear el loop (un bucle
+    // de espera frenaria el ping/ack del enlace serie). Cuando termina bien
+    // recien ahi corre _start(). Mientras tanto el estado sigue en Ready,
+    // con las bobinas y la etapa de potencia apagadas.
+    TareSequencer _tareSequence;
+    // Umbrales de la tara (control.tare de la SD); sin tarjeta, los de fabrica.
+    TareConfig _tareConfig;
+    IMagnetometer* _tareMagnetometer = nullptr;
 
     // Interruptor general del Detector (`detector.enabled` de la SD, llega
     // en config_detector). Como las fuentes, se guarda al recibirlo y se
@@ -183,6 +207,10 @@ class Engine :
     void registerScenarioSensors(MagnetometerScenario* magnetometer, ThermometerScenario* thermometer);
 
   private:
+    void _beginStart();
+    void _updateTare();
+    void _abortTare(const char* cause, const char* description, const __FlashStringHelper* reason);
+    void _refuseStart(const char* cause, const char* description);
     void _start();
     void _stop();
     void _reset();
@@ -333,7 +361,78 @@ inline void Engine::update() {
   _timer.tick();
   _serial.update();
   _emergencyButton.update();
+  _updateTare();
   _checkSilence();
+}
+
+// El handler de Start llama a esto en lugar de _start(): si CEM1 es el
+// sensor real y el lazo va a excitar las bobinas, antes hay que medir el
+// ambiente con ellas apagadas. Sin lazo ("solo sensado") no se excita nada y
+// la lectura cruda es justo lo que se quiere ver; con un sensor simulado o un
+// escenario no hay ambiente que descontar.
+inline void Engine::_beginStart() {
+  _realMagnetometer.tareClear();
+  if (!(_controlLoopEnabled && !_syntheticField && _realMagnetometer.supportsTare())) {
+    _start();
+    return;
+  }
+
+  _tareMagnetometer = &_realMagnetometer;
+  _tareMagnetometer->tareBegin(_tareConfig);
+  _tareSequence.begin(millis(), Intervals::MeasureMagneticField);
+  DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] midiendo el campo ambiente antes de excitar las bobinas..."));
+}
+
+// Una lectura por cadencia de CEM1, directo al sensor: pasar por el manager
+// llamaria a onMagnetometerSample() y moveria el PWM antes de tiempo.
+inline void Engine::_updateTare() {
+  TareAction action = _tareSequence.poll(millis());
+  if (action == TareAction::None) return;
+  if (action == TareAction::Timeout) {
+    _abortTare("taretime", "Tara sin lecturas",
+               F("no se completo a tiempo (el sensor no responde?)"));
+    return;
+  }
+
+  _tareMagnetometer->update();
+  TareOutcome outcome = _tareSequence.report(_tareMagnetometer->tareStatus());
+  if (outcome == TareOutcome::Pending) return;
+
+  if (outcome == TareOutcome::Ready) {
+    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] tara lista, iniciando experimento"));
+    _start();
+  } else {
+    _abortTare("tare", "Tara rechazada",
+               F("lecturas inconsistentes o ambiente fuera de rango"));
+  }
+}
+
+// El start ya fue aceptado (ack enviado) pero no se puede arrancar. Se le
+// informa a la ESP32 como un experimento terminado antes de empezar
+// (result_data con reason "refused" y la causa), que es lo que muestra la
+// pantalla Resultado; despues el flujo sigue normal, Volver lleva a
+// Principal. No pasa por _finish(): no hay nada que apagar ni un estado
+// Finished que transitar, y el Engine nunca dejo de estar en Ready.
+// Rechazar y no correr con una tara dudosa: un campo nulo medido contra un
+// ambiente mal tarado se veria bien y no lo estaria.
+inline void Engine::_abortTare(const char* cause, const char* description, const __FlashStringHelper* reason) {
+  _tareSequence.cancel();
+  if (_tareMagnetometer != nullptr) _tareMagnetometer->tareClear();
+  DEBUG_PRINT(DEBUG_ENGINE, F("[START][ERROR] Tara del campo ambiente rechazada: "));
+  DEBUG_PRINTLN(DEBUG_ENGINE, reason);
+  DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Abortando comando START"));
+  _refuseStart(cause, description);
+}
+
+inline void Engine::_refuseStart(const char* cause, const char* description) {
+  ResultData data;
+  strncpy(data.reason, "refused", sizeof(data.reason) - 1);
+  strncpy(data.cause, cause, sizeof(data.cause) - 1);
+  strncpy(data.description, description, sizeof(data.description) - 1);
+  // setResult() dispara onResult() -> _sendResultData() en el acto; el
+  // reset posterior deja el resultado vacio para el proximo experimento.
+  _runtimeState.setResult(data);
+  _runtimeState.reset();
 }
 
 // Un sensor que se cae no produce muestras, y el Detector solo evalua las
@@ -360,7 +459,10 @@ inline void Engine::_checkControlSilence(unsigned long nowMs) {
   SourceSettings* cem = _findSourceSettings("CEM1");
   SourceConfig config = (cem != nullptr) ? cem->config : SourceConfig();
   config.sampleIntervalMs = Intervals::MeasureMagneticField;
-  if (!controlSilenceExpired(_controlLoopEnabled, _isSettlingTime, nowMs,
+  // En campo nulo el lazo no usa a CEM1 como realimentacion (duty fijo del
+  // mapa): no hay "manejo a ciegas" que cortar por este camino; la
+  // vigilancia de silencio de la fuente sigue por el Detector si esta vigilada.
+  if (!controlSilenceExpired(_controlLoopEnabled && !_nullRun, _isSettlingTime, nowMs,
                              _lastMagnetometerAliveMs, config)) return;
 
   unsigned long silent = nowMs - _lastMagnetometerAliveMs;
@@ -410,11 +512,33 @@ inline void Engine::_start() {
   TargetData target = _runtimeState.target();
   _coilExcitation.start(target.frequencyTarget);
   _fieldController.reset();
+
+  // COMO se excita lo decide el mapa de calibracion (controlmap.hpp). El
+  // handler de Start ya rechazo los arranques de campo nulo sin punto
+  // mapeado, asi que acá el plan solo puede dar un duty de partida.
+  StartPlan plan = planStart(_controlMap, _coilExcitation.mode(),
+                             target.cemTarget, (float)target.frequencyTarget, _balanceMax);
+  _nullRun = _controlLoopEnabled && plan.openLoop;
+  _coilChannels.setBalance(plan.openLoop ? plan.balance : 0.0f);
+
   // Con el lazo deshabilitado (control.enabled == false, "solo sensado")
   // el PWM se deja apagado -- ver _controlLoopEnabled.
   if (_controlLoopEnabled) {
-    _fieldController.setSetpoint(target.cemTarget);
-    _coilChannels.writeAll(_fieldController.getOutput());
+    if (plan.openLoop) {
+      // Campo nulo: duty fijo del mapa, el mismo estres que en campo X; el
+      // objetivo medido es 0 y no hay lazo que lo persiga.
+      DEBUG_PRINT(DEBUG_ENGINE, F("[START] campo nulo: duty fijo del mapa = "));
+      DEBUG_PRINT(DEBUG_ENGINE, plan.initialDuty, 4);
+      DEBUG_PRINT(DEBUG_ENGINE, F(" balance = "));
+      DEBUG_PRINTLN(DEBUG_ENGINE, plan.balance, 4);
+      _coilChannels.writeAll(plan.initialDuty);
+    } else {
+      _fieldController.setSetpoint(target.cemTarget);
+      _fieldController.preload(plan.initialDuty);
+      DEBUG_PRINT(DEBUG_ENGINE, F("[START] duty inicial del mapa = "));
+      DEBUG_PRINTLN(DEBUG_ENGINE, plan.initialDuty, 4);
+      _coilChannels.writeAll(_fieldController.getOutput());
+    }
     _coilChannels.enableAll();
   }
   if (_syntheticField) {
@@ -426,18 +550,22 @@ inline void Engine::_start() {
 }
 
 inline void Engine::_stop() {
+  _tareSequence.cancel();
   _mainPowerSwitch.disable();
   _coilExcitation.stop();
   _coilChannels.disableAll();
   _fieldController.reset();
+  _nullRun = false;
   _engineState.setState(State::Finished);
 }
 
 inline void Engine::_reset() {
+  _tareSequence.cancel();
   _mainPowerSwitch.disable();
   _coilExcitation.stop();
   _coilChannels.disableAll();
   _fieldController.reset();
+  _nullRun = false;
   _detector.reset();
   _engineState.setState(State::Ready);
   _runtimeState.reset();
@@ -695,6 +823,9 @@ inline void Engine::_sendResultData() {
   else if (strcmp(data.reason, "stopped") == 0) {
     doc["emerg"] = data.fromEmergency;
   }
+  else if (strcmp(data.reason, "refused") == 0) {
+    doc["cause"] = data.cause;
+  }
 
   _serial.sendCommand(Commands::ResultData, doc);
 }
@@ -949,6 +1080,17 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
 
   else if (strcmp(command, Commands::Start) == 0) {
 
+    // La ESP32 reenvia start hasta recibir el ack, que ya salio: un start
+    // repetido mientras se tara no puede reiniciar la tara ni reaplicar la
+    // configuracion. Se re-confirma y se ignora.
+    if (_tareSequence.pending()) {
+      DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] ya hay un start esperando la tara, se ignora el repetido"));
+      JsonDocument dup;
+      dup["command"] = Commands::Start;
+      _serial.sendCommand(Commands::Ack, dup);
+      return;
+    }
+
     DEBUG_PRINTLN(DEBUG_ENGINE, );
     DEBUG_PRINTLN(DEBUG_ENGINE, F("========================================"));
     DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Comando START recibido"));
@@ -1036,6 +1178,25 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
       DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] sin parametro 'mode', se asume campo X"));
     }
 
+    // Campo nulo sin punto mapeado para esta intensidad y frecuencia (o con
+    // un balance fuera del tope): se rechaza el start entero. No hay duty que
+    // aplicar, y excitar "a ojo" daria un grupo control de mentira. Mismo
+    // criterio que un parametro invalido: no se arranca, y la ESP32 lo
+    // muestra en la pantalla Resultado como "no inicio" (_refuseStart).
+    StartPlan startPlan = planStart(_controlMap, mode, cemTarget, (float)freqTarget, _balanceMax);
+    if (startPlan.refusal != StartRefusal::None) {
+      DEBUG_PRINT(DEBUG_ENGINE, F("[START][ERROR] Campo nulo rechazado: "));
+      if (startPlan.refusal == StartRefusal::NoMappedPoint) {
+        DEBUG_PRINTLN(DEBUG_ENGINE, F("no hay punto del mapa para esta intensidad y frecuencia (config_map)"));
+        _refuseStart("nomap", "Campo nulo sin punto en el mapa");
+      } else {
+        DEBUG_PRINTLN(DEBUG_ENGINE, F("el balance del punto supera control.balanceMax"));
+        _refuseStart("balance", "Balance fuera de tope");
+      }
+      DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Abortando comando START"));
+      return;
+    }
+
     // setMode() se rechaza si ya hay un experimento corriendo, pero acá
     // todavia no arranco: _start() va al final de este handler.
     _coilExcitation.setMode(mode);
@@ -1090,8 +1251,15 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
     // Cadencia real de medicion, para el corte por silencio: la cantidad de
     // lecturas perdidas se traduce a tiempo con esto (Source::silenceLimitMs).
     configCem.sampleIntervalMs = Intervals::MeasureMagneticField;
-    DetectorConfigBuilder::applyCemRanges(
-      configCem, cemTarget, cemTol, cemSettings->criticalMultiplier);
+    // Campo nulo: la banda se centra en 0 y mantiene la tolerancia del
+    // operador sobre la intensidad elegida; en campo X se deriva del target.
+    if (mode == FieldMode::Null) {
+      DetectorConfigBuilder::applyCemNullRanges(
+        configCem, cemTarget, cemTol, cemSettings->criticalMultiplier);
+    } else {
+      DetectorConfigBuilder::applyCemRanges(
+        configCem, cemTarget, cemTol, cemSettings->criticalMultiplier);
+    }
 
     DEBUG_PRINT(DEBUG_ENGINE, F("[START] CEM criticalMin = "));
     DEBUG_PRINTLN(DEBUG_ENGINE, configCem.criticalMin, 4);
@@ -1228,9 +1396,9 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
     DEBUG_PRINTLN(DEBUG_ENGINE, );
     DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Iniciando experimento..."));
 
-    _start();
+    _beginStart();
 
-    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] _start() finalizado"));
+    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] _beginStart() finalizado"));
 
     DEBUG_PRINTLN(DEBUG_ENGINE, F("========================================"));
     DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Comando START procesado"));
@@ -1303,6 +1471,42 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
     if (params["deadBand"].is<float>() && !_fieldController.setDeadBand(params["deadBand"].as<float>())) {
       DEBUG_PRINTLN(DEBUG_ENGINE, F("[CONFIG_CONTROL] deadBand invalido -- se ignora"));
     }
+    // Tope del balance del campo nulo: se rechaza entero si esta fuera de
+    // 0..MaxBalance (CoilChannels), igual que los demas valores de control.
+    if (params["balanceMax"].is<float>()) {
+      float balanceMax = params["balanceMax"].as<float>();
+      if (balanceMax >= 0.0f && balanceMax <= CoilChannels::MaxBalance) {
+        _balanceMax = balanceMax;
+      } else {
+        DEBUG_PRINTLN(DEBUG_ENGINE, F("[CONFIG_CONTROL] balanceMax invalido -- se ignora"));
+      }
+    }
+    // Umbrales de la tara del campo ambiente. Cada uno se valida por
+    // separado y se rechaza entero fuera de rango (TareLimits).
+    if (params["tareSamples"].is<int>()) {
+      int samples = params["tareSamples"].as<int>();
+      if (TareLimits::isValidSamples(samples)) {
+        _tareConfig.samples = (uint8_t)samples;
+      } else {
+        DEBUG_PRINTLN(DEBUG_ENGINE, F("[CONFIG_CONTROL] tareSamples invalido -- se ignora"));
+      }
+    }
+    if (params["tareSpread"].is<float>()) {
+      float spread = params["tareSpread"].as<float>();
+      if (TareLimits::isValidSpread(spread)) {
+        _tareConfig.maxSpread = spread;
+      } else {
+        DEBUG_PRINTLN(DEBUG_ENGINE, F("[CONFIG_CONTROL] tareSpread invalido -- se ignora"));
+      }
+    }
+    if (params["tareAmbient"].is<float>()) {
+      float ambient = params["tareAmbient"].as<float>();
+      if (TareLimits::isValidAmbient(ambient)) {
+        _tareConfig.maxAmbient = ambient;
+      } else {
+        DEBUG_PRINTLN(DEBUG_ENGINE, F("[CONFIG_CONTROL] tareAmbient invalido -- se ignora"));
+      }
+    }
     // En false el lazo mide pero no toca el PWM (lo que antes eran los
     // testMode 1/4, "solo sensado").
     if (params["enabled"].is<bool>()) {
@@ -1313,6 +1517,51 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
 
     JsonDocument doc;
     doc["command"] = Commands::ConfigControl;
+
+    _serial.sendCommand(
+      Commands::Ack,
+      doc
+    );
+  }
+
+  // Un punto del mapa de calibracion (controlmap.hpp). `k` es el indice, `n`
+  // cuantos puntos trae la tarjeta (los lugares >= n se vacian, para que un
+  // punto que la tarjeta nueva ya no tiene no sobreviva de un arranque
+  // anterior), `i`/`f` intensidad y frecuencia, `d` duty comun, `b` balance.
+  // Se aplica al recibirlo: el mapa solo se consulta en el start, nunca en
+  // caliente. Como los otros config_*, acusa recibo aunque el valor se
+  // rechace -- el rechazo solo se loguea y ese punto queda vacio.
+  else if (strcmp(command, Commands::ConfigMap) == 0) {
+
+    if (!params["k"].is<int>() || !params["n"].is<int>()) {
+      DEBUG_PRINTLN(DEBUG_ENGINE, F("[CONFIG_MAP][ERROR] Falta 'k' o 'n' -- sin ack"));
+      return;
+    }
+    int k = params["k"].as<int>();
+    int n = params["n"].as<int>();
+
+    if (n == 0 && k == 0) {
+      // Tarjeta sin mapa: se vacia el que el Mega tuviera de una conexion
+      // anterior, o el campo nulo correria con puntos que esta tarjeta no dice.
+      _controlMap.clear();
+      DEBUG_PRINTLN(DEBUG_ENGINE, F("[CONFIG_MAP] tarjeta sin mapa, se vacia el mapa del Mega"));
+    } else if (n < 0 || n > ControlMap::MaxPoints || k < 0 || k >= n) {
+      DEBUG_PRINTLN(DEBUG_ENGINE, F("[CONFIG_MAP] indice o cantidad fuera de rango -- se ignora"));
+    } else {
+      _controlMap.setCount((uint8_t)n);
+      float balance = params["b"].is<float>() ? params["b"].as<float>() : 0.0f;
+      bool stored = params["i"].is<float>() && params["f"].is<float>() && params["d"].is<float>() &&
+                    _controlMap.setPoint((uint8_t)k, params["i"].as<float>(), params["f"].as<float>(),
+                                         params["d"].as<float>(), balance);
+      if (!stored) {
+        DEBUG_PRINT(DEBUG_ENGINE, F("[CONFIG_MAP] punto invalido, queda vacio: "));
+        DEBUG_PRINTLN(DEBUG_ENGINE, k);
+      }
+    }
+
+    JsonDocument doc;
+    doc["command"] = Commands::ConfigMap;
+    doc["k"] = k;
 
     _serial.sendCommand(
       Commands::Ack,
@@ -1647,7 +1896,8 @@ inline void Engine::onMagnetometerSample(IMagnetometer* magnetometer) {
 
   // Con "solo sensado" se mide y se reporta, pero no se toca el PWM: ver
   // _controlLoopEnabled.
-  if (_controlLoopEnabled) {
+  // En campo nulo (_nullRun) el duty es el fijo del mapa: no se regula.
+  if (_controlLoopEnabled && !_nullRun) {
     _fieldController.update(magnetometer->getMagneticField());
     float duty = _fieldController.getOutput();
     _coilChannels.writeAll(duty);

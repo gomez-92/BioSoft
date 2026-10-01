@@ -60,7 +60,32 @@ namespace ConfigLoader {
     MegaIntervalValue settlingTime;
   };
 
+  // Un punto del mapa de calibracion (control.map): para esa intensidad y esa
+  // frecuencia, el duty comun y el balance del campo nulo. El rango de cada
+  // valor lo valida el Mega (controlmap.hpp); aca solo se verifica el tipo.
+  struct ControlMapPoint {
+    float intensity = 0.0f;
+    float frequency = 0.0f;
+    float duty = 0.0f;
+    float balance = 0.0f;
+  };
+  constexpr uint8_t MaxMapPoints = ConfigurationOptions::MaxFieldIntensityOptions * ConfigurationOptions::MaxFrequencyOptions;
+
   struct ControlConfig {
+    bool hasBalanceMax = false;
+    float balanceMax = 0.0f;
+    // Umbrales de la tara del campo ambiente (control.tare). Solo tipo: el
+    // rango lo valida el Mega (TareLimits en fieldtare.hpp).
+    bool hasTareSamples = false;
+    int tareSamples = 0;
+    bool hasTareSpread = false;
+    float tareSpread = 0.0f;
+    bool hasTareAmbient = false;
+    float tareAmbient = 0.0f;
+    // Puntos del mapa, compactados: un punto al que le falta una clave no
+    // ocupa lugar, asi que el indice que viaja al Mega es el de esta lista.
+    uint8_t mapCount = 0;
+    ControlMapPoint map[MaxMapPoints];
     bool hasKp = false;
     float kp = 0.0f;
     bool hasMaxStep = false;
@@ -327,7 +352,7 @@ namespace ConfigLoader {
       dest[ConfigurationOptions::MaxLabelLength - 1] = '\0';
     }
 
-    inline void logMenuLoaded(const char* name, uint8_t loaded, size_t available) {
+    inline void logMenuLoaded(const char* name, uint8_t loaded, size_t available, uint8_t maxOptions = ConfigurationOptions::MaxOptions) {
       DEBUG_PRINT(DEBUG_CONFIGLOADER, F("[CONFIG] menu "));
       DEBUG_PRINT(DEBUG_CONFIGLOADER, name);
       DEBUG_PRINT(DEBUG_CONFIGLOADER, F(": "));
@@ -337,7 +362,7 @@ namespace ConfigLoader {
         DEBUG_PRINT(DEBUG_CONFIGLOADER, F(" (el archivo traia "));
         DEBUG_PRINT(DEBUG_CONFIGLOADER, available);
         DEBUG_PRINT(DEBUG_CONFIGLOADER, F(", se ignora el resto por el tope de "));
-        DEBUG_PRINT(DEBUG_CONFIGLOADER, ConfigurationOptions::MaxOptions);
+        DEBUG_PRINT(DEBUG_CONFIGLOADER, maxOptions);
         DEBUG_PRINT(DEBUG_CONFIGLOADER, F(")"));
       }
       DEBUG_PRINTLN(DEBUG_CONFIGLOADER, );
@@ -404,26 +429,26 @@ namespace ConfigLoader {
       if (menuIsUsable(intensity, "fieldIntensity")) {
         uint8_t i = 0;
         for (JsonObjectConst option : intensity) {
-          if (i >= ConfigurationOptions::MaxOptions) break;
+          if (i >= ConfigurationOptions::MaxFieldIntensityOptions) break;
           copyLabel(ConfigurationOptions::optionsFieldIntensity[i].label, option["label"] | "");
           ConfigurationOptions::optionsFieldIntensity[i].intensity = option["value"] | 0.0f;
           i++;
         }
         ConfigurationOptions::countFieldIntensity = i;
-        logMenuLoaded("fieldIntensity", i, intensity.size());
+        logMenuLoaded("fieldIntensity", i, intensity.size(), ConfigurationOptions::MaxFieldIntensityOptions);
       }
 
       JsonArrayConst frequency = menus["frequency"];
       if (menuIsUsable(frequency, "frequency")) {
         uint8_t i = 0;
         for (JsonObjectConst option : frequency) {
-          if (i >= ConfigurationOptions::MaxOptions) break;
+          if (i >= ConfigurationOptions::MaxFrequencyOptions) break;
           copyLabel(ConfigurationOptions::optionsFrequency[i].label, option["label"] | "");
           ConfigurationOptions::optionsFrequency[i].freq = option["value"] | 0;
           i++;
         }
         ConfigurationOptions::countFrequency = i;
-        logMenuLoaded("frequency", i, frequency.size());
+        logMenuLoaded("frequency", i, frequency.size(), ConfigurationOptions::MaxFrequencyOptions);
       }
 
       JsonArrayConst duration = menus["duration"];
@@ -574,6 +599,46 @@ namespace ConfigLoader {
       if (control["enabled"].is<bool>()) {
         _controlConfig.hasEnabled = true;
         _controlConfig.enabled = control["enabled"].as<bool>();
+      }
+      if (control["balanceMax"].is<float>()) {
+        _controlConfig.hasBalanceMax = true;
+        _controlConfig.balanceMax = control["balanceMax"].as<float>();
+      }
+
+      JsonObjectConst tare = control["tare"];
+      if (!tare.isNull()) {
+        if (tare["samples"].is<int>()) {
+          _controlConfig.hasTareSamples = true;
+          _controlConfig.tareSamples = tare["samples"].as<int>();
+        }
+        if (tare["maxSpread"].is<float>()) {
+          _controlConfig.hasTareSpread = true;
+          _controlConfig.tareSpread = tare["maxSpread"].as<float>();
+        }
+        if (tare["maxAmbient"].is<float>()) {
+          _controlConfig.hasTareAmbient = true;
+          _controlConfig.tareAmbient = tare["maxAmbient"].as<float>();
+        }
+      }
+
+      JsonArrayConst map = control["map"];
+      if (!map.isNull()) {
+        for (JsonObjectConst point : map) {
+          if (_controlConfig.mapCount >= MaxMapPoints) {
+            DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] control.map: se ignoran los puntos que exceden el tope de 3 x 3"));
+            break;
+          }
+          if (!point["intensity"].is<float>() || !point["frequency"].is<float>() ||
+              !point["duty"].is<float>() || !point["balance"].is<float>()) {
+            DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] control.map: punto sin alguna de intensity/frequency/duty/balance, se ignora"));
+            continue;
+          }
+          ControlMapPoint& entry = _controlConfig.map[_controlConfig.mapCount++];
+          entry.intensity = point["intensity"].as<float>();
+          entry.frequency = point["frequency"].as<float>();
+          entry.duty = point["duty"].as<float>();
+          entry.balance = point["balance"].as<float>();
+        }
       }
 
       DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] seccion 'control' leida, se reenvia al conectar"));

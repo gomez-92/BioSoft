@@ -121,7 +121,14 @@
     "enabled": true,
     "kp": 0.1,
     "maxStep": 0.05,
-    "deadBand": 0.01
+    "deadBand": 0.01,
+    "balanceMax": 0.2,
+    "tare": {
+      "samples": 4,
+      "maxSpread": 10,
+      "maxAmbient": 300
+    },
+    "map": []
   },
   "coils": [
     {
