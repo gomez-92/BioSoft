@@ -47,9 +47,13 @@ estructurales y fijas.
 | `biosoft/telemetry/measures` | 30 s (config.) mientras Running | sí | `{CEM1: float mT, TEMP1: float °C}` |
 | `biosoft/telemetry/coils` | 30 s (config.) mientras Running | sí | `{c1..c4: float A, d1..d4: float %}` — **solo las bobinas que reportaron** |
 | `biosoft/telemetry/status` | 30 s (config.) mientras Running | sí | `{ESTADO, PROGRESS int %, ELAPSED_TIME "hh:mm:ss", REMAINING seg, STATE, MEGA bool}` |
-| `biosoft/telemetry/targets` | 1× al entrar en Running | sí | `{MODE, CEM, FREQ, DUR, TOL, TNMIN, TNMAX, TCMIN, TCMAX}` |
+| `biosoft/telemetry/targets` | 1× al entrar en Running | sí | `{MODE, CEM, FREQ, DUR, TOL, TNMIN, TNMAX, TCMIN, TCMAX, TEST bool}` |
 | `biosoft/telemetry/alerts` | por evento (`flag_data`) | **no** | `{SRC, TYPE, COUNT, LIMIT}` |
-| `biosoft/telemetry/result` | 1× al cortar | sí | `{REASON, DESC, PROGRESS, ELAPSED "hh:mm:ss", MEAN?, SRC?, TYPE?, COUNT?, LIMIT?}` |
+| `biosoft/telemetry/result` | 1× al cortar | sí | `{REASON, DESC, PROGRESS, ELAPSED "hh:mm:ss", MEAN?, SRC?, TYPE?, COUNT?, LIMIT?, TEST bool}` |
+
+`TEST` sale de `runType` en la tarjeta SD (`config-schema.md` §15) y la placa lo
+manda **siempre**, true o false: su ausencia identifica un firmware anterior y
+la corrida queda `runType: unknown`, no `normal`.
 
 Valores: **`MODE` ∈ {`"x"`, `"null"`}**, `REASON` ∈ {`completed`, `critical`,
 `stopped`}, `TYPE` ∈ {`critical`, `streak`, `frequency`}, `ESTADO` ∈ {`normal`,

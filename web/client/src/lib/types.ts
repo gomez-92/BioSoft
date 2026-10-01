@@ -5,12 +5,17 @@
 export interface Targets {
   mode?: string; cem?: number; freq?: number; dur?: number; tol?: number;
   tnmin?: number; tnmax?: number; tcmin?: number; tcmax?: number;
+  test?: boolean;
 }
+
+/** "normal" | "test" | "unknown" (sin marca TEST: firmware viejo o simulador viejo). */
+export type RunType = 'normal' | 'test' | 'unknown';
 
 export interface RunInfo {
   id: string;
   startedAt: string;
   state: string;
+  runType: RunType;
   targets: Targets | null;
 }
 

@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import { clearToken, getToken } from './auth.js';
 import type {
-  AlertItem, Coils, Measures, ResultItem, Snapshot, Status, Targets,
+  AlertItem, Coils, Measures, ResultItem, RunType, Snapshot, Status, Targets,
 } from './types.js';
+import { tipoDesdeMarca } from './format.js';
 
 // Estado en vivo del experimento.
 //
@@ -17,7 +18,7 @@ export interface LiveState {
   conectado: boolean;
   brokerOk: boolean;
   deviceId: string | null;
-  run: { id: string; startedAt: string; state: string } | null;
+  run: { id: string; startedAt: string; state: string; runType: RunType } | null;
   targets: Targets | null;
   measures: Measures | null;
   coils: Coils | null;
@@ -59,7 +60,9 @@ export function useLive(): LiveState {
         ...s,
         deviceId: snap.deviceId,
         brokerOk: snap.link.broker,
-        run: snap.run ? { id: snap.run.id, startedAt: snap.run.startedAt, state: snap.run.state } : null,
+        run: snap.run
+          ? { id: snap.run.id, startedAt: snap.run.startedAt, state: snap.run.state, runType: snap.run.runType }
+          : null,
         targets: snap.run?.targets ?? null,
         measures: snap.measures,
         coils: snap.coils,
@@ -86,7 +89,7 @@ export function useLive(): LiveState {
     socket.on('telemetry:targets', (data: Targets & { ts: string; runId: string }) =>
       setState((s) => ({
         ...s,
-        run: { id: data.runId, startedAt: data.ts, state: 'running' },
+        run: { id: data.runId, startedAt: data.ts, state: 'running', runType: tipoDesdeMarca(data.test) },
         targets: data,
         measures: null, coils: null, status: null, alerts: [], ultimoResultado: null,
       })));

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { esCampoNulo, nombreModo } from './format.js';
+import { esCampoNulo, etiquetaTipoCorrida, nombreModo, tipoDesdeMarca } from './format.js';
 
 // El modo de exposicion es lo unico que distingue el grupo tratado del grupo
 // control. Equivocarse no se nota mirando la pantalla: un campo nulo se ve, en
@@ -39,5 +39,22 @@ describe('modo de campo', () => {
   // firmware, ver CoilExcitation) antes que inventar que es control.
   it('trata lo desconocido como campo X, no como nulo', () => {
     expect(esCampoNulo('otra cosa')).toBe(false);
+  });
+});
+
+// La marca de prueba es lo que separa datos de banco de un experimento. Mismo
+// criterio que el backend: sin marca no es "normal".
+describe('tipo de corrida', () => {
+  it('deriva el tipo de la marca TEST', () => {
+    expect(tipoDesdeMarca(true)).toBe('test');
+    expect(tipoDesdeMarca(false)).toBe('normal');
+    expect(tipoDesdeMarca(undefined)).toBe('unknown');
+  });
+
+  it('solo marca lo que no es un experimento normal', () => {
+    expect(etiquetaTipoCorrida('test')).toBe('PRUEBA');
+    expect(etiquetaTipoCorrida('unknown')).toBe('SIN MARCA');
+    expect(etiquetaTipoCorrida(undefined)).toBe('SIN MARCA');
+    expect(etiquetaTipoCorrida('normal')).toBeNull();
   });
 });

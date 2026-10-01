@@ -201,6 +201,36 @@ describe.skipIf(!hayMongo)('correlacion de corridas', () => {
     expect(stored[0].meta.runId).toBeNull();
   });
 
+  // El tipo de corrida separa datos cientificos de datos de banco: si se
+  // pierde, una prueba entra al historico como experimento sin aviso.
+  it('el tipo de corrida sale de la marca TEST de targets', async () => {
+    await handleTelemetry(message('targets', { ...TARGETS, TEST: true }));
+    await handleTelemetry(message('result', { ...RESULT_OK, TEST: true }));
+    await handleTelemetry(message('targets', { ...TARGETS, TEST: false }));
+    await handleTelemetry(message('result', { ...RESULT_OK, TEST: false }));
+    await handleTelemetry(message('targets', TARGETS));
+
+    const runs = await Run.find().sort({ _id: 1 }).lean();
+    expect(runs.map((r) => r.runType)).toEqual(['test', 'normal', 'unknown']);
+  });
+
+  it('result completa un tipo que faltaba, pero nunca pisa el de targets', async () => {
+    await handleTelemetry(message('targets', TARGETS));
+    await handleTelemetry(message('result', { ...RESULT_OK, TEST: true }));
+    await handleTelemetry(message('targets', { ...TARGETS, TEST: false }));
+    await handleTelemetry(message('result', { ...RESULT_OK, TEST: true }));
+
+    const runs = await Run.find().sort({ _id: 1 }).lean();
+    expect(runs.map((r) => r.runType)).toEqual(['test', 'normal']);
+  });
+
+  it('un result huerfano conserva su marca de prueba', async () => {
+    await handleTelemetry(message('result', { ...RESULT_OK, TEST: true }));
+    const runs = await Run.find().lean();
+    expect(runs[0].state).toBe('orphan');
+    expect(runs[0].runType).toBe('test');
+  });
+
   // La base garantiza la invariante, no solo la logica en memoria.
   it('no admite dos corridas abiertas del mismo equipo', async () => {
     await Run.syncIndexes();

@@ -4,6 +4,7 @@ import {
   nombreSalud, nombreTipoAlerta, numero,
 } from '../lib/format.js';
 import type { LiveState } from '../lib/useLive.js';
+import { TipoCorrida } from '../components/TipoCorrida.js';
 
 // Pantalla En curso. La que se mira desde afuera del laboratorio, casi siempre
 // desde un celular, para contestar una sola pregunta: el experimento, ¿va bien?
@@ -34,6 +35,7 @@ export function Live({ estado, onVerCorrida }: {
             <div className="encabezado-run">
               <Salud health={status?.health} />
               <Modo mode={targets?.mode} />
+              <TipoCorrida runType={run.runType} />
             </div>
             <Progreso status={status} startedAt={run.startedAt} />
           </section>

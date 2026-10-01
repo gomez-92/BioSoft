@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   parseAlert, parseCoils, parseElapsed, parseMeasures, parseResult, parseStatus, parseTargets,
+  runTypeFrom,
 } from '../src/domain/telemetry.js';
 
 // Mismo criterio que las suites nativas del Mega: fijar lo que se rompe EN
@@ -123,6 +124,31 @@ describe('parseTargets', () => {
   it('descarta un objeto vacio', () => {
     expect(parseTargets({})).toBeNull();
   });
+
+  // TEST es lo unico que separa una corrida de banco de un experimento.
+  it('lee la marca TEST solo si es un booleano de verdad', () => {
+    expect(parseTargets({ MODE: 'x', TEST: true })?.test).toBe(true);
+    expect(parseTargets({ MODE: 'x', TEST: false })?.test).toBe(false);
+    expect(parseTargets({ MODE: 'x' })?.test).toBeUndefined();
+    expect(parseTargets({ MODE: 'x', TEST: 'true' })?.test).toBeUndefined();
+    expect(parseTargets({ MODE: 'x', TEST: 1 })?.test).toBeUndefined();
+  });
+
+  it('TEST no es una clave desconocida', () => {
+    const warn = vi.spyOn(console, 'warn');
+    parseTargets({ MODE: 'x', TEST: true });
+    expect(warn).not.toHaveBeenCalled();
+  });
+});
+
+describe('runTypeFrom', () => {
+  // Sin marca NO es "normal": firmwares viejos y el simulador viejo no dicen
+  // si hubo animales, y llamarlos experimento seria inventarlo.
+  it('distingue normal, prueba y desconocido', () => {
+    expect(runTypeFrom(false)).toBe('normal');
+    expect(runTypeFrom(true)).toBe('test');
+    expect(runTypeFrom(undefined)).toBe('unknown');
+  });
 });
 
 describe('parseAlert', () => {
@@ -166,6 +192,7 @@ describe('parseResult', () => {
   // como en true.
   it('conserva emerg en false', () => {
     expect(parseResult({ REASON: 'stopped', emerg: false })?.emergency).toBe(false);
+    expect(parseResult({ REASON: 'stopped', TEST: true })?.test).toBe(true);
   });
 
   it('acepta un corte completado sin campos opcionales', () => {

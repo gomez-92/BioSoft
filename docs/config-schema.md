@@ -68,6 +68,7 @@ implementar la seccion 7. Sus tres ejes se repartieron asi:
 ```json
 {
   "schemaVersion": 1,
+  "runType": "normal",
   "menus": { },
   "intervals": { "esp32": { }, "mega": { } },
   "control": { },
@@ -539,9 +540,9 @@ adivinar la forma del JSON.
 | `measures` | periodico | campo magnetico y temperatura |
 | `coils` | periodico | `c1`..`c4` (corriente, A) y `d1`..`d4` (duty aplicado, %) |
 | `status` | periodico | salud, avance, transcurrido, `REMAINING`, `STATE`, `MEGA` |
-| `targets` | al arrancar el experimento | `MODE`, `CEM`, `FREQ`, `DUR`, `TOL`, `TNMIN`, `TNMAX`, `TCMIN`, `TCMAX` |
+| `targets` | al arrancar el experimento | `MODE`, `CEM`, `FREQ`, `DUR`, `TOL`, `TNMIN`, `TNMAX`, `TCMIN`, `TCMAX`, `TEST` |
 | `alerts` | con cada alerta | `SRC`, `TYPE`, `COUNT`, `LIMIT` |
-| `result` | al terminar | `REASON`, `DESC`, `PROGRESS`, `ELAPSED`, `MEAN` y, si corto una fuente, `SRC`/`TYPE`/`COUNT`/`LIMIT` |
+| `result` | al terminar | `REASON`, `DESC`, `PROGRESS`, `ELAPSED`, `MEAN`, `TEST` y, si corto una fuente, `SRC`/`TYPE`/`COUNT`/`LIMIT` |
 
 Los tres primeros son **periodicos** y llevan `interval` (entero positivo, ms).
 Los otros tres son **por evento** y no lo llevan: ocurren una vez, y aceptar un
@@ -845,7 +846,47 @@ texto plano.
 
 ---
 
-## 15. Archivo de ejemplo
+## 15. `runType` — corridas normales o de prueba
+
+Declara si las corridas hechas con esta configuracion son **experimentos** o
+**pruebas de banco**. Solo ESP32; el Mega no lo recibe porque no cambia nada
+de lo que hace.
+
+```json
+"runType": "normal"
+```
+
+| Valor | Efecto |
+|---|---|
+| `"normal"` | Experimento. Es el default: sin la clave, sin tarjeta o con un valor que no se entiende. |
+| `"test"` | Prueba. Franja "MODO PRUEBA" en todas las pantallas, cartel al arrancar que hay que cerrar con ENTENDIDO, y `TEST: true` en `targets` y `result`. |
+
+Es una **declaracion, no un modo de funcionamiento**: no habilita ni
+deshabilita nada. Cada relajacion (apagar el detector, una fuente, un sensor,
+el lazo de control) se configura por separado en su propia seccion. No hay
+una llave maestra que las active juntas, y por la misma razon una corrida
+declarada `normal` *puede* tener relajaciones activas — la marca dice que
+intencion tenia el operador, no que estaba encendido.
+
+Lo que la marca protege es el historico del monitor remoto: una corrida de
+banco y una con animales se ven, en todo lo demas, identicas. El monitor
+guarda la marca en cada corrida (`runType`: `normal` / `test` / `unknown`) y
+**por defecto no lista las de prueba**. `unknown` es una corrida que llego sin
+`TEST` — firmware anterior a esta seccion o simulador viejo — y no se lee
+como experimento: no se sabe que lo fuera.
+
+La placa manda `TEST` **siempre, true o false**. La ausencia de la clave es
+justamente lo que distingue un firmware viejo, asi que omitirla cuando vale
+`false` haria que todo experimento nuevo entrara como `unknown`.
+
+Un valor invalido (`"prueba"`, `"Test"`) cae en `normal` y queda en el log: es
+el default restrictivo del resto del esquema. El generador de `tools/` no deja
+descargar un valor fuera de los dos validos, asi que esto solo pasa editando
+el archivo a mano.
+
+---
+
+## 16. Archivo de ejemplo
 
 `docs/config.example.json` es un archivo completo y valido cuyos valores son
 **identicos a los defaults compilados de hoy**, con una excepcion: las

@@ -45,6 +45,15 @@ beforeAll(async () => {
     result: { reason: 'critical', source: 'TEMP1', type: 'critical', count: 4, limit: 4 },
     stats: { measureCount: 0, alertCount: 2 },
   });
+  // Una corrida de banco: la mas nueva, para que si se colara en el listado
+  // por defecto apareciera primera y rompiera el orden esperado.
+  await Run.create({
+    deviceId: 'biosoft-01', startedAt: new Date('2026-09-22T10:00:00Z'),
+    endedAt: new Date('2026-09-22T10:05:00Z'), state: 'finished', runType: 'test',
+    targets: { mode: 'x', cem: 1, freq: 10, dur: 5, tol: 5, test: true },
+    result: { reason: 'completed', test: true },
+    stats: { measureCount: 0, alertCount: 0 },
+  });
 
   // Cuatro mediciones DENTRO del primer minuto (0-45 s), con un pico en la
   // tercera. Con una a los 60 s caerian en dos buckets distintos.
@@ -124,6 +133,41 @@ describe.skipIf(!hayMongo)('API de historicos', () => {
     const porFecha = await (await get('/api/runs?from=2026-09-21T00:00:00Z')).json();
     expect(porFecha.total).toBe(1);
     expect(porFecha.items[0].mode).toBe('campo nulo');
+  });
+
+  // Las pruebas no se mezclan con los experimentos salvo que se pidan.
+  it('por defecto deja afuera las corridas de prueba', async () => {
+    const data = await (await get('/api/runs')).json();
+    expect(data.total).toBe(2);
+    expect(data.items.every((r: { runType: string }) => r.runType !== 'test')).toBe(true);
+  });
+
+  it('filtra por tipo, y type=all las trae todas', async () => {
+    const pruebas = await (await get('/api/runs?type=test')).json();
+    expect(pruebas.total).toBe(1);
+    expect(pruebas.items[0].runType).toBe('test');
+
+    const todas = await (await get('/api/runs?type=all')).json();
+    expect(todas.total).toBe(3);
+
+    const desconocidas = await (await get('/api/runs?type=unknown')).json();
+    expect(desconocidas.total).toBe(2);
+  });
+
+  // Las corridas guardadas antes de que existiera el campo no lo tienen: el
+  // filtro `unknown` tiene que encontrarlas igual.
+  it('type=unknown incluye corridas sin el campo runType', async () => {
+    const vieja = await Run.create({
+      deviceId: 'biosoft-01', startedAt: new Date('2026-09-01T10:00:00Z'), state: 'finished',
+    });
+    await Run.collection.updateOne({ _id: vieja._id }, { $unset: { runType: '' } });
+    try {
+      const desconocidas = await (await get('/api/runs?type=unknown')).json();
+      expect(desconocidas.items.some((r: { id: string; runType: string }) =>
+        r.id === vieja._id.toString() && r.runType === 'unknown')).toBe(true);
+    } finally {
+      await Run.deleteOne({ _id: vieja._id });
+    }
   });
 
   it('pagina', async () => {

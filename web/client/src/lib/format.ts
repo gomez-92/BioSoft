@@ -1,3 +1,4 @@
+import type { RunType } from './types.js';
 // Formato de los valores que se muestran. Dos reglas que valen para todos:
 //
 //  - Un valor ausente se muestra como "--", nunca como 0: durante un
@@ -82,6 +83,28 @@ export function esCampoNulo(mode: string | null | undefined): boolean {
   if (!mode) return false;
   const valor = mode.trim().toLowerCase();
   return valor === 'null' || valor === 'nulo' || valor.includes('nulo');
+}
+
+/**
+ * Tipo de corrida a partir de la marca TEST. Mismo criterio que el backend
+ * (`runTypeFrom`): sin marca es "unknown", NO "normal" -- no se sabe si hubo
+ * animales, y presentarla como experimento seria inventarlo.
+ */
+export function tipoDesdeMarca(test: boolean | undefined): RunType {
+  if (test === undefined) return 'unknown';
+  return test ? 'test' : 'normal';
+}
+
+/**
+ * Etiqueta del chip de tipo de corrida, o null si no corresponde mostrar uno.
+ * Un experimento normal NO lleva chip: es el caso esperado, y marcarlo en
+ * cada fila haria que el chip de PRUEBA, que es el que importa, se pierda
+ * entre los demas.
+ */
+export function etiquetaTipoCorrida(runType: string | null | undefined): string | null {
+  if (runType === 'test') return 'PRUEBA';
+  if (runType === 'unknown' || !runType) return 'SIN MARCA';
+  return null;
 }
 
 export function nombreModo(mode: string | null | undefined): string {

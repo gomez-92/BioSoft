@@ -20,12 +20,14 @@ export interface ParsedStatus {
 export interface ParsedTargets {
   mode?: string; cem?: number; freq?: number; dur?: number; tol?: number;
   tnmin?: number; tnmax?: number; tcmin?: number; tcmax?: number;
+  test?: boolean;
 }
 export interface ParsedAlert { source: string; type: string; count: number; limit: number }
 export interface ParsedResult {
   reason: string; description?: string; progressPercent?: number;
   elapsedSeconds?: number; elapsedText?: string; meanMagneticField?: number;
   source?: string; type?: string; count?: number; limit?: number; emergency?: boolean;
+  test?: boolean;
 }
 
 function asObject(payload: unknown): Record<string, unknown> | null {
@@ -39,6 +41,13 @@ function asObject(payload: unknown): Record<string, unknown> | null {
 // por las nuestras.
 function num(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+// `TEST` es la marca de corrida de prueba (`runType` de la tarjeta SD). Solo
+// un booleano de verdad cuenta: un "true" de texto seria un cambio de
+// contrato, y leerlo como prueba o como experimento seria adivinar.
+function bool(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined;
 }
 
 function str(value: unknown): string | undefined {
@@ -132,15 +141,30 @@ export function parseTargets(payload: unknown): ParsedTargets | null {
   const data = asObject(payload);
   if (!data) return null;
   warnUnknownKeys('targets', data,
-    ['MODE', 'CEM', 'FREQ', 'DUR', 'TOL', 'TNMIN', 'TNMAX', 'TCMIN', 'TCMAX']);
+    ['MODE', 'CEM', 'FREQ', 'DUR', 'TOL', 'TNMIN', 'TNMAX', 'TCMIN', 'TCMAX', 'TEST']);
 
   const parsed: ParsedTargets = {
     mode: str(data.MODE), cem: num(data.CEM), freq: num(data.FREQ),
     dur: num(data.DUR), tol: num(data.TOL),
     tnmin: num(data.TNMIN), tnmax: num(data.TNMAX),
     tcmin: num(data.TCMIN), tcmax: num(data.TCMAX),
+    test: bool(data.TEST),
   };
   return Object.values(parsed).some((value) => value !== undefined) ? parsed : null;
+}
+
+/**
+ * Tipo de corrida a partir de la marca `TEST`. Sin la marca la corrida es
+ * `unknown`, no `normal`: la mandan los firmwares anteriores a la marca y las
+ * corridas del simulador viejo, y ninguno de los dos dice si hubo animales.
+ * Llamarlas experimento seria inventar el unico dato que separa datos
+ * cientificos de datos de banco.
+ */
+export type RunType = 'normal' | 'test' | 'unknown';
+
+export function runTypeFrom(test: boolean | undefined): RunType {
+  if (test === undefined) return 'unknown';
+  return test ? 'test' : 'normal';
 }
 
 /**
@@ -175,7 +199,7 @@ export function parseResult(payload: unknown): ParsedResult | null {
   const data = asObject(payload);
   if (!data) return null;
   warnUnknownKeys('result', data,
-    ['REASON', 'DESC', 'PROGRESS', 'ELAPSED', 'MEAN', 'SRC', 'TYPE', 'COUNT', 'LIMIT', 'emerg']);
+    ['REASON', 'DESC', 'PROGRESS', 'ELAPSED', 'MEAN', 'SRC', 'TYPE', 'COUNT', 'LIMIT', 'emerg', 'TEST']);
 
   const reason = str(data.REASON);
   if (!reason) {
@@ -193,6 +217,7 @@ export function parseResult(payload: unknown): ParsedResult | null {
     type: str(data.TYPE),
     count: num(data.COUNT),
     limit: num(data.LIMIT),
-    emergency: typeof data.emerg === 'boolean' ? data.emerg : undefined,
+    emergency: bool(data.emerg),
+    test: bool(data.TEST),
   };
 }

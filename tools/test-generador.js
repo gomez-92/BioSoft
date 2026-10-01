@@ -185,5 +185,17 @@ const out = JSON.stringify(T.buildJson(), null, 2);
 check("ningun entero sale con punto decimal", !/: *\d+\.0(?=[,\n])/.test(out));
 check("schemaVersion siempre 1", T.buildJson().schemaVersion === 1);
 
+console.log("\n== runType ==");
+expectError("un runType que no es normal ni test bloquea la descarga",
+  st => { st.runType = "prueba"; }, "Tipo de corrida");
+expectWarn("runType test avisa que las corridas salen marcadas como prueba",
+  st => { st.runType = "test"; }, "PRUEBA");
+reset(); T.validate();
+check("runType normal no agrega avisos", !T.warns.some(w => w.includes("Tipo de corrida")));
+reset(); T.state.runType = "test";
+check("el archivo generado lleva el runType elegido", T.buildJson().runType === "test");
+check("runType va justo despues de schemaVersion (archivo diffeable contra el ejemplo)",
+      Object.keys(T.buildJson())[1] === "runType");
+
 console.log(fails === 0 ? "\nTODO OK\n" : "\n" + fails + " FALLA(S)\n");
 process.exit(fails ? 1 : 0);

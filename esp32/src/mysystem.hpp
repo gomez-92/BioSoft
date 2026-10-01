@@ -769,6 +769,10 @@ inline void MySystem::_publishTargets() {
   doc["TNMAX"] = normal.tmax;
   doc["TCMIN"] = critical.tmin;
   doc["TCMAX"] = critical.tmax;
+  // Siempre explicito, true o false: la AUSENCIA de TEST es lo que el monitor
+  // lee como "firmware anterior a la marca", y no puede confundirse con un
+  // experimento declarado.
+  doc["TEST"] = ConfigLoader::isTestRun();
 
   _publishTelemetry(Topics::Targets, doc);
 }
@@ -803,6 +807,10 @@ inline void MySystem::_publishResult() {
     doc["COUNT"] = _data.result.count;
     doc["LIMIT"] = _data.result.limit;
   }
+  // Tambien en result: si el monitor se perdio el targets (backend caido al
+  // arrancar la corrida), la huerfana que arma con este result conserva la
+  // marca igual.
+  doc["TEST"] = ConfigLoader::isTestRun();
 
   _publishTelemetry(Topics::Result, doc);
 }

@@ -698,6 +698,22 @@ and `StateListener` (own app state, from `SystemData`).
   That is a deliberate boundary — a remote `start` would energize coils with
   animals in the cabinet and nobody in the room, while the physical e-stop
   only helps someone who is already there.
+- **`runType` (`"normal"` | `"test"`, top-level in the SD config, schema
+  §15) is a declaration, not an operating mode.** It switches nothing on or
+  off — every relaxation (detector, sources, sensors, control loop) lives in
+  its own section, and there is deliberately no master key gating them. All
+  it does is mark runs: `ConfigLoader::isTestRun()` puts `TEST` in both
+  `targets` and `result` (in `result` too, so an orphan run built from a
+  `result` alone keeps the mark), and `TestRunNotice` (`testrunnotice.hpp`,
+  called from `setup()` after `mySystem.begin()`) draws a "MODO PRUEBA"
+  strip plus a boot dialog closed with ENTENDIDO. Both live on
+  **`lv_layer_top()`**, not on a screen, because screens are destroyed and
+  rebuilt on navigation; with `runType: normal` nothing is created at all.
+  `TEST` is **always sent, true or false** — its *absence* is what the web
+  monitor reads as "firmware older than the mark", so omitting it when false
+  would turn every new experiment into `unknown`. Absent or unrecognised
+  `runType` ⇒ normal (logged); the generator refuses any other value. The
+  emergency stop is **not** configurable in any run type, by design.
 - `MySystem`'s `BENCH_SIN_MEGA` flag (`mysystem.hpp`) lets the HMI leave the
   splash and reach Principal without a Mega connected (on splash timeout, if
   `!_serial.isConnected()`, it forces `Ready`). Bench-only: with it on and no
@@ -1092,6 +1108,16 @@ Other things worth knowing before touching it:
   because the simulator published the label. Now `esCampoNulo()`/`nombreModo()`
   (`client/src/lib/format.ts`) are the single place that interprets it, and
   `tools/simulador.js` sends what the board sends.
+- **Runs carry `runType`: `normal` / `test` / `unknown`**, from the `TEST`
+  flag of `targets` (or of `result` when `targets` didn't carry one — it
+  fills a missing type, never overwrites one). A run without the flag is
+  `unknown`, **not** `normal`: old firmware and the old simulator don't say
+  whether animals were involved. `GET /api/runs` **excludes test runs unless
+  asked** (`type=test|normal|unknown|all`), so an average or comparison made
+  from the history can't silently drag bench data in. `tools/simulador.js`
+  publishes `TEST: true` by default (`--type normal|none` to change it):
+  its data is invented, and entering the history as an experiment is exactly
+  what the flag exists to prevent.
 - **Aggregated points carry min and max, not just the average.** A five-minute
   bucket swallows the fifteen-second temperature spike that cut the
   experiment — which is exactly what someone opens the chart to find.

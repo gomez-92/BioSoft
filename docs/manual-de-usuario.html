@@ -1205,7 +1205,16 @@ table.pins tbody td{padding:7px 12px 7px 0}
 
     <p>Lista los experimentos registrados, del más reciente al más antiguo, con
       su fecha, su modo de exposición, cómo terminó y cuántas alertas
-      registró. Puede filtrarse por modo y por motivo de finalización.</p>
+      registró. Puede filtrarse por modo, por motivo de finalización y por
+      tipo de corrida.</p>
+
+    <p><strong>Las corridas de prueba no se listan por defecto.</strong> Son
+      las hechas con una tarjeta que declara <code>runType: "test"</code> (ver
+      la sección 14) y llevan el distintivo <strong>PRUEBA</strong>. Para
+      verlas se elige «Solo pruebas» o «Todas» en el filtro de tipo. Una
+      corrida con el distintivo <strong>SIN MARCA</strong> proviene de un
+      firmware anterior a esta marca: no se sabe si fue un experimento o una
+      prueba, y por eso no se la presenta como ninguno de los dos.</p>
 
     <p>Un experimento puede figurar como <strong>«Sin cierre»</strong>: son
       aquellos cuyo mensaje de finalización nunca llegó, por un corte de
@@ -1274,6 +1283,34 @@ table.pins tbody td{padding:7px 12px 7px 0}
         con el equipo en marcha no tiene efecto: es necesario reiniciar la
         interfaz.</li>
     </ol>
+
+    <h3>Corridas de prueba</h3>
+
+    <p>El archivo declara si lo que se corra con esa tarjeta es un
+      <strong>experimento</strong> o una <strong>prueba de banco</strong>
+      (clave <code>runType</code>, «Tipo de corrida» en el generador). El valor
+      de fábrica, y el que rige sin tarjeta, es experimento.</p>
+
+    <p>Con una tarjeta de prueba la pantalla lo hace evidente de dos
+      maneras: al encender aparece un cartel <strong>«Configuración de
+      prueba»</strong> que hay que cerrar con <strong>ENTENDIDO</strong>
+      antes de poder operar, y durante todo el uso queda una franja
+      <strong>MODO PRUEBA</strong> en el borde superior. Las corridas se
+      publican marcadas, y el monitor web las separa de los
+      experimentos.</p>
+
+    <div class="callout warn">
+      <span class="tag">Qué hace y qué no hace</span>
+      <p><strong>Declarar una prueba no apaga ninguna protección.</strong>
+        Solo marca las corridas. Si en una prueba se quiere, por ejemplo,
+        desactivar una fuente del detector, eso se configura aparte, en su
+        propia sección del archivo. A la inversa, una tarjeta declarada como
+        experimento puede tener protecciones desactivadas: antes de un
+        experimento real conviene revisar el archivo completo, no solo el tipo
+        de corrida.</p>
+      <p><strong>La parada de emergencia no puede desactivarse</strong> desde
+        la configuración, en ningún tipo de corrida.</p>
+    </div>
 
     <div class="callout">
       <span class="tag">Edición del archivo</span>

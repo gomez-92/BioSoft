@@ -86,6 +86,10 @@ h3 { font-size: 0.78rem; margin: 0 0 10px; text-transform: uppercase; letter-spa
 .chip-critical { background: rgba(255, 92, 92, 0.15); color: var(--down); }
 .chip-modo { background: rgba(91, 140, 255, 0.15); color: var(--accent); }
 .chip-nulo { background: rgba(139, 147, 167, 0.18); color: var(--muted); }
+/* PRUEBA tiene que saltar a la vista: es lo que dice que esos datos no son un
+   experimento. Fondo lleno, no el tinte suave de los demas chips. */
+.chip-prueba { background: var(--warn); color: #1a1d24; }
+.chip-sin-marca { background: transparent; color: var(--muted); border: 1px dashed var(--muted); }
 
 .progreso { display: flex; flex-direction: column; gap: 10px; }
 .barra { height: 8px; background: #232833; border-radius: 999px; overflow: hidden; }

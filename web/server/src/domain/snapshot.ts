@@ -23,6 +23,7 @@ export interface Snapshot {
     id: string;
     startedAt: string;
     state: string;
+    runType: string;
     targets: Record<string, unknown> | null;
   } | null;
   measures: { ts: string; magneticField?: number; temperature?: number } | null;
@@ -56,6 +57,7 @@ export async function buildSnapshot(): Promise<Snapshot> {
           id: run._id.toString(),
           startedAt: run.startedAt.toISOString(),
           state: run.state,
+          runType: run.runType ?? 'unknown',
           targets: (run.targets as Record<string, unknown>) ?? null,
         }
       : null,

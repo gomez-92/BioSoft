@@ -27,6 +27,7 @@ const targetsSchema = new Schema({
   tol: Number,     // %
   tnmin: Number, tnmax: Number,   // rango normal de temperatura
   tcmin: Number, tcmax: Number,   // rango critico
+  test: Boolean,   // la marca TEST tal como llego (ausente en firmwares viejos)
 }, { _id: false });
 
 const resultSchema = new Schema({
@@ -40,6 +41,7 @@ const resultSchema = new Schema({
   // detalle se puede reconstruir sin depender de la prosa.
   source: String, type: String, count: Number, limit: Number,
   emergency: Boolean,      // paro fisico vs. Detener en pantalla
+  test: Boolean,
 }, { _id: false });
 
 const runSchema = new Schema({
@@ -50,6 +52,12 @@ const runSchema = new Schema({
   // cierre (backend caido, placa reiniciada) o aparecio un result sin corrida
   // abierta. Un huerfano NO es basura: sus muestras son datos reales.
   state: { type: String, enum: ['running', 'finished', 'orphan'], required: true, index: true },
+  // "normal": experimento declarado como tal en la tarjeta SD (`runType`).
+  // "test": corrida de banco. "unknown": llego sin la marca TEST (firmware
+  // anterior a la marca o simulador viejo). Es lo que separa datos
+  // cientificos de datos de prueba, por eso vive arriba y con indice, y no
+  // solo dentro de targets: el historial filtra por esto en cada consulta.
+  runType: { type: String, enum: ['normal', 'test', 'unknown'], default: 'unknown', index: true },
   targets: targetsSchema,
   result: resultSchema,
   stats: {

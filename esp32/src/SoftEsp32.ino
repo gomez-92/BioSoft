@@ -9,6 +9,7 @@
 #include "screencontroller.hpp"
 #include "sdstorage.hpp"
 #include "configloader.hpp"
+#include "testrunnotice.hpp"
 #include "mysystem.hpp"
 #include "debugconfig.hpp"
 
@@ -198,6 +199,10 @@ void setup() {
   }
 
   mySystem.begin();
+
+  // Despues de begin(), que es quien inicializa LVGL. Con runType "normal"
+  // (o sin tarjeta) no crea nada.
+  TestRunNotice::begin(ConfigLoader::isTestRun());
 
   // Referencia para diagnosticar el heap: begin() ya creo las seis pantallas
   // de LVGL, que con LV_USE_STDLIB_MALLOC en CLIB salen de este mismo heap y

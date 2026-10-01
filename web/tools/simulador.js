@@ -9,9 +9,12 @@
 //   node tools/simulador.js                 # corrida normal, 60 s comprimidos
 //   node tools/simulador.js --reason critical
 //   node tools/simulador.js --mode null      # grupo control
+//   node tools/simulador.js --type normal    # marcada como experimento
+//   node tools/simulador.js --type none      # sin marca TEST (firmware viejo)
 //   node tools/simulador.js --url mqtt://localhost:1883 --step 500
 //
-// Contra el broker real (OJO: son datos falsos entrando al historico real):
+// Contra el broker real (OJO: son datos falsos entrando al historico real; por
+// eso salen marcados como prueba salvo que se pida otra cosa con --type):
 //
 //   node tools/simulador.js --url mqtts://host:8883 --user X --pass Y
 //
@@ -41,6 +44,11 @@ const reason = arg('reason', 'completed');    // completed | critical | stopped
 // habria visto como campo X, que es la unica distincion que el experimento no
 // puede perder.
 const mode = arg('mode', 'x');                // x | null
+// La marca TEST que la placa saca de `runType` en la tarjeta SD. Por defecto
+// `test`: son datos inventados, y entrar al historico como experimento es
+// justo lo que la marca existe para evitar.
+const runType = arg('type', 'test');          // test | normal | none
+const marca = runType === 'none' ? {} : { TEST: runType !== 'normal' };
 const base = arg('base', 'biosoft/telemetry');
 
 const T = {
@@ -84,7 +92,7 @@ const secondsPerStep = Math.round((durationMinutes * 60) / steps);
 async function run() {
   publish(T.targets, {
     MODE: mode, CEM: 1.5, FREQ: 50, DUR: durationMinutes, TOL: 10,
-    TNMIN: 20, TNMAX: 30, TCMIN: 15, TCMAX: 35,
+    TNMIN: 20, TNMAX: 30, TCMIN: 15, TCMAX: 35, ...marca,
   }, true);
 
   let health = 'normal';
@@ -138,6 +146,7 @@ async function run() {
     PROGRESS: reason === 'completed' ? 100 : 55,
     ELAPSED: hhmmss(reason === 'completed' ? durationMinutes * 60 : Math.round(durationMinutes * 33)),
     MEAN: 1.49,
+    ...marca,
   }, true);
 
   await sleep(300);

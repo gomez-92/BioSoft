@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { authFetch } from '../lib/auth.js';
 import { duracion, esCampoNulo, nombreModo, nombreMotivo } from '../lib/format.js';
+import { TipoCorrida } from '../components/TipoCorrida.js';
 
 // Lista de corridas. Lo que se busca al recorrerla es casi siempre lo mismo:
 // que corridas fueron control (campo nulo) y cuales se cortaron solas. Por eso
@@ -12,6 +13,7 @@ interface RunRow {
   startedAt: string;
   endedAt: string | null;
   state: string;
+  runType: string;
   mode: string | null;
   reason: string | null;
   durationMinutes: number | null;
@@ -27,19 +29,23 @@ export function Historial() {
   const [pagina, setPagina] = useState(1);
   const [motivo, setMotivo] = useState('');
   const [modo, setModo] = useState('');
+  // Vacio = lo que el backend da sin `type`: todo menos las corridas de
+  // prueba. Las pruebas no se mezclan con los experimentos salvo que se pidan.
+  const [tipo, setTipo] = useState('');
   const [cargando, setCargando] = useState(true);
 
   useEffect(() => {
     const params = new URLSearchParams({ page: String(pagina), limit: String(POR_PAGINA) });
     if (motivo) params.set('reason', motivo);
     if (modo) params.set('mode', modo);
+    if (tipo) params.set('type', tipo);
 
     setCargando(true);
     authFetch(`/api/runs?${params}`)
       .then((r) => r.json())
       .then((data) => { setItems(data.items); setTotal(data.total); })
       .finally(() => setCargando(false));
-  }, [pagina, motivo, modo]);
+  }, [pagina, motivo, modo, tipo]);
 
   const paginas = Math.max(1, Math.ceil(total / POR_PAGINA));
 
@@ -59,6 +65,13 @@ export function Historial() {
               campo `value` de optionsFieldMode), no las etiquetas. */}
           <option value="x">Campo X</option>
           <option value="null">Campo nulo</option>
+        </select>
+        <select value={tipo} onChange={(e) => { setTipo(e.target.value); setPagina(1); }}>
+          <option value="">Sin pruebas</option>
+          <option value="normal">Solo experimentos marcados</option>
+          <option value="test">Solo pruebas</option>
+          <option value="unknown">Sin marca</option>
+          <option value="all">Todas</option>
         </select>
         <span className="filtros-total">{total} corrida{total === 1 ? '' : 's'}</span>
       </section>
@@ -105,6 +118,7 @@ function Fila({ run }: { run: RunRow }) {
           {run.mode && (
             <span className={`chip chip-modo ${esNulo ? 'chip-nulo' : ''}`}>{nombreModo(run.mode)}</span>
           )}
+          <TipoCorrida runType={run.runType} />
           <Motivo reason={run.reason} state={run.state} />
         </div>
         <div className="fila-datos">

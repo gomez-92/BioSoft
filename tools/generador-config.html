@@ -88,6 +88,7 @@
  * =========================================================================== */
 const DEFAULTS = {
   schemaVersion: 1,
+  runType: "normal",
   menus: {
     fieldIntensity: [{label:"1.0 mT",value:1.0},{label:"2.0 mT",value:2.0}],
     frequency: [{label:"10 Hz",value:10},{label:"50 Hz",value:50}],
@@ -203,6 +204,11 @@ let state = clone(DEFAULTS);
  * =========================================================================== */
 const INT = "int", FLT = "float";
 
+// Los dos unicos valores que ConfigLoader::loadRunType() entiende. Cualquier
+// otro cae en "normal" en el firmware: una tarjeta pensada para banco
+// marcaria sus corridas como experimento.
+const RUN_TYPES = ["normal", "test"];
+
 const getPath = p => p.split(".").reduce((o,k) => o[k], state);
 function setPath(p, v){
   const parts = p.split(".");
@@ -294,9 +300,19 @@ const TELEMETRY_FIELDS = [
  * =========================================================================== */
 function render(){
   document.getElementById("app").innerHTML =
-    sMenus() + sIntervals() + sControl() + sCoils() + sDetector() + sCurrent() + sTelemetry() +
+    sRunType() + sMenus() + sIntervals() + sControl() + sCoils() + sDetector() + sCurrent() + sTelemetry() +
     sWifi() + sBroker() + sPreview();
   validate();
+}
+
+function sRunType(){
+  return '<section><h2>0 &middot; Tipo de corrida</h2>' +
+    '<p class="hint">Declara si lo que se corra con esta tarjeta es un <b>experimento</b> o una ' +
+    '<b>prueba de banco</b>. No enciende ni apaga nada: cada relajacion (detector, fuentes, sensores, ' +
+    'control) se configura en su propia seccion. Lo que hace es <b>marcar las corridas</b> (TEST en la ' +
+    'telemetria) para que el monitor remoto no mezcle datos de banco con experimentos, y en ' +
+    '<code>test</code> la pantalla muestra una franja MODO PRUEBA y un aviso al arrancar. Solo ESP32.</p>' +
+    '<div class="grid">' + sel("runType", "Tipo", RUN_TYPES) + '</div></section>';
 }
 
 function sMenus(){
@@ -565,6 +581,15 @@ const isNum = v => Number.isFinite(v);
 
 function validate(){
   errors = []; warns = []; info = "";
+
+  /* --- 0. runType --- */
+  if (!RUN_TYPES.includes(state.runType))
+    err('Tipo de corrida "' + state.runType + '": el firmware solo entiende "normal" o "test". ' +
+        'Cualquier otro valor lo lee como "normal", y las corridas de prueba entrarian al historico ' +
+        'como experimentos.');
+  else if (state.runType === "test")
+    warn("Tipo de corrida test: todas las corridas con esta tarjeta salen marcadas como PRUEBA y el " +
+         "monitor remoto no las lista junto a los experimentos. Para un experimento real, volver a normal.");
 
   /* --- 1. menus --- */
   MENUS.forEach(m => {
@@ -900,6 +925,7 @@ function buildJson(){
   // contra docs/config.example.json.
   return {
     schemaVersion: 1,
+    runType: state.runType,
     menus: state.menus,
     intervals: state.intervals,
     control: state.control,
@@ -958,7 +984,7 @@ document.getElementById("file").addEventListener("change", ev => {
       alert("schemaVersion " + parsed.schemaVersion + " — el firmware solo entiende la 1 y " +
             "descartaria el archivo entero. Se carga igual para que lo puedas corregir.");
     state = clone(DEFAULTS);
-    ["menus", "intervals", "control", "coils", "detector", "currentSensors", "telemetry"]
+    ["runType", "menus", "intervals", "control", "coils", "detector", "currentSensors", "telemetry"]
       .forEach(k => { if (parsed[k] !== undefined) state[k] = parsed[k]; });
     render();
   };

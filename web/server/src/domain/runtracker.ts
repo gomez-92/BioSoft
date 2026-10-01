@@ -1,7 +1,7 @@
 import mongoose from 'mongoose';
 import { config } from '../config.js';
 import { Run } from '../models/index.js';
-import type { ParsedResult, ParsedTargets } from './telemetry.js';
+import { runTypeFrom, type ParsedResult, type ParsedTargets } from './telemetry.js';
 
 // La placa NO manda un identificador de corrida: publica `targets` al entrar
 // en Running y `result` al cortar, y en el medio muestras sueltas. Que esas
@@ -22,6 +22,10 @@ import type { ParsedResult, ParsedTargets } from './telemetry.js';
 //    como `orphan`. Sin eso, un experimento que murio sin `result` se queda
 //    abierto para siempre y se traga las muestras de todos los que vengan.
 //  - Un huerfano NO es basura: sus muestras son mediciones reales.
+//  - El tipo de corrida (normal / prueba) sale de la marca TEST de `targets`.
+//    Si no vino ahi, se toma la de `result`; las dos las publica la misma
+//    placa con la misma configuracion, asi que no pueden contradecirse sin
+//    un reinicio de por medio -- y un reinicio ya parte la corrida.
 //
 // El estado vive en memoria PERO se reconstruye de la base al arrancar
 // (`initRunTracker`), asi que reiniciar el backend a mitad de un experimento
@@ -67,11 +71,14 @@ export async function openRun(targets: ParsedTargets, at: Date): Promise<ObjectI
     deviceId: config.deviceId,
     startedAt: at,
     state: 'running',
+    runType: runTypeFrom(targets.test),
     targets,
     stats: { measureCount: 0, alertCount: 0 },
   });
   currentRunId = run._id as ObjectId;
-  console.log(`[corridas] abierta ${currentRunId.toString()} (modo: ${targets.mode ?? '?'})`);
+  console.log(
+    `[corridas] abierta ${currentRunId.toString()} (modo: ${targets.mode ?? '?'}, tipo: ${run.runType})`,
+  );
   return currentRunId;
 }
 
@@ -81,6 +88,13 @@ export async function closeRun(result: ParsedResult, at: Date): Promise<ObjectId
       { _id: currentRunId },
       { $set: { state: 'finished', endedAt: at, result } },
     );
+    // Solo completa un tipo que faltaba: nunca pisa el que dio `targets`.
+    if (result.test !== undefined) {
+      await Run.updateOne(
+        { _id: currentRunId, runType: 'unknown' },
+        { $set: { runType: runTypeFrom(result.test) } },
+      );
+    }
     const closed = currentRunId;
     currentRunId = null;
     console.log(`[corridas] cerrada ${closed.toString()} (${result.reason})`);
@@ -100,6 +114,7 @@ export async function closeRun(result: ParsedResult, at: Date): Promise<ObjectId
     startedAt,
     endedAt: at,
     state: 'orphan',
+    runType: runTypeFrom(result.test),
     result,
     stats: { measureCount: 0, alertCount: 0 },
   });

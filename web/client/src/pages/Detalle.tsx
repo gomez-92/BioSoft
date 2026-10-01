@@ -8,12 +8,14 @@ import { authFetch } from '../lib/auth.js';
 import {
   duracion, esCampoNulo, horaCorta, nombreModo, nombreMotivo, nombreTipoAlerta, numero,
 } from '../lib/format.js';
-import type { Targets } from '../lib/types.js';
+import type { RunType, Targets } from '../lib/types.js';
+import { TipoCorrida } from '../components/TipoCorrida.js';
 
 // Detalle de una corrida: que se pidio, que paso y por que termino.
 
 interface Detalle {
   id: string; startedAt: string; endedAt: string | null; state: string;
+  runType: RunType;
   targets: Targets | null;
   result: {
     reason: string; description?: string; progressPercent?: number;
@@ -71,6 +73,7 @@ export function DetalleCorrida() {
               {nombreModo(detalle.targets.mode)}
             </span>
           )}
+          <TipoCorrida runType={detalle.runType} />
           {detalle.result && (
             <span className={`chip chip-motivo-${detalle.result.reason}`}>
               {nombreMotivo(detalle.result.reason)}

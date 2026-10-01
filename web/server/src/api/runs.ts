@@ -23,6 +23,17 @@ runsRouter.get('/runs', asincrono(async (req, res) => {
   if (typeof req.query.reason === 'string') filtro['result.reason'] = req.query.reason;
   if (typeof req.query.mode === 'string') filtro['targets.mode'] = req.query.mode;
   if (typeof req.query.state === 'string') filtro.state = req.query.state;
+  // Las corridas de prueba NO se mezclan con los experimentos salvo que se
+  // pidan: un listado que las incluyera por defecto haria que un promedio o
+  // una comparacion hecha desde aca arrastre datos de banco sin que nadie lo
+  // note. `type=all` las trae todas; sin `type`, todo menos las de prueba
+  // (las `unknown` si aparecen: no se sabe que no sean experimentos).
+  const tipo = typeof req.query.type === 'string' ? req.query.type : undefined;
+  // `unknown` incluye las corridas guardadas ANTES de que existiera el campo:
+  // no lo tienen, y `null` en un filtro de Mongo tambien matchea "ausente".
+  if (tipo === 'normal' || tipo === 'test') filtro.runType = tipo;
+  else if (tipo === 'unknown') filtro.runType = { $in: ['unknown', null] };
+  else if (tipo !== 'all') filtro.runType = { $ne: 'test' };
   if (typeof req.query.from === 'string' || typeof req.query.to === 'string') {
     const rango: Record<string, Date> = {};
     if (typeof req.query.from === 'string') rango.$gte = new Date(req.query.from);
@@ -42,6 +53,7 @@ runsRouter.get('/runs', asincrono(async (req, res) => {
       startedAt: run.startedAt,
       endedAt: run.endedAt ?? null,
       state: run.state,
+      runType: run.runType ?? 'unknown',
       // El modo y el motivo van en la LISTA, no solo en el detalle: son lo
       // que se busca al recorrerla (que corridas fueron control, cuales se
       // cortaron), y tener que abrir cada una para saberlo la volveria
@@ -69,6 +81,7 @@ runsRouter.get('/runs/:id', asincrono(async (req, res) => {
     startedAt: run.startedAt,
     endedAt: run.endedAt ?? null,
     state: run.state,
+    runType: run.runType ?? 'unknown',
     targets: run.targets ?? null,
     result: run.result ?? null,
     stats: run.stats ?? null,

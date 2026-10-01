@@ -180,6 +180,10 @@ namespace ConfigLoader {
   inline WifiNetworkConfig _wifiNetworks[MaxWifiNetworks];
   inline uint8_t _wifiNetworkCount = 0;
   inline BrokerConfig _brokerConfig;
+  // `runType`: si las corridas de esta configuracion son de prueba. Default
+  // false (experimento) -- es lo que corre sin tarjeta, sin archivo o con un
+  // valor que no se entiende. Ver loadRunType().
+  inline bool _testRun = false;
 
   // MySystem los lee para armar los frames config_intervals/config_control/
   // config_coil al reconectar (ver mysystem.hpp::_sendMegaConfig()).
@@ -197,6 +201,7 @@ namespace ConfigLoader {
   inline const WifiNetworkConfig* wifiNetworks() { return _wifiNetworks; }
   inline uint8_t wifiNetworkCount() { return _wifiNetworkCount; }
   inline const BrokerConfig& brokerConfig() { return _brokerConfig; }
+  inline bool isTestRun() { return _testRun; }
 
   namespace {
 
@@ -725,6 +730,36 @@ namespace ConfigLoader {
       DEBUG_PRINTLN(DEBUG_CONFIGLOADER, _brokerConfig.server[0] != '\0' ? _brokerConfig.server : "(compilado)");
     }
 
+    // El tipo de corrida es una DECLARACION del usuario, no un modo de
+    // funcionamiento: no habilita ni deshabilita nada, solo marca las
+    // corridas (TEST en `targets` y `result`) para que el monitor remoto no
+    // mezcle datos de banco con experimentos. Cada relajacion (detector,
+    // fuentes, sensores) se configura por su lado, en su propia seccion.
+    //
+    // Solo "test" marca prueba. Ausente -- o un valor que no se entiende --
+    // queda en experimento, el default de todo el esquema; el generador de
+    // tools/ no deja descargar un valor fuera de los dos validos, asi que un
+    // error de tipeo solo llega acá editando el archivo a mano, y entonces
+    // queda dicho en el log.
+    inline void loadRunType(JsonVariantConst value) {
+      if (value.isNull()) {
+        DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] sin 'runType': corridas normales"));
+        return;
+      }
+      const char* text = value.as<const char*>();
+      if (text != nullptr && strcmp(text, "test") == 0) {
+        _testRun = true;
+        DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] runType: test -- las corridas se marcan como PRUEBA"));
+      }
+      else if (text != nullptr && strcmp(text, "normal") == 0) {
+        _testRun = false;
+        DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] runType: normal"));
+      }
+      else {
+        DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] runType invalido (se espera \"normal\" o \"test\"): corridas normales"));
+      }
+    }
+
     inline void loadTelemetry(JsonObjectConst telemetry) {
       if (telemetry.isNull()) {
         DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] sin seccion 'telemetry': se conservan los defaults"));
@@ -853,6 +888,7 @@ namespace ConfigLoader {
     DEBUG_PRINT(DEBUG_CONFIGLOADER, length);
     DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F(" bytes"));
 
+    loadRunType(doc["runType"]);
     loadMenus(doc["menus"]);
     loadIntervals(doc["intervals"]);
     loadMegaIntervals(doc["intervals"]);
