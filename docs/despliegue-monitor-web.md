@@ -128,6 +128,12 @@ suscriba a él:
 | placa | suscribirse | publicar |
 | cualquier otra | denegar | — |
 
+El **ping** (`biosoft/ping` → `biosoft/pong`) sigue el mismo patrón: el backend
+publica en `biosoft/ping` y se suscribe a `biosoft/pong`; la placa al revés. Es
+de solo lectura (la placa contesta y no cambia nada), pero si el ACL no lo
+permite la cabecera del monitor muestra **Placa sin respuesta** con la placa
+funcionando — revisar esto antes de buscar el problema en la placa.
+
 Sin esa regla, cualquiera con una credencial del broker (el simulador, otra
 placa) puede mandarle una configuración. No hay forma de configurarla desde el
 repositorio: es un paso manual, una sola vez.

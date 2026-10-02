@@ -44,6 +44,16 @@ h3 { font-size: 0.78rem; margin: 0 0 10px; text-transform: uppercase; letter-spa
 .enlace { font-size: 0.72rem; padding: 4px 10px; border-radius: 999px; white-space: nowrap; }
 .enlace-ok { background: rgba(61, 220, 151, 0.12); color: var(--ok); }
 .enlace-caido { background: rgba(255, 92, 92, 0.12); color: var(--down); }
+.enlace-aviso { background: rgba(255, 176, 32, 0.12); color: var(--warn); }
+.enlace-desconocido { background: rgba(139, 147, 167, 0.15); color: var(--muted); }
+.estado-placa { display: inline-flex; align-items: center; gap: 4px; }
+.estado-placa .enlace { cursor: help; }
+.boton-ping {
+  font: inherit; font-size: 0.72rem; padding: 3px 9px; border-radius: 999px;
+  border: 1px solid var(--border); background: transparent; color: var(--text); cursor: pointer;
+}
+.boton-ping:hover:not(:disabled) { border-color: var(--accent); }
+.boton-ping:disabled { opacity: 0.5; cursor: default; }
 
 /* Los avisos van arriba porque cambian el significado de todo lo de abajo. */
 .avisos { margin-top: 16px; display: flex; flex-direction: column; gap: 8px; }
@@ -301,7 +311,7 @@ h3 { font-size: 0.78rem; margin: 0 0 10px; text-transform: uppercase; letter-spa
 }
 .boton-primario:disabled { opacity: 0.6; }
 
-.cabecera-derecha { display: flex; align-items: center; gap: 8px; }
+.cabecera-derecha { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px; }
 .salir {
   background: none;
   border: 1px solid var(--border);
@@ -324,3 +334,14 @@ h3 { font-size: 0.78rem; margin: 0 0 10px; text-transform: uppercase; letter-spa
 .pedido-estado { font-weight: 600; }
 .pedido-mensaje { color: var(--muted); }
 .config-json { max-height: 420px; overflow: auto; font-size: 0.8rem; }
+
+/* Estado del ultimo envio de configuracion: la confirmacion de la placa
+   tiene que verse sin buscarla en la lista de envios. */
+.envio-estado {
+  margin-top: 12px; padding: 10px 12px; border-radius: 8px; font-size: 0.85rem;
+  display: flex; flex-direction: column; gap: 2px; border: 1px solid;
+}
+.envio-estado span { color: var(--muted); }
+.envio-ok { background: rgba(61, 220, 151, 0.1); border-color: rgba(61, 220, 151, 0.4); color: var(--ok); }
+.envio-error { background: rgba(255, 92, 92, 0.1); border-color: rgba(255, 92, 92, 0.4); color: var(--down); }
+.envio-progress { background: rgba(91, 140, 255, 0.1); border-color: rgba(91, 140, 255, 0.4); color: var(--accent); }

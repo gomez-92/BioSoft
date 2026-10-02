@@ -41,7 +41,11 @@ function objeto(payload: unknown): Record<string, unknown> | null {
 
 /* ------------------------------ IDA ------------------------------ */
 
-interface Armado { total?: number; bloques: Map<number, string> }
+interface Armado { total?: number; loadStatus?: string; bloques: Map<number, string> }
+
+// Los motivos que la placa puede informar (ConfigLoader::loadStatus). Uno
+// desconocido se guarda como null: mejor "no se sabe" que un texto inventado.
+const LOAD_STATUS = new Set(['ok', 'nosd', 'nofile', 'unreadable', 'invalid', 'schema']);
 const armando = new Map<string, Armado>();
 
 async function completarSiEsta(id: string): Promise<void> {
@@ -53,7 +57,10 @@ async function completarSiEsta(id: string): Promise<void> {
     armando.delete(id);
     await ConfigSnapshot.updateOne(
       { configId: id },
-      { $set: { lastReportedAt: new Date() }, $setOnInsert: { text: '', content: null } },
+      {
+        $set: { lastReportedAt: new Date(), loadStatus: armado.loadStatus ?? null },
+        $setOnInsert: { text: '', content: null },
+      },
       { upsert: true },
     );
     emitir('config:current', { configId: id });
@@ -87,7 +94,7 @@ async function completarSiEsta(id: string): Promise<void> {
 
   await ConfigSnapshot.updateOne(
     { configId: id },
-    { $set: { text: texto, content: contenido, lastReportedAt: new Date() } },
+    { $set: { text: texto, content: contenido, lastReportedAt: new Date(), loadStatus: armado.loadStatus ?? 'ok' } },
     { upsert: true },
   );
   console.log(`[config] configuracion vigente de la placa: ${id} (${armado.total} bloques)`);
@@ -104,6 +111,7 @@ async function recibirVigente(topic: string, payload: unknown): Promise<void> {
   const sufijo = topic.slice(config.configTopics.currentPrefix.length);
   if (sufijo === 'meta') {
     if (typeof data.n === 'number') armado.total = data.n;
+    if (typeof data.src === 'string' && LOAD_STATUS.has(data.src)) armado.loadStatus = data.src;
   } else if (typeof data.i === 'number' && typeof data.d === 'string') {
     armado.bloques.set(data.i, data.d);
     if (typeof data.n === 'number') armado.total = data.n;

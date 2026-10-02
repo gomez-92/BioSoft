@@ -58,6 +58,26 @@
   .msg.e{background:var(--errbg);color:var(--err);border:1px solid var(--err)}
   .msg.w{background:var(--warnbg);color:var(--warn);border:1px solid var(--warn)}
   .msg.o{background:var(--okbg);color:var(--ok);border:1px solid var(--ok)}
+  /* Perfil de escenario. Los botones marcan SOLO lo que se esta editando;
+     lo que corre en la placa y lo enviado van en un bloque aparte, una fila
+     por etapa: mezclarlos en los mismos botones confundia. */
+  button.prof.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+  button.prof.on::before{content:"✓ "}
+  .etapas{display:grid;grid-template-columns:auto auto 1fr;gap:6px 14px;align-items:baseline;
+          font-size:13px;margin:0 0 12px;padding:10px 12px;border-radius:6px;
+          background:var(--code);border:1px solid var(--line)}
+  .etapas .et{font-weight:600;white-space:nowrap}
+  .etapas .et::before{content:"";display:inline-block;width:10px;height:10px;border-radius:2px;
+                      margin-right:6px;vertical-align:-1px}
+  .etapas .et.placa::before{background:var(--ok)}
+  .etapas .et.enviado::before{background:var(--warn)}
+  .etapas .et.form::before{background:var(--accent)}
+  .etapas .val{font-weight:600}
+  .etapas .nota{color:var(--muted)}
+  .etapas .nada{color:var(--muted);font-weight:400}
+  .etapas .alerta{color:var(--warn);font-weight:600}
+  @media (max-width:600px){ .etapas{grid-template-columns:1fr} .etapas .nota{margin-bottom:6px} }
+  .msg.i{background:var(--code);color:var(--ink);border:1px solid var(--accent)}
   pre{background:var(--code);border:1px solid var(--line);border-radius:6px;
       padding:12px;overflow:auto;max-height:340px;font-size:12px}
 </style>
@@ -75,6 +95,7 @@
     <button class="primary" id="send" hidden>Enviar a la placa</button>
   </div>
   <div class="msgs" id="msgs"></div>
+  <div class="msgs" id="sendStatus" role="status" aria-live="polite"></div>
 </header>
 
 <main id="app"></main>
@@ -270,6 +291,101 @@ function applyProfile(key){
     if (isCem && def.cemEnabled) s.enabled = true;
   });
   render();
+}
+
+// Que perfil describe una configuracion: la clave del perfil, "real" (los dos
+// sensores reales) o "custom" (cualquier otra cosa: un escenario editado a
+// mano, sim, TEMP1 en none...). Se DEDUCE de los valores en vez de recordar
+// el ultimo boton apretado: asi tambien acierta con un archivo cargado, con
+// la configuracion que trae la placa y despues de editar un numero (que
+// deja de ser el perfil, y tiene que dejar de verse como tal).
+function profileOf(cfg){
+  const sources = cfg && cfg.detector && Array.isArray(cfg.detector.sources) ? cfg.detector.sources : [];
+  const realOf = name => name === "CEM1" ? "mlx90393" : "ds18b20";
+  // Sin seccion (o sin clave sensor) rigen los compilados: sensores reales.
+  if (sources.every(s => s.sensor === undefined || s.sensor === realOf(s.name))) return "real";
+  const match = SCENARIO_PROFILES.find(([, , , def]) => sources.every(s => {
+    if (s.sensor !== "scenario" || !s.scenario) return false;
+    const isCem = s.name === "CEM1";
+    if (isCem && def.cemEnabled && s.enabled !== true) return false;
+    const want = Object.assign({}, QUIET, isCem ? {setpointDuty: 0.5} : {}, isCem ? def.cem : def.temp);
+    return Object.keys(want).every(k => Number(s.scenario[k]) === want[k]);
+  }));
+  return match ? match[0] : "custom";
+}
+
+function profileName(key){
+  if (key === "real") return "sensores reales";
+  if (key === "custom") return "personalizado (no coincide con ningun perfil)";
+  const p = SCENARIO_PROFILES.find(x => x[0] === key);
+  return p ? p[1] : key;
+}
+
+// Las etapas que el monitor pasa cuando el generador esta embebido:
+//   placa   = lo que corre ahora ({config, configId, texto, aviso}; config
+//             null = valores de fabrica; texto = por que corre eso, armado
+//             por el monitor -- lib/format.ts motivoConfig -- para que exista
+//             en un solo lugar), o null si la placa todavia no informo nada;
+//   enviado = lo mandado que todavia no corre ({config, configId, fase}:
+//             "enviando" o "grabado" esperando el reinicio), o null.
+// Abierto con doble clic no hay placa: solo existe la fila "Editando".
+let stages = {placa: null, enviado: null};
+
+// Marca el perfil que se esta editando y llena el bloque de etapas. Se llama
+// desde paint(), que corre en cada edicion: los cambios de valor no
+// re-renderizan.
+function updateProfileMarks(){
+  if (typeof document.querySelectorAll !== "function") return;
+  const form = profileOf(state);
+  document.querySelectorAll("button.prof").forEach(b => {
+    const key = b.dataset.real ? "real" : b.dataset.profile;
+    b.classList.toggle("on", key === form);
+    b.setAttribute("aria-pressed", key === form ? "true" : "false");
+  });
+  const box = document.getElementById("profileStatus");
+  if (!box) return;
+
+  const row = (cls, label, value, note) =>
+    '<span class="et ' + cls + '">' + label + '</span><span class="val">' + value + '</span>' +
+    '<span class="nota">' + note + '</span>';
+  const placa = stages.placa;
+  const enviado = stages.enviado;
+  const placaProf = placa ? profileOf(placa.config || {}) : null;
+  const enviadoProf = enviado && enviado.config ? profileOf(enviado.config) : null;
+
+  let h = "";
+  if (EMBEDDED) {
+    // "default" no es un perfil sino la ausencia de configuracion: se dice
+    // asi, con el motivo, en vez de "sensores reales" a secas (que es cierto
+    // -- de fabrica los sensores son los reales -- pero esconde el porque).
+    const motivo = placa && placa.texto
+      ? '<span class="' + (placa.aviso ? "alerta" : "") + '">' + esc(placa.texto) + '</span>' : "";
+    h += placa
+      ? (placa.configId === "default"
+          ? row("placa", "En la placa", "Valores de fabrica",
+                motivo + ". De fabrica los sensores son los reales.")
+          : row("placa", "En la placa", esc(profileName(placaProf)),
+                "config " + esc(placa.configId) + " · es lo que corre ahora"))
+      : row("placa", "En la placa", '<span class="nada">sin informar</span>',
+            "la placa todavia no publico su configuracion");
+    if (!enviado)
+      h += row("enviado", "Enviado", '<span class="nada">nada pendiente</span>',
+               "no hay ningun envio esperando aplicarse");
+    else if (enviado.fase === "enviando")
+      h += row("enviado", "Enviado", enviadoProf ? esc(profileName(enviadoProf)) : "...",
+               "enviandose a la placa");
+    else
+      h += row("enviado", "Enviado", enviadoProf ? esc(profileName(enviadoProf)) : "?",
+               "config " + esc(enviado.configId || "?") + " · la placa confirmo y la grabo en la SD; " +
+               "se aplica cuando reinicie");
+  }
+  let nota;
+  if (!EMBEDDED) nota = "queda en el archivo al descargarlo";
+  else if (enviado && enviadoProf === form) nota = "mismo perfil que lo enviado";
+  else if (!enviado && placa && placaProf === form) nota = "mismo perfil que la placa";
+  else nota = "sin enviar: no corre en la placa hasta enviarlo y reiniciarla";
+  h += row("form", "Editando", esc(profileName(form)), nota);
+  box.innerHTML = h;
 }
 
 function realSensors(){
@@ -529,10 +645,12 @@ function sDetector(){
     'en <b>niveles</b> relativos a los rangos que se elijan en pantalla: <b>0</b> = centro del normal, ' +
     '<b>1</b> = borde del normal, <b>2</b> = borde del critico. Las corridas salen marcadas <b>PRUEBA</b> y, ' +
     'si CEM1 no es el sensor real, <b>las bobinas no se energizan</b>. Un perfil completa las dos fuentes; ' +
-    'despues se puede ajustar cada numero.</p><div class="grid">' +
-    SCENARIO_PROFILES.map(p => '<button data-profile="' + p[0] + '" title="' + esc(p[2]) + '">' +
-      esc(p[1]) + '</button>').join("") +
-    '<button data-real="1">Volver a sensores reales</button></div></div>';
+    'despues se puede ajustar cada numero.</p>' +
+    '<div class="etapas" id="profileStatus"></div><div class="grid">' +
+    SCENARIO_PROFILES.map(p => '<button type="button" class="prof" data-profile="' + p[0] + '" title="' +
+      esc(p[2]) + '">' + esc(p[1]) + '</button>').join("") +
+    '<button type="button" class="prof" data-real="1" title="CEM1 con el MLX90393 y TEMP1 con el DS18B20">' +
+    'Sensores reales</button></div></div>';
   state.detector.sources.forEach((s, i) => {
     const sensors = SOURCE_SENSORS[s.name] || [s.sensor];
     h += '<div class="sub"><h3>' + s.name + '</h3><div class="grid">' +
@@ -1248,6 +1366,7 @@ function paint(){
          "combinaciones tienen consecuencias que recien se ven en banco." + li(warns) + "</div>";
   if (info) h += '<div class="msg o">' + esc(info) + "</div>";
   document.getElementById("msgs").innerHTML = h;
+  updateProfileMarks();
 }
 
 function download(){
@@ -1314,6 +1433,16 @@ document.getElementById("file").addEventListener("change", ev => {
   ev.target.value = "";
 });
 
+// Estado del ultimo envio a la placa, que pasa el monitor. Va en la cabecera
+// fija, al lado del boton Enviar, porque es ahi donde se esta mirando.
+function showSendStatus(st){
+  const box = document.getElementById("sendStatus");
+  if (!st || !st.text) { box.innerHTML = ""; return; }
+  const cls = {ok: "o", error: "e", progress: "i"}[st.kind] || "i";
+  box.innerHTML = '<div class="msg ' + cls + '"><b>' + esc(st.text) + '</b>' +
+    (st.detail ? '<br>' + esc(st.detail) : '') + '</div>';
+}
+
 if (EMBEDDED) {
   document.getElementById("dl").hidden = true;
   const send = document.getElementById("send");
@@ -1327,6 +1456,11 @@ if (EMBEDDED) {
   window.addEventListener("message", ev => {
     if (ev.origin !== window.location.origin || !ev.data) return;
     if (ev.data.type === "biosoft-load" && ev.data.config) loadParsed(ev.data.config);
+    if (ev.data.type === "biosoft-board") {
+      stages = {placa: ev.data.placa || null, enviado: ev.data.enviado || null};
+      updateProfileMarks();
+    }
+    if (ev.data.type === "biosoft-status") showSendStatus(ev.data.status);
   });
 }
 

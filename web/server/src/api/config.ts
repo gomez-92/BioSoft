@@ -15,6 +15,7 @@ configRouter.get('/config/current', asincrono(async (_req, res) => {
     configId: snapshot.configId,
     reportedAt: snapshot.lastReportedAt ?? null,
     content: snapshot.content ?? null,
+    loadStatus: snapshot.loadStatus ?? null,
   });
 }));
 
@@ -30,8 +31,20 @@ configRouter.get('/config/snapshots/:id', asincrono(async (req, res) => {
 }));
 
 configRouter.get('/config/requests', asincrono(async (_req, res) => {
-  const items = await ConfigRequest.find().sort({ createdAt: -1 }).limit(20)
-    .select('-text').lean();
+  const items: Array<Record<string, unknown>> = await ConfigRequest.find().sort({ createdAt: -1 })
+    .limit(20).select('-text').lean();
+  // El ULTIMO envio lleva su contenido: el generador lo muestra como
+  // "Enviado" (grabado en la SD, todavia no vigente) aparte de lo que corre
+  // en la placa y de lo que se esta editando. Los demas no lo necesitan, y
+  // son ~7 KB cada uno.
+  if (items.length > 0) {
+    const ultimo = await ConfigRequest.findOne({ requestId: items[0].requestId }).select('text').lean();
+    try {
+      items[0] = { ...items[0], content: ultimo?.text ? JSON.parse(ultimo.text) : null };
+    } catch {
+      items[0] = { ...items[0], content: null };
+    }
+  }
   res.json({ inProgress: pedidoEnCurso(), items });
 }));
 

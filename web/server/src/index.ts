@@ -8,6 +8,8 @@ import { healthRouter } from './api/health.js';
 import { liveRouter } from './api/live.js';
 import { runsRouter } from './api/runs.js';
 import { configRouter } from './api/config.js';
+import { boardRouter } from './api/board.js';
+import { configurarPing, handlePong, iniciarPingPeriodico } from './domain/boardping.js';
 import { configurarSync, handleConfigMessage } from './domain/configsync.js';
 import { config } from './config.js';
 import { requireAuth } from './auth/middleware.js';
@@ -16,7 +18,7 @@ import { connectMongo } from './db/mongo.js';
 import { initRunTracker, sweepStaleRuns } from './domain/runtracker.js';
 import { registerHandlers } from './mqtt/handlers.js';
 import {
-  mqttStatus, onConfigMessage, publishToBoard, startIngestor, stopIngestor,
+  mqttStatus, onConfigMessage, onPong, publishToBoard, startIngestor, stopIngestor,
 } from './mqtt/ingestor.js';
 import { cabecerasSeguras, servirCliente, verificarProduccion } from './produccion.js';
 import { emitConfig, startRealtime } from './realtime/socket.js';
@@ -60,6 +62,8 @@ app.use('/api', requiereBase, authRouter);
 // broker, el clientId y cuantos datos hay guardados -- poco para un atacante,
 // pero no hay ninguna razon para regalarlo.
 app.use('/api', requireAuth, healthRouter);
+// El ping no toca la base: tiene que contestar aunque Mongo este caido.
+app.use('/api', requireAuth, boardRouter);
 app.use('/api', requireAuth, requiereBase, liveRouter);
 app.use('/api', requireAuth, requiereBase, runsRouter);
 app.use('/api', requireAuth, requiereBase, configRouter);
@@ -78,6 +82,10 @@ registerHandlers();
 // Configuracion remota (tarjeta 24): camino aparte de la telemetria.
 configurarSync({ publicar: publishToBoard, emitir: emitConfig });
 onConfigMessage((message) => handleConfigMessage(message));
+// Ping a la placa: periodico, y a pedido desde la cabecera del monitor.
+configurarPing({ publicar: publishToBoard, emitir: emitConfig });
+onPong(handlePong);
+iniciarPingPeriodico(config.boardPingSeconds * 1000, () => mqttStatus().connected);
 
 // Los dos enlaces son INDEPENDIENTES y arrancan por separado.
 //

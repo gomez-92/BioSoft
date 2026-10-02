@@ -152,11 +152,12 @@ namespace RemoteConfig {
 
         // Al final la meta: con "n" el monitor sabe cuantos bloques esperar.
         // n = 0 con "default": corren los defaults compilados, no hay
-        // archivo que mostrar.
+        // archivo que mostrar; "src" dice por que (ConfigLoader::loadStatus).
         JsonDocument doc;
         doc["id"] = configId;
         doc["n"] = _total;
         doc["len"] = _length;
+        doc["src"] = ConfigLoader::loadStatus();
         serializeJson(doc, payload, sizeof(payload));
         if (!out.publishConfigMessage(TopicCurrentMeta, payload, true)) return;
         _active = false;

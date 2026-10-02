@@ -2,6 +2,7 @@ import { Suspense, lazy, useEffect, useState } from 'react';
 import { BrowserRouter, Link, NavLink, Route, Routes, useNavigate } from 'react-router-dom';
 import { authFetch, clearToken, getToken, onSesionPerdida } from './lib/auth.js';
 import { useLive } from './lib/useLive.js';
+import { EstadoPlaca } from './components/EstadoPlaca.js';
 import { Historial } from './pages/Historial.js';
 import { Live } from './pages/Live.js';
 import { Login } from './pages/Login.js';
@@ -65,6 +66,7 @@ function Contenido({ sesion, onSalir }: { sesion: { usuario: string }; onSalir: 
           <span className={`enlace ${estado.conectado && estado.brokerOk ? 'enlace-ok' : 'enlace-caido'}`}>
             {estado.conectado ? (estado.brokerOk ? 'En linea' : 'Sin broker') : 'Sin servidor'}
           </span>
+          {estado.conectado && <EstadoPlaca placa={estado.placa} brokerOk={estado.brokerOk} />}
           <button type="button" className="salir" onClick={onSalir} title={sesion.usuario}>
             Salir
           </button>

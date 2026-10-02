@@ -853,8 +853,8 @@ and `StateListener` (own app state, from `SystemData`).
   room, while the physical e-stop only helps someone who is already there.
   Its one write path is the SD config (next bullet), which never acts live.
 - **Remote config (card 24, `remoteconfig.hpp`)**: the board's first inbound
-  channel — `onMessageReceived()` listens to `biosoft/config/set` only.
-  Contract in schema §17. Things that bite if forgotten:
+  channel — `onMessageReceived()` listens to `biosoft/config/set` and
+  `biosoft/ping` (below). Contract in schema §17. Things that bite if forgotten:
   - The MQTT callback runs on the **comms core**; the SD is also used by the
     main loop. So `onMessageReceived()` only copies into a FreeRTOS queue
     (`_configInbox`, 4 × 512) and `MySystem::update()` processes it. Same for
@@ -877,6 +877,24 @@ and `StateListener` (own app state, from `SystemData`).
     whatever causes it — **no on-screen confirmation and no "restart now"**
     (they need SquareLine; card 26). The EMQX ACL restricting who may publish
     to `config/set` is a manual console step (`docs/despliegue-monitor-web.md`).
+  - Its ack *is* the confirmation the operator sees: `aceptada` = written to
+    the SD. The monitor tells that apart from **vigente** (the board rebooted
+    and reports that same `configId` as current) and shows both in the
+    generator's sticky header (`biosoft-status` postMessage), next to Enviar —
+    a status list outside the iframe went unseen.
+- **Ping (`remoteping.hpp`)**: the monitor publishes `biosoft/ping {r}` every
+  `BOARD_PING_SECONDS` (15) and on demand (header button, `POST
+  /api/board/ping`); the board answers `biosoft/pong {r, st, cfg, mega, up}`.
+  It exists because outside a run the board publishes nothing, so "En linea"
+  only ever meant *the monitor* reaches the broker. Read-only by design (not a
+  remote command). Same core split as config: `onMessageReceived()` queues
+  (`_pingInbox`, 2 entries), `_answerPings()` publishes from `update()`.
+  Neither side retains, and the server ignores a retained pong — it would claim
+  a board answered that may be off for hours. Not persisted (link state, like
+  the broker's). "Sin respuesta" is decided by ping **sequence number**, not
+  timestamps: two pings in one millisecond tied by date. The EMQX ACL must
+  allow these topics too. `web/tools/simulador-config.js` answers pings
+  (`--sin-pong` to play a hung board).
 - **`runType` (`"normal"` | `"test"`, top-level in the SD config, schema
   §15) is a declaration, not an operating mode.** It switches nothing on or
   off — every relaxation (detector, sources, sensors, control loop) lives in
@@ -1257,6 +1275,21 @@ Two things there are worth knowing before touching it:
   and the operator gets a menu entry of 0 ms. The generator blocks the download
   on any non-integer in an int-typed field; that check is the main reason to
   generate the file rather than hand-edit it.
+- **The scenario profile shown as applied is *deduced*, not remembered**
+  (`profileOf()`): it compares the sources against each profile's values, so
+  it is right after loading a file or the board's config, and a profile with
+  one number edited stops being marked (`custom`). The buttons mark **only
+  what is being edited**; embedded, a separate block lists three stages, one
+  row each — *En la placa* (current config), *Enviado* (sent, written to the
+  SD, waiting for a reboot; `GET /api/config/requests` carries `content` on
+  the latest request for this) and *Editando*. A board on `"default"` shows
+  *Valores de fabrica* plus **why** — `ConfigLoader::loadStatus()` (`ok`/
+  `nosd`/`nofile`/`unreadable`/`invalid`/`schema`) travels as `src` in the
+  current-config meta and `cfgst` in the pong. `invalid`/`schema`/`unreadable`
+  are warnings, not boots-as-usual: the file *is* on the card and is being
+  ignored. The wording lives once, in `web/client/src/lib/format.ts`
+  (`motivoConfig`), and is passed to the generator already built. They used to share the
+  buttons (board as an underline) and that read as one confusing state.
 - **`control.map` is validated here against the same limits as the Mega**
   (`MAX_BALANCE` mirrors `CoilChannels::MaxBalance` — same drift hazard as the two
   `seriallink.hpp`). The web copy (`client/public/`) must stay identical:

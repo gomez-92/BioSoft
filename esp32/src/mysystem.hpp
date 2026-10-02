@@ -19,6 +19,7 @@
 #include "configloader.hpp"
 #include "selectionstore.hpp"
 #include "remoteconfig.hpp"
+#include "remoteping.hpp"
 #include "debugconfig.hpp"
 
 // Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
@@ -52,6 +53,9 @@ class MySystem :
       char payload[BrokerBufferSize];
     };
     QueueHandle_t _configInbox = nullptr;
+    // Pings del monitor (remoteping.hpp): mismo motivo que _configInbox, el
+    // pong se arma con el estado de la app, que vive en el loop principal.
+    QueueHandle_t _pingInbox = nullptr;
     // Lo levanta onBrokerConnected() (otro nucleo) y lo atiende update(): el
     // Timer no es seguro entre nucleos, asi que la tarea se agrega desde aca.
     volatile bool _publishConfigRequested = false;
@@ -101,6 +105,7 @@ class MySystem :
 
     void _sendMegaConfig();
     void _updateRemoteConfig();
+    void _answerPings();
     // Banco sin Mega2560: `requireMega: false` en la tarjeta Y el serial sin
     // conectar. Al vencer el splash se pasa a Principal igual (forzando
     // Ready) en vez de esperar el primer state_data; Iniciar pasa directo a
@@ -200,6 +205,8 @@ inline void MySystem::begin() {
   // reconexion del broker.
   _configInbox = xQueueCreate(4, sizeof(ConfigInboxMessage));
   _brokerManager.subscribe(RemoteConfig::TopicSet);
+  _pingInbox = xQueueCreate(2, sizeof(RemotePing::Request));
+  _brokerManager.subscribe(RemotePing::TopicPing);
 
   _serial.begin();
   _timer.begin();
@@ -244,6 +251,25 @@ inline void MySystem::update() {
   _serial.update();
   _timer.tick();
   _updateRemoteConfig();
+  _answerPings();
+}
+
+// Contesta los pings del monitor con lo minimo para saber que la placa esta
+// viva y en que anda. Va por la cola de publicacion como la telemetria: si el
+// broker se cayo, el pong se pierde y el monitor lo ve como "sin respuesta",
+// que es exactamente lo que paso.
+inline void MySystem::_answerPings() {
+  if (_pingInbox == nullptr) return;
+  RemotePing::Request request;
+  while (xQueueReceive(_pingInbox, &request, 0) == pdTRUE) {
+    char payload[160];
+    size_t length = RemotePing::buildPong(request, _data.getState(), ConfigLoader::configId(),
+                                          ConfigLoader::loadStatus(), _serial.isConnected(), millis() / 1000,
+                                          payload, sizeof(payload));
+    if (length == 0) continue;
+    DEBUG_PRINTF(DEBUG_MYSYSTEM, "[PING] %s -> pong\n", request.id);
+    _publish(RemotePing::TopicPong, payload, false);
+  }
 }
 
 inline void MySystem::_updateRemoteConfig() {
@@ -1383,11 +1409,16 @@ inline void MySystem::onBrokerDisconnected() {
   _data.communication.brokerOk = false;
 }
 
-// Solo escucha biosoft/config/set (tarjeta 24). Corre en el nucleo de
+// Escucha biosoft/config/set (tarjeta 24) y biosoft/ping. Corre en el nucleo de
 // comunicaciones: no procesa nada, encola para el loop principal. Con la cola
 // llena el bloque se descarta -- el monitor no recibe su confirmacion y lo
 // reenvia.
 inline void MySystem::onMessageReceived(const char* topic, const char* payload) {
+  if (strcmp(topic, RemotePing::TopicPing) == 0) {
+    RemotePing::Request request;
+    if (_pingInbox != nullptr && RemotePing::parse(payload, request)) xQueueSend(_pingInbox, &request, 0);
+    return;
+  }
   if (_configInbox == nullptr || strcmp(topic, RemoteConfig::TopicSet) != 0) return;
   ConfigInboxMessage message;
   strncpy(message.payload, payload, sizeof(message.payload) - 1);

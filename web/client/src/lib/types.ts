@@ -49,3 +49,16 @@ export interface Snapshot {
   alerts: AlertItem[];
   link: { broker: boolean; lastMessageAt: Record<string, string> };
 }
+
+/** Ping a la placa (server/src/domain/boardping.ts). */
+export interface PlacaStatus {
+  estado: 'desconocido' | 'conectada' | 'sin_respuesta';
+  ultimoPing: string | null;
+  ultimaRespuesta: string | null;
+  latenciaMs: number | null;
+  appState: string | null;
+  configId: string | null;
+  configStatus: string | null;
+  mega: boolean | null;
+  uptimeSeconds: number | null;
+}

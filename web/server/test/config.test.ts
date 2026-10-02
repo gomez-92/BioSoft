@@ -105,6 +105,20 @@ describe.skipIf(!hayMongo)('configuracion vigente de la placa', () => {
     expect(guardada).not.toBeNull();
     expect(guardada?.content).toBeNull();
   });
+
+  // "default" junta causas distintas; un archivo descartado por JSON roto
+  // no es lo mismo que una placa sin tarjeta, y el motivo tiene que llegar.
+  it('"default" guarda el motivo que informa la placa, el ultimo', async () => {
+    const meta = (src: string) => handleConfigMessage({
+      topic: 'biosoft/config/current/meta', payload: { id: 'default', n: 0, src }, retained: true,
+    });
+    await meta('nosd');
+    expect((await ConfigSnapshot.findOne({ configId: 'default' }).lean())?.loadStatus).toBe('nosd');
+    await meta('invalid');
+    expect((await ConfigSnapshot.findOne({ configId: 'default' }).lean())?.loadStatus).toBe('invalid');
+    await meta('inventado');
+    expect((await ConfigSnapshot.findOne({ configId: 'default' }).lean())?.loadStatus).toBeNull();
+  });
 });
 
 describe.skipIf(!hayMongo)('envio de una configuracion a la placa', () => {

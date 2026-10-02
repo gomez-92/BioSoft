@@ -155,3 +155,30 @@ export function nombreModo(mode: string | null | undefined): string {
   if (!mode) return '--';
   return esCampoNulo(mode) ? 'CAMPO NULO' : 'CAMPO X';
 }
+
+// Por que corre la configuracion que corre en la placa (ConfigLoader::
+// loadStatus). "default" junta cinco causas, y no pesan igual: sin tarjeta o
+// sin archivo es un arranque normal, pero un archivo descartado ESTA en la
+// tarjeta y quien lo grabo cree que corre. `aviso` marca los que hay que
+// mirar. El generador embebido recibe este texto ya armado, para que exista
+// en un solo lugar.
+export function motivoConfig(
+  configId: string | null | undefined, loadStatus: string | null | undefined,
+): { texto: string; aviso: boolean } {
+  switch (loadStatus) {
+    case 'nosd':
+      return { texto: 'la placa no tiene tarjeta SD (o no la pudo leer): corre con los valores de fabrica, y no se le puede enviar configuracion hasta ponerla y reiniciar', aviso: true };
+    case 'nofile':
+      return { texto: 'la tarjeta no tiene /biosoft/config.json: corre con los valores de fabrica', aviso: false };
+    case 'unreadable':
+      return { texto: 'config.json esta en la tarjeta pero no se pudo leer (¿pasa de 8 KB?): se ignoro y corre con los valores de fabrica', aviso: true };
+    case 'invalid':
+      return { texto: 'config.json esta en la tarjeta pero tiene JSON invalido: se descarto entero y corre con los valores de fabrica', aviso: true };
+    case 'schema':
+      return { texto: 'config.json esta en la tarjeta pero su schemaVersion no es la que entiende el firmware: se descarto entero y corre con los valores de fabrica', aviso: true };
+  }
+  if (configId === 'default') {
+    return { texto: 'corre con los valores de fabrica (sin tarjeta, sin archivo o con un archivo descartado; esta placa no informa cual)', aviso: false };
+  }
+  return { texto: 'cargada desde config.json de la tarjeta', aviso: false };
+}

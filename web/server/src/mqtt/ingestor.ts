@@ -58,6 +58,13 @@ export function onConfigMessage(handler: (message: ConfigMessageIn) => void | Pr
   configHandlers.push(handler);
 }
 
+// Respuestas al ping (domain/boardping.ts): tampoco son telemetria.
+const pongHandlers: Array<(payload: unknown, retained: boolean) => void> = [];
+
+export function onPong(handler: (payload: unknown, retained: boolean) => void): void {
+  pongHandlers.push(handler);
+}
+
 /** Publica hacia la placa (QoS 1, sin retain). */
 export async function publishToBoard(topic: string, payload: string): Promise<void> {
   if (!client || !connected) throw new Error('sin conexion con el broker');
@@ -88,6 +95,7 @@ export function startIngestor(): void {
       ...groups.keys(),
       `${config.configTopics.currentPrefix}#`,
       config.configTopics.status,
+      config.boardTopics.pong,
     ];
     for (const topic of topics) {
       client!.subscribe(topic, { qos: 1 }, (error) => {
@@ -106,6 +114,13 @@ export function startIngestor(): void {
   client.on('error', (error) => console.error('[mqtt] error:', error.message));
 
   client.on('message', (topic, raw, packet) => {
+    if (topic === config.boardTopics.pong) {
+      let payload: unknown;
+      try { payload = JSON.parse(raw.toString()); } catch { return; }
+      for (const handler of pongHandlers) handler(payload, packet.retain === true);
+      return;
+    }
+
     if (topic.startsWith(config.configTopics.currentPrefix) || topic === config.configTopics.status) {
       let payload: unknown;
       try {

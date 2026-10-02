@@ -163,6 +163,11 @@ const configSnapshotSchema = new Schema({
   text: { type: String, default: '' },
   content: { type: Schema.Types.Mixed, default: null },
   lastReportedAt: { type: Date, index: true },
+  // Por que corre esta configuracion (ConfigLoader::loadStatus en la placa):
+  // ok / nosd / nofile / unreadable / invalid / schema. Importa sobre todo
+  // en "default", que junta cinco causas. Es el del ULTIMO reporte; null si
+  // la placa es anterior a este dato.
+  loadStatus: { type: String, default: null },
 }, { timestamps: true });
 
 export const ConfigSnapshot = model('ConfigSnapshot', configSnapshotSchema);

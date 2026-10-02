@@ -299,6 +299,21 @@ namespace ConfigLoader {
   inline char _configId[ConfigIdLength] = "default";
   inline const char* configId() { return _configId; }
 
+  // Por que corre lo que corre. "default" junta cinco causas que para el
+  // operador no son lo mismo: sin tarjeta o sin archivo es un arranque
+  // normal, pero un archivo con JSON roto o una schemaVersion vieja ESTA en
+  // la tarjeta y se ignora entero -- quien lo grabo cree que corre su
+  // configuracion. Viaja al monitor en el meta de la configuracion vigente y
+  // en el pong.
+  //   "ok"         se aplico config.json
+  //   "nosd"       no hay tarjeta (o no se pudo montar)
+  //   "nofile"     la tarjeta no tiene /biosoft/config.json
+  //   "unreadable" no se pudo leer (o no entra en el buffer de 8 KB)
+  //   "invalid"    JSON invalido: descartado entero
+  //   "schema"     schemaVersion no soportada: descartado entero
+  inline const char* _loadStatus = "nosd";
+  inline const char* loadStatus() { return _loadStatus; }
+
   // El texto EXACTO que se hasheo: el JSON leido, sin wifi ni broker, en una
   // sola linea. Es lo que la placa publica como "configuracion vigente"
   // (tarjeta 24): el monitor la reconstruye, verifica que su CRC32 de el
@@ -1085,11 +1100,13 @@ namespace ConfigLoader {
     DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] ----------------------------------------"));
 
     if (!storage.isReady()) {
+      _loadStatus = "nosd";
       DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] sin tarjeta SD: se usan los defaults compilados"));
       return false;
     }
 
     if (!storage.exists(ConfigPath)) {
+      _loadStatus = "nofile";
       DEBUG_PRINT(DEBUG_CONFIGLOADER, F("[CONFIG] no existe "));
       DEBUG_PRINT(DEBUG_CONFIGLOADER, ConfigPath);
       DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F(": se usan los defaults compilados"));
@@ -1109,6 +1126,7 @@ namespace ConfigLoader {
 
     if (!storage.readFile(ConfigPath, buffer, MaxFileSize, &length)) {
       _currentText[0] = '\0';
+      _loadStatus = "unreadable";
       DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] no se pudo leer el archivo: se usan los defaults"));
       return false;
     }
@@ -1119,6 +1137,7 @@ namespace ConfigLoader {
     DeserializationError error = deserializeJson(doc, (const char*)buffer);
     _currentText[0] = '\0';
     if (error) {
+      _loadStatus = "invalid";
       DEBUG_PRINT(DEBUG_CONFIGLOADER, F("[CONFIG] JSON invalido ("));
       DEBUG_PRINT(DEBUG_CONFIGLOADER, error.c_str());
       DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("): se descarta entero, se usan los defaults"));
@@ -1127,6 +1146,7 @@ namespace ConfigLoader {
 
     int version = doc["schemaVersion"] | 0;
     if (version != SupportedSchemaVersion) {
+      _loadStatus = "schema";
       DEBUG_PRINT(DEBUG_CONFIGLOADER, F("[CONFIG] schemaVersion "));
       DEBUG_PRINT(DEBUG_CONFIGLOADER, version);
       DEBUG_PRINT(DEBUG_CONFIGLOADER, F(" no soportada (se espera "));
@@ -1154,6 +1174,7 @@ namespace ConfigLoader {
     loadBroker(doc["broker"]);
 
     computeConfigId(doc);
+    _loadStatus = "ok";
     DEBUG_PRINT(DEBUG_CONFIGLOADER, F("[CONFIG] configId="));
     DEBUG_PRINTLN(DEBUG_CONFIGLOADER, _configId);
     DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] configuracion aplicada"));

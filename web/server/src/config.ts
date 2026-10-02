@@ -82,6 +82,15 @@ export const config = {
     status: env('TOPIC_CONFIG_STATUS', 'biosoft/config/status'),
   },
 
+  // Ping a la placa (esp32/src/remoteping.hpp). Fijos en la placa, como los
+  // de configuracion. El intervalo es cuanto tarda el monitor en notar que la
+  // placa se apago estando quieta (fuera de un experimento no publica nada).
+  boardTopics: {
+    ping: env('TOPIC_BOARD_PING', 'biosoft/ping'),
+    pong: env('TOPIC_BOARD_PONG', 'biosoft/pong'),
+  },
+  boardPingSeconds: Number(env('BOARD_PING_SECONDS', '15')),
+
   // Los cinco campos que la tarjeta SD puede renombrar. El resto de las claves
   // ("c1".."d4", "REASON", "SRC"...) son estructurales: parte de la forma del
   // mensaje, no valores que el operador elija, y por eso no se configuran.

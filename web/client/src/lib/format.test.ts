@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  esAlertaCritica, esCampoNulo, etiquetaTipoCorrida, nombreModo, nombreTipoAlerta,
+  esAlertaCritica, esCampoNulo, etiquetaTipoCorrida, motivoConfig, nombreModo, nombreTipoAlerta,
   relajacionesConAviso, relajacionesDe, tipoDesdeMarca,
 } from './format.js';
 
@@ -94,5 +94,23 @@ describe('relajaciones', () => {
     expect(relajacionesDe(4)).toEqual(['CEM1 sin vigilar']);
     expect(relajacionesConAviso(4)).toEqual([]);
     expect(relajacionesConAviso(4 | 1)).toEqual(['Detector apagado']);
+  });
+});
+
+describe('motivoConfig', () => {
+  // Un archivo descartado esta en la tarjeta y se ignora: tiene que avisarse.
+  it('avisa los archivos ignorados y la falta de tarjeta', () => {
+    for (const st of ['nosd', 'unreadable', 'invalid', 'schema']) {
+      expect(motivoConfig('default', st).aviso).toBe(true);
+    }
+  });
+  it('sin archivo es un arranque normal, sin aviso', () => {
+    expect(motivoConfig('default', 'nofile').aviso).toBe(false);
+  });
+  it('una placa vieja que no informa el motivo no inventa uno', () => {
+    expect(motivoConfig('default', null).texto).toContain('no informa');
+  });
+  it('una configuracion cargada no avisa nada', () => {
+    expect(motivoConfig('cbf43926', 'ok').aviso).toBe(false);
   });
 });

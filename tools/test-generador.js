@@ -42,7 +42,8 @@ vm.runInContext(code + `
 var __t = {
   get errors(){ return errors; }, get warns(){ return warns; },
   get state(){ return state; }, set state(v){ state = v; },
-  DEFAULTS: DEFAULTS, validate: validate, buildJson: buildJson, loadParsed: loadParsed
+  DEFAULTS: DEFAULTS, validate: validate, buildJson: buildJson, loadParsed: loadParsed,
+  SCENARIO_PROFILES: SCENARIO_PROFILES
 };`, ctx);
 const T = ctx.__t;
 
@@ -272,6 +273,29 @@ ctx.applyProfile("tempAlta");
 ctx.realSensors();
 check("volver a sensores reales restaura mlx90393 / ds18b20",
       T.state.detector.sources[0].sensor === "mlx90393" && T.state.detector.sources[1].sensor === "ds18b20");
+
+// El perfil marcado se deduce de los valores: tiene que reconocer cada
+// perfil recien aplicado, dejar de reconocerlo apenas se edita un numero, y
+// reconocer los sensores reales (incluida una config sin seccion detector,
+// que es como corre una placa sin tarjeta).
+let perfilesOk = true;
+T.SCENARIO_PROFILES.forEach(([key]) => {
+  reset(); ctx.applyProfile(key);
+  if (ctx.profileOf(T.state) !== key) { perfilesOk = false; console.log("       no reconoce " + key); }
+});
+check("cada perfil aplicado se reconoce como tal", perfilesOk);
+reset(); ctx.applyProfile("tempAlta"); T.state.detector.sources[1].scenario.step = 3;
+check("un perfil editado a mano pasa a personalizado", ctx.profileOf(T.state) === "custom");
+reset();
+check("los defaults son sensores reales", ctx.profileOf(T.state) === "real");
+check("una config sin detector (valores de fabrica) son sensores reales", ctx.profileOf({}) === "real");
+reset(); T.state.detector.sources[1].sensor = "none";
+check("TEMP1 en none no es ningun perfil", ctx.profileOf(T.state) === "custom");
+reset(); ctx.applyProfile("campoInestable"); T.state.detector.sources[0].enabled = false;
+check("campo inestable con CEM1 sin vigilar no se marca como ese perfil",
+      ctx.profileOf(T.state) !== "campoInestable");
+reset(); ctx.applyProfile("normal");
+check("perfil todo normal no se confunde con otro", ctx.profileOf(T.state) === "normal");
 
 console.log("\n== Cargar un archivo existente (tarjeta 24) ==");
 // Antes "Cargar archivo" no traia wifi ni broker: editar una tarjeta y

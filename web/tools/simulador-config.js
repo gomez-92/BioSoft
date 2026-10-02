@@ -4,11 +4,14 @@
 //  - publica una configuracion vigente en bloques RETENIDOS
 //    (biosoft/config/current/<i> y .../meta);
 //  - escucha biosoft/config/set, confirma cada bloque en biosoft/config/status
-//    y al completar responde "aceptada" con el id nuevo.
+//    y al completar responde "aceptada" con el id nuevo;
+//  - contesta el ping del monitor (biosoft/ping -> biosoft/pong), como
+//    esp32/src/remoteping.hpp.
 //
 //   node tools/simulador-config.js                       # broker local
 //   node tools/simulador-config.js --ocupada             # rechaza: experimento en curso
 //   node tools/simulador-config.js --perder 2            # no confirma el bloque 2
+//   node tools/simulador-config.js --sin-pong            # ignora los pings (placa colgada)
 //   node tools/simulador-config.js --url mqtts://host:8883 --user X --pass Y
 //
 // La configuracion vigente sale de docs/config.example.json (sin wifi ni
@@ -28,6 +31,8 @@ const flag = (name) => args.includes(`--${name}`);
 const url = arg('url', 'mqtt://localhost:1883');
 const ocupada = flag('ocupada');
 const perder = Number(arg('perder', '-1'));
+const sinPong = flag('sin-pong');
+const arranque = Date.now();
 
 // Mismo tope y misma regla que la placa (RemoteConfig::chunkLength).
 const MAX = 340;
@@ -72,15 +77,24 @@ client.on('connect', () => {
   partes.forEach((d, i) => client.publish(
     `biosoft/config/current/${i}`, JSON.stringify({ id, i, n: partes.length, d }), { retain: true },
   ));
-  client.publish('biosoft/config/current/meta', JSON.stringify({ id, n: partes.length, len: texto.length }), { retain: true });
+  client.publish('biosoft/config/current/meta', JSON.stringify({ id, n: partes.length, len: texto.length, src: 'ok' }), { retain: true });
   client.subscribe('biosoft/config/set');
+  client.subscribe('biosoft/ping');
 });
 
 let recibido = [];
 let pedido = null;
 const estado = (payload) => client.publish('biosoft/config/status', JSON.stringify(payload));
 
-client.on('message', (_topic, raw) => {
+client.on('message', (topic, raw) => {
+  if (topic === 'biosoft/ping') {
+    if (sinPong) return;
+    const { r } = JSON.parse(raw.toString());
+    client.publish('biosoft/pong', JSON.stringify({
+      r, st: ocupada ? 'running' : 'ready', cfg: id, cfgst: 'ok', mega: true, up: Math.floor((Date.now() - arranque) / 1000),
+    }));
+    return;
+  }
   const { r, i, n, d } = JSON.parse(raw.toString());
   if (ocupada) { estado({ r, st: 'ocupada', msg: 'hay un experimento en curso' }); return; }
   if (i === 0) { pedido = r; recibido = []; }

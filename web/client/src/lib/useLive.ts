@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
-import { clearToken, getToken } from './auth.js';
+import { authFetch, clearToken, getToken } from './auth.js';
 import type {
-  AlertItem, Coils, Measures, ResultItem, RunType, Snapshot, Status, Targets,
+  AlertItem, Coils, Measures, PlacaStatus, ResultItem, RunType, Snapshot, Status, Targets,
 } from './types.js';
 import { tipoDesdeMarca } from './format.js';
 
@@ -25,11 +25,13 @@ export interface LiveState {
   status: Status | null;
   alerts: AlertItem[];
   ultimoResultado: ResultItem | null;
+  /** Ultimo resultado del ping a la placa. */
+  placa: PlacaStatus | null;
 }
 
 const VACIO: LiveState = {
   conectado: false, brokerOk: false, deviceId: null, run: null, targets: null,
-  measures: null, coils: null, status: null, alerts: [], ultimoResultado: null,
+  measures: null, coils: null, status: null, alerts: [], ultimoResultado: null, placa: null,
 };
 
 const MAX_ALERTAS = 5;
@@ -44,7 +46,15 @@ export function useLive(): LiveState {
     const socket = io({ auth: { token: getToken() } });
     socketRef.current = socket;
 
-    socket.on('connect', () => setState((s) => ({ ...s, conectado: true })));
+    socket.on('connect', () => {
+      setState((s) => ({ ...s, conectado: true }));
+      // El ping corre en el servidor; al conectar se pide el ultimo
+      // resultado para no esperar hasta el proximo.
+      authFetch('/api/board')
+        .then((r) => (r.ok ? r.json() : null))
+        .then((placa: PlacaStatus | null) => { if (placa) setState((s) => ({ ...s, placa })); })
+        .catch(() => {});
+    });
     socket.on('disconnect', () => setState((s) => ({ ...s, conectado: false })));
 
     // El servidor rechaza el handshake si el token vencio. Reintentar seria
@@ -73,6 +83,8 @@ export function useLive(): LiveState {
 
     socket.on('link:status', ({ broker }: { broker: boolean }) =>
       setState((s) => ({ ...s, brokerOk: broker })));
+
+    socket.on('board:status', (placa: PlacaStatus) => setState((s) => ({ ...s, placa })));
 
     socket.on('telemetry:measures', (data: Measures) =>
       setState((s) => ({ ...s, measures: data })));

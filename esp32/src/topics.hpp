@@ -4,8 +4,10 @@
 // Configuracion de la telemetria remota del ESP32 (no es parte del protocolo
 // serie con el Mega -- ver seriallink.hpp/commands.hpp para eso). El monitor
 // remoto es un dashboard propio que se suscribe como cliente MQTT del mismo
-// broker. Es SOLO LECTURA: la placa publica y no escucha, no hay comandos
-// remotos y MySystem::onMessageReceived() esta vacio a proposito.
+// broker. Es SOLO LECTURA: no hay comandos
+// remotos. MySystem::onMessageReceived() solo atiende la configuracion
+// remota (remoteconfig.hpp) y el ping (remoteping.hpp), ninguno de los dos
+// actua en caliente.
 //
 // Ya NO son constantes: las pisa la seccion `telemetry` del archivo de la SD
 // (ver docs/config-schema.md seccion 9 y configloader.hpp). Los valores de
