@@ -38,6 +38,7 @@ class ThermometerDS18B20 : public IThermometer {
     bool isValid() const override;
     const char* getName() const override;
     const DeviceAddress& getAddress() const;
+    bool setAddress(const uint8_t* address) override;
 };
 
 // =====================================================
@@ -111,4 +112,13 @@ inline const char* ThermometerDS18B20::getName() const {
 // =====================================================
 inline const DeviceAddress& ThermometerDS18B20::getAddress() const {
   return _address;
+}
+
+// La lectura en curso era de la direccion anterior: se descarta, y el sensor
+// queda invalido hasta la primera lectura buena de la nueva.
+inline bool ThermometerDS18B20::setAddress(const uint8_t* address) {
+  memcpy(_address, address, sizeof(DeviceAddress));
+  _converting = false;
+  _isValid = false;
+  return true;
 }

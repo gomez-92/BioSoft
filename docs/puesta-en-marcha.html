@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!--
+  Checklist de puesta en marcha del sistema físico, de menos a más riesgo:
+  cada placa sola, el enlace, corridas completas con datos sintéticos y nada
+  energizado, y recién después los sensores de a uno y la potencia.
+  Archivo autocontenido: sin dependencias, se abre con doble clic y se imprime.
+  Las tildes y notas se guardan en este navegador (localStorage); nada sale de
+  la máquina.
+-->
+<title>Puesta en marcha BioSoft</title>
+<style>
+  :root {
+    --ground: #f2f4f6;
+    --surface: #ffffff;
+    --ink: #1b2430;
+    --muted: #5b6875;
+    --rule: #cfd6dd;
+    --accent: #0f766e;
+    --accent-soft: #d8eeeb;
+    --warn: #8a5a00;
+    --warn-soft: #fff3d6;
+    --done: #136a3a;
+    --sans: "Segoe UI", system-ui, -apple-system, sans-serif;
+    --mono: Consolas, "Cascadia Mono", "DejaVu Sans Mono", monospace;
+    color-scheme: light dark;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #141a20; --surface: #1c242c; --ink: #e4e9ee; --muted: #9aa7b3;
+      --rule: #333e49; --accent: #2dd4bf; --accent-soft: #1f3a38;
+      --warn: #ffcf70; --warn-soft: #3a2f16; --done: #7ee0a8;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #141a20; --surface: #1c242c; --ink: #e4e9ee; --muted: #9aa7b3;
+    --rule: #333e49; --accent: #2dd4bf; --accent-soft: #1f3a38;
+    --warn: #ffcf70; --warn-soft: #3a2f16; --done: #7ee0a8;
+  }
+  * { box-sizing: border-box; }
+  body { background: var(--ground); color: var(--ink); font-family: var(--sans); font-size: 15px;
+         line-height: 1.5; margin: 0; padding: 28px 16px 48px; }
+  main { max-width: 900px; margin-inline: auto; }
+  header { margin-bottom: 18px; }
+  .eyebrow { font-family: var(--mono); font-size: 12px; color: var(--muted); letter-spacing: 0.06em;
+             text-transform: uppercase; }
+  h1 { font-size: 24px; font-weight: 600; margin: 2px 0 8px; letter-spacing: -0.01em; }
+  .lead { color: var(--muted); max-width: 70ch; margin: 0; }
+  code { font-family: var(--mono); font-size: 0.9em; background: var(--accent-soft); padding: 1px 5px;
+         border-radius: 3px; overflow-wrap: anywhere; }
+
+  .barra { position: sticky; top: 0; z-index: 5; background: var(--ground); padding: 10px 0;
+           display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px;
+           border-bottom: 1px solid var(--rule); margin-bottom: 18px; }
+  .progreso { flex: 1 1 220px; height: 8px; background: var(--rule); border-radius: 99px; overflow: hidden; }
+  .progreso > div { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  .cuenta { font-family: var(--mono); font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  button { font: inherit; font-size: 13px; padding: 5px 12px; border-radius: 6px; cursor: pointer;
+           border: 1px solid var(--rule); background: var(--surface); color: var(--ink); }
+  button:hover { border-color: var(--accent); }
+
+  .aviso { background: var(--warn-soft); border: 1px solid var(--warn); border-radius: 6px;
+           padding: 12px 14px; margin: 0 0 22px; }
+  .aviso h2 { margin: 0 0 6px; font-size: 14px; color: var(--warn); }
+  .aviso ol { margin: 0; padding-left: 20px; }
+  .aviso li { margin-bottom: 4px; }
+
+  section.fase { background: var(--surface); border: 1px solid var(--rule); border-radius: 6px;
+                 padding: 14px 16px 12px; margin-bottom: 16px; }
+  .fase-cab { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+  .fase-cab h2 { font-size: 16px; font-weight: 600; margin: 0; flex: 1 1 auto; }
+  .fase-cab .cuenta.completa { color: var(--done); font-weight: 600; }
+  .intro { color: var(--muted); font-size: 14px; margin: 6px 0 10px; max-width: 75ch; }
+  h3 { font-size: 13px; font-weight: 600; margin: 14px 0 4px; color: var(--accent);
+       text-transform: uppercase; letter-spacing: 0.04em; }
+
+  ul.items { list-style: none; margin: 0; padding: 0; }
+  ul.items li { border-top: 1px solid var(--rule); padding: 8px 0; }
+  ul.items li:first-child { border-top: 0; }
+  label.item { display: grid; grid-template-columns: 22px 1fr; gap: 0 8px; cursor: pointer; }
+  label.item input { width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--accent); }
+  .que { font-weight: 500; }
+  .det { grid-column: 2; color: var(--muted); font-size: 13.5px; }
+  li.hecho .que { text-decoration: line-through; text-decoration-color: var(--muted); color: var(--muted); }
+  .opc { font-size: 11px; font-family: var(--mono); color: var(--muted); border: 1px solid var(--rule);
+         border-radius: 3px; padding: 0 4px; margin-left: 4px; vertical-align: 1px; }
+
+  table { border-collapse: collapse; width: 100%; font-size: 14px; margin: 4px 0 8px; }
+  th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th { font-weight: 500; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  .tabla { overflow-x: auto; }
+
+  .notas { margin-top: 10px; }
+  .notas span { display: block; font-size: 12px; color: var(--muted); margin-bottom: 3px; }
+  textarea { width: 100%; min-height: 54px; resize: vertical; font: 13px/1.4 var(--mono);
+             padding: 6px 8px; border-radius: 5px; border: 1px solid var(--rule);
+             background: var(--ground); color: var(--ink); }
+
+  footer { color: var(--muted); font-size: 13px; margin-top: 24px; }
+
+  @media print {
+    body { background: #fff; color: #000; padding: 0; font-size: 11pt; }
+    .barra button, .progreso { display: none; }
+    .barra { position: static; border: 0; padding: 0; margin-bottom: 8px; }
+    section.fase { border: 1px solid #999; break-inside: auto; }
+    ul.items li { break-inside: avoid; }
+    textarea { min-height: 70px; border: 1px solid #999; }
+    code { background: none; border: 1px solid #ccc; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow">BioSoft · banco</div>
+    <h1>Puesta en marcha del sistema físico</h1>
+    <p class="lead">De menos a más riesgo: cada placa sola, después el enlace, después corridas
+      completas con datos sintéticos y <b>nada energizado</b>, y recién al final los sensores de a uno
+      y la potencia. Si algo falla, el culpable es lo último que se agregó. Las tildes y las notas
+      quedan guardadas en este navegador.</p>
+  </header>
+
+  <div class="barra">
+    <div class="progreso" aria-hidden="true"><div id="barra"></div></div>
+    <span class="cuenta" id="total">0 / 0</span>
+    <button type="button" id="imprimir">Imprimir</button>
+    <button type="button" id="reiniciar">Reiniciar checklist</button>
+  </div>
+
+  <div class="aviso">
+    <h2>Antes de empezar</h2>
+    <ol>
+      <li><b>El campo nulo no arranca sin mapa.</b> Sin <code>control.map</code> el Mega lo rechaza
+        y la pantalla muestra <b>NO INICIO</b>. Es lo esperado hasta la fase 6.</li>
+      <li><b>El paso 1 de la calibración todavía no se puede hacer</b>: falta
+        <code>control.openLoopDuty</code> (<code>docs/protocolo-calibracion-intensidad.md</code>, sección 0).
+        Los pasos 2 a 5 sí.</li>
+      <li><b>Cada sensor nuevo de temperatura tiene su propia dirección.</b> Sin cargarla, TEMP1 lee
+        −127 y corta por "SIN LECTURAS". El Mega la imprime al arrancar (fase 4).</li>
+    </ol>
+  </div>
+
+  <section class="fase" data-fase="0">
+    <div class="fase-cab"><h2>Fase 0 · Preparación</h2><span class="cuenta"></span></div>
+    <p class="intro">Sin nada conectado entre sí.</p>
+    <ul class="items">
+      <li><label class="item"><input type="checkbox" data-id="f0-flash">
+        <span class="que">Flashear las dos placas con lo último de <code>main</code></span>
+        <span class="det"><code>pio run -t upload</code> en <code>esp32/</code> y en <code>mega2560/</code>.
+          El ESP32 no compila sin <code>esp32/include/secrets.h</code>.</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f0-sd">
+        <span class="que">Generar <code>config.json</code> con <code>runType: "test"</code> y grabarlo en <code>/biosoft/</code> de la SD</span>
+        <span class="det">Con el generador (<code>tools/generador-config.html</code>). Ojo con Windows y las
+          extensiones ocultas: <code>config.json.json</code> no se lee.</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f0-emqx">
+        <span class="que">Regla de acceso en EMQX para <code>biosoft/ping</code>, <code>biosoft/pong</code> y <code>biosoft/config/#</code></span>
+        <span class="det">Ver <code>docs/despliegue-monitor-web.md</code>. Sin ella el monitor dice
+          "Placa sin respuesta" con la placa funcionando.</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f0-cable">
+        <span class="que">Revisar el cableado contra las secciones 3 y 4 del manual</span>
+        <span class="det">Lo más delicado: <b>TX1 del Mega (5 V) → RX del ESP32 (3,3 V)</b> necesita
+          adaptador de nivel o divisor. Masa común entre placas.</span></label></li>
+    </ul>
+    <label class="notas"><span>Notas</span><textarea data-nota="0"></textarea></label>
+  </section>
+
+  <section class="fase" data-fase="1">
+    <div class="fase-cab"><h2>Fase 1 · ESP32 sola</h2><span class="cuenta"></span></div>
+    <p class="intro">Sin Mega, por USB, con <code>pio device monitor</code> (115200) abierto.</p>
+    <ul class="items">
+      <li><label class="item"><input type="checkbox" data-id="f1-pantalla">
+        <span class="que">La pantalla arranca y el touch responde</span>
+        <span class="det">Colores invertidos o un "toque fantasma" en una esquina = versión de placa mal
+          elegida (<code>TOUCH_KIND</code> + <code>TFT_INVERSION_ON</code>).</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f1-config">
+        <span class="que">En el log: SD montada y <code>[CONFIG] configId=…</code></span>
+        <span class="det">Si la SD falla, <code>tools/test-sd-esp32</code> la diagnostica sin lector en la PC.</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f1-red">
+        <span class="que">WiFi, hora (NTP) y broker conectados</span>
+        <span class="det">El broker espera a tener hora: sin ella TLS rechaza el certificado. Es normal que
+          tarde unos segundos.</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f1-ping">
+        <span class="que">Monitor web: "Placa conectada · sin Mega"</span>
+        <span class="det">El botón Ping de la cabecera fuerza una prueba.</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f1-origen">
+        <span class="que">Monitor → Configuración: origen "cargada desde config.json"</span>
+        <span class="det">Si dice "valores de fábrica", el texto dice por qué: sin tarjeta, sin archivo, JSON
+          inválido, schemaVersion vieja.</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f1-remota">
+        <span class="que">Configuración remota: enviar un cambio → "La placa confirmó" → reiniciar → "Vigente"</span>
+        <span class="det">En el bloque de etapas del generador: Enviado pasa a En la placa.</span></label></li>
+    </ul>
+    <label class="notas"><span>Notas</span><textarea data-nota="1"></textarea></label>
+  </section>
+
+  <section class="fase" data-fase="2">
+    <div class="fase-cab"><h2>Fase 2 · Mega y enlace</h2><span class="cuenta"></span></div>
+    <ul class="items">
+      <li><label class="item"><input type="checkbox" data-id="f2-mega">
+        <span class="que">Mega sola por USB: <code>BOOT</code>, <code>[I2C] Ningun dispositivo respondio</code>, <code>[ONEWIRE] DS18B20 en el bus: 0</code></span>
+        <span class="det">Sin sensores esos dos mensajes son lo esperado. Lo que importa es que no se cuelga.</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f2-enlace">
+        <span class="que">Conectar la serie: en el log del ESP32, ping/pong, cada <code>config_*</code> con su ack y estado <code>ready</code></span>
+        <span class="det">Sin pong: revisar TX/RX cruzados, el adaptador de nivel y la masa común.</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f2-pantalla">
+        <span class="que">La pantalla pasa de Splash a Principal</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f2-monitor">
+        <span class="que">Monitor web: desaparece "sin Mega"</span></label></li>
+    </ul>
+    <label class="notas"><span>Notas</span><textarea data-nota="2"></textarea></label>
+  </section>
+
+  <section class="fase" data-fase="3">
+    <div class="fase-cab"><h2>Fase 3 · Corridas completas sin sensores</h2><span class="cuenta"></span></div>
+    <p class="intro">CEM1 y TEMP1 en <code>scenario</code>: el Mega inventa las lecturas pero todo lo demás es
+      real (Detector, cortes, pantallas, monitor). <b>No se energiza nada.</b> Cargar cada perfil desde el
+      generador y elegir <b>5 minutos</b> de duración (1 minuto para "Todo normal").</p>
+    <div class="tabla"><table>
+      <tr><th>Perfil</th><th>Resultado esperado</th></tr>
+      <tr><td>Todo normal</td><td>Termina <b>completed</b></td></tr>
+      <tr><td>Temperatura alta</td><td>Corte <b>critical</b> de TEMP1 poco después de los 60 s</td></tr>
+      <tr><td>Sensor de temperatura caído</td><td>Corte a los ~105 s, <b>TEMP1 SIN LECTURAS</b></td></tr>
+      <tr><td>Campo fuera de rango</td><td>Corte <b>critical</b> de CEM1</td></tr>
+      <tr><td>Campo inestable</td><td>Alertas amarillas, sin corte</td></tr>
+    </table></div>
+    <ul class="items">
+      <li><label class="item"><input type="checkbox" data-id="f3-normal"><span class="que">Todo normal → completed</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f3-tempalta"><span class="que">Temperatura alta → critical TEMP1</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f3-caido"><span class="que">Sensor caído → TEMP1 SIN LECTURAS</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f3-campofuera"><span class="que">Campo fuera de rango → critical CEM1</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f3-inestable"><span class="que">Campo inestable → alertas sin corte</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f3-pantallas">
+        <span class="que">En cada corrida: En curso, Resultado y monitor coherentes</span>
+        <span class="det">En curso muestra el duty que se aplicaría. Resultado con el motivo correcto
+          (REPETIR oculto tras un critical). En el monitor la corrida sale marcada <b>PRUEBA</b>, con gráfico.</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f3-detener">
+        <span class="que">Detener en pantalla → Resultado "detenido"</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f3-emergencia">
+        <span class="que">Botón de emergencia (pin 4) durante una corrida → corte inmediato</span>
+        <span class="det">Se distingue de Detener en Resultado. Apretado sin corrida no hace nada.</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f3-nulo">
+        <span class="que">Modo campo nulo → NO INICIO (falta el mapa)</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f3-sim">
+        <span class="que">Con <code>sim</code>: potenciómetro en A0 (campo) o A1 (temperatura, 0–5 V = 0–50 °C) provoca los cortes a mano <span class="opc">opcional</span></span></label></li>
+    </ul>
+    <label class="notas"><span>Notas</span><textarea data-nota="3"></textarea></label>
+  </section>
+
+  <section class="fase" data-fase="4">
+    <div class="fase-cab"><h2>Fase 4 · Sensores, de a uno</h2><span class="cuenta"></span></div>
+    <p class="intro">Cada sensor se pasa de <code>scenario</code> a su valor real en la SD; los demás siguen
+      en <code>scenario</code>. Mantener <code>control.enabled: false</code> hasta la fase 5.</p>
+
+    <h3>DS18B20 · TEMP1 · pin 2</h3>
+    <ul class="items">
+      <li><label class="item"><input type="checkbox" data-id="f4-ds-dir">
+        <span class="que">Arrancar el Mega con el sensor conectado y copiar la dirección de <code>[ONEWIRE]</code></span>
+        <span class="det">Ya sale en el formato del archivo: <code>28:3F:E5:57:04:E1:3D:ED</code>. Con 0 sensores:
+          cableado o resistencia de pull-up del bus.</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f4-ds-carga">
+        <span class="que">Cargarla en el generador (TEMP1 → sensor <code>ds18b20</code> → Dirección), enviar y reiniciar</span>
+        <span class="det">En el log del Mega: <code>[CONFIG_SOURCE] TEMP1 DS18B20 en …</code>. Si dice
+          "rechazada", el motivo indica si es el largo, la familia o un dígito mal copiado (CRC).</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f4-ds-lee">
+        <span class="que">Temperatura razonable en pantalla, y sube al calentarlo con los dedos</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f4-ds-corte">
+        <span class="que">Desconectarlo a mitad de una corrida → corte TEMP1 SIN LECTURAS</span></label></li>
+    </ul>
+
+    <h3>MLX90393 · CEM1 · I2C 0x0C</h3>
+    <ul class="items">
+      <li><label class="item"><input type="checkbox" data-id="f4-mlx-scan">
+        <span class="que">El escaneo I2C del arranque encuentra 0x0C</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f4-mlx-ruido">
+        <span class="que">CEM1 en <code>mlx90393</code>: con bobinas apagadas lee un piso de ruido chico, nunca 0</span>
+        <span class="det">Anotarlo (el log da µT): es lo mínimo distinguible en campo nulo.</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f4-mlx-iman">
+        <span class="que">Un imán cerca cambia poco la lectura</span>
+        <span class="det">Es lo esperado: se mide el RMS de la componente a la frecuencia de excitación, y un
+          campo quieto queda afuera.</span></label></li>
+    </ul>
+
+    <h3>ADS1115 + SCT013 · I2C 0x48</h3>
+    <ul class="items">
+      <li><label class="item"><input type="checkbox" data-id="f4-ads-scan">
+        <span class="que">El escaneo I2C encuentra 0x48</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f4-ads-cero">
+        <span class="que">Lee ~0 A sin corriente y las filas de bobina muestran la corriente</span></label></li>
+    </ul>
+    <label class="notas"><span>Notas (dirección del DS18B20, piso de ruido del MLX…)</span><textarea data-nota="4"></textarea></label>
+  </section>
+
+  <section class="fase" data-fase="5">
+    <div class="fase-cab"><h2>Fase 5 · Actuadores sin carga</h2><span class="cuenta"></span></div>
+    <p class="intro">CEM1 = <code>mlx90393</code> y <code>control.enabled: true</code> activan las salidas.
+      <b>Etapa de potencia desconectada</b>; mirar con osciloscopio. Sin bobinas el lazo no ve campo y sube el
+      duty hasta el tope: es normal.</p>
+    <ul class="items">
+      <li><label class="item"><input type="checkbox" data-id="f5-ad9833">
+        <span class="que">Senoidal del AD9833 a la frecuencia elegida</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f5-pwm">
+        <span class="que">PWM de 3906 Hz en los pines 44 y 45; habilitación en 23 y 24</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f5-rele">
+        <span class="que">El relé (pin 3) cierra al iniciar y abre al terminar</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f5-mux">
+        <span class="que">El selector de fase (pin 22) cambia con el modo</span>
+        <span class="det">HIGH = campo nulo. Probarlo requiere el mapa; si todavía no está, queda para la fase 6.</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f5-emergencia">
+        <span class="que">El botón de emergencia corta todo: PWM, habilitaciones y relé</span></label></li>
+    </ul>
+    <label class="notas"><span>Notas</span><textarea data-nota="5"></textarea></label>
+  </section>
+
+  <section class="fase" data-fase="6">
+    <div class="fase-cab"><h2>Fase 6 · Potencia, de a una bobina</h2><span class="cuenta"></span></div>
+    <ul class="items">
+      <li><label class="item"><input type="checkbox" data-id="f6-bob1">
+        <span class="que">Solo BOB1 habilitada, intensidad baja: campo en CEM1 y corriente en el SCT013</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f6-bob2">
+        <span class="que">Sumar BOB2</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f6-calib">
+        <span class="que">Calibración: <code>docs/protocolo-calibracion-intensidad.md</code>, pasos 2 a 5</span>
+        <span class="det">Ganancias, factor por bobina y mapa. Con el mapa cargado, el campo nulo arranca y se
+          puede verificar.</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f6-nulo">
+        <span class="que">Campo nulo verificado: el campo residual queda dentro de la tolerancia</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f6-larga">
+        <span class="que">Una corrida larga de punta a punta con <code>runType: "test"</code></span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f6-normal">
+        <span class="que">Recién entonces: <code>runType: "normal"</code></span>
+        <span class="det">Revisar que el monitor no marque CON RELAJACIONES.</span></label></li>
+    </ul>
+    <label class="notas"><span>Notas</span><textarea data-nota="6"></textarea></label>
+  </section>
+
+  <footer>Los detalles de cada clave están en <code>docs/config-schema.md</code>; el cableado, en el manual
+    de usuario (secciones 3 y 4).</footer>
+</main>
+
+<script>
+  "use strict";
+  // Lo que se tilda queda en este navegador. Puede no haber almacenamiento
+  // (ventana privada, sitio bloqueado): la página funciona igual, sin recordar.
+  const CLAVE = "biosoft-puesta-en-marcha-v1";
+  function leer() {
+    try { return JSON.parse(localStorage.getItem(CLAVE)) || {}; } catch (e) { return {}; }
+  }
+  function guardar(estado) {
+    try { localStorage.setItem(CLAVE, JSON.stringify(estado)); } catch (e) { /* sin almacenamiento */ }
+  }
+
+  let estado = leer();
+  estado.items = estado.items || {};
+  estado.notas = estado.notas || {};
+
+  const checks = Array.from(document.querySelectorAll("input[data-id]"));
+  const notas = Array.from(document.querySelectorAll("textarea[data-nota]"));
+
+  function pintar() {
+    let hechos = 0;
+    checks.forEach(c => {
+      c.checked = !!estado.items[c.dataset.id];
+      c.closest("li").classList.toggle("hecho", c.checked);
+      if (c.checked) hechos++;
+    });
+    document.getElementById("total").textContent = hechos + " / " + checks.length;
+    document.getElementById("barra").style.width = (checks.length ? 100 * hechos / checks.length : 0) + "%";
+    document.querySelectorAll("section.fase").forEach(sec => {
+      const propios = sec.querySelectorAll("input[data-id]");
+      const listos = Array.from(propios).filter(c => c.checked).length;
+      const cuenta = sec.querySelector(".fase-cab .cuenta");
+      cuenta.textContent = listos + " / " + propios.length;
+      cuenta.classList.toggle("completa", listos === propios.length && propios.length > 0);
+    });
+  }
+
+  checks.forEach(c => c.addEventListener("change", () => {
+    estado.items[c.dataset.id] = c.checked;
+    guardar(estado);
+    pintar();
+  }));
+  notas.forEach(t => {
+    t.value = estado.notas[t.dataset.nota] || "";
+    t.addEventListener("input", () => { estado.notas[t.dataset.nota] = t.value; guardar(estado); });
+  });
+
+  document.getElementById("imprimir").addEventListener("click", () => window.print());
+  document.getElementById("reiniciar").addEventListener("click", () => {
+    if (!confirm("¿Borrar todas las tildes y notas de este checklist?")) return;
+    estado = { items: {}, notas: {} };
+    guardar(estado);
+    notas.forEach(t => { t.value = ""; });
+    pintar();
+  });
+
+  pintar();
+</script>
+</body>
+</html>

@@ -609,6 +609,7 @@ inline void MySystem::_buildConfigSourceDoc(JsonDocument& doc, const ConfigLoade
   if (source.hasEnabled) doc["enabled"] = source.enabled;
   if (source.hasMaxMissedSamples) doc["maxMissedSamples"] = source.maxMissedSamples;
   if (source.hasSensor) doc["sensor"] = source.sensor;
+  if (source.hasAddress) doc["address"] = source.address;
   if (source.hasBufferSize) doc["bufferSize"] = source.bufferSize;
   if (source.hasCriticalMultiplier) doc["criticalMultiplier"] = source.criticalMultiplier;
 }

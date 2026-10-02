@@ -31,6 +31,9 @@
 // centrado en el circuito de campo magnetico -- reset cause/RAM no aportan
 // a esa depuracion. Volver a true si hace falta diagnosticar boot/memoria.
 constexpr bool DEBUG_MAIN = false;
+// Listado de los DS18B20 del bus al arrancar: encendido aunque DEBUG_MAIN no
+// lo este, porque es la forma de leer la direccion de un sensor nuevo.
+constexpr bool DEBUG_ONEWIRE = true;
 
 void printResetCause() {
 
@@ -86,6 +89,23 @@ void scanI2CBus() {
     DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, F("[I2C] Escaneo completo, "));
     DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, found);
     DEBUG_PRINTLN(DEBUG_MAGNETOMETER_MLX90393, F(" dispositivo(s) encontrado(s)"));
+  }
+}
+
+// Lista los DS18B20 del bus con su direccion, en el formato que va en la SD
+// (detector.sources[TEMP1].address). Es la forma de averiguar la de un
+// sensor nuevo: conectarlo, arrancar y copiarla de aca.
+void printOneWireDevices(DallasTemperature& dallas) {
+  uint8_t count = dallas.getDeviceCount();
+  DEBUG_PRINT(DEBUG_ONEWIRE, F("[ONEWIRE] DS18B20 en el bus: "));
+  DEBUG_PRINTLN(DEBUG_ONEWIRE, count);
+  DeviceAddress address;
+  char text[OneWireAddress::TextLength];
+  for (uint8_t i = 0; i < count; i++) {
+    if (!dallas.getAddress(address, i)) continue;
+    OneWireAddress::format(address, text);
+    DEBUG_PRINT(DEBUG_ONEWIRE, F("[ONEWIRE]   "));
+    DEBUG_PRINTLN(DEBUG_ONEWIRE, text);
   }
 }
 
@@ -312,6 +332,7 @@ void setup() {
   OneWire* oneWire = new OneWire(WIRE_PIN);
   DallasTemperature* dallas = new DallasTemperature(oneWire);
   dallas->begin();
+  printOneWireDevices(*dallas);
   DeviceAddress temp1Address = TEMP1_ADDRESS;
   ThermometerDS18B20* thermometer1 = new ThermometerDS18B20(*dallas, "TEMP1", temp1Address);
   // Default compilado: el DS18B20, registrado ya para que haya lecturas de

@@ -297,6 +297,30 @@ check("campo inestable con CEM1 sin vigilar no se marca como ese perfil",
 reset(); ctx.applyProfile("normal");
 check("perfil todo normal no se confunde con otro", ctx.profileOf(T.state) === "normal");
 
+console.log("\n== Direccion del DS18B20 (TEMP1) ==");
+// La del sensor original: real, su CRC tiene que dar.
+const ROM = "28:3F:E5:57:04:E1:3D:ED";
+reset(); T.state.detector.sources[1].address = "283fe55704e13ded"; T.validate();
+check("una direccion valida sin separadores no da error", T.errors.length === 0, T.errors.join(" | "));
+check("sale normalizada como la imprime el Mega",
+      T.buildJson().detector.sources[1].address === ROM);
+expectError("un digito mal copiado bloquea por CRC",
+  st => { st.detector.sources[1].address = "28:3F:E5:57:04:E1:3E:ED"; }, "CRC");
+expectError("otra familia OneWire no es un DS18B20",
+  st => { st.detector.sources[1].address = "10:3F:E5:57:04:E1:3D:ED"; }, "no empieza con 28");
+expectError("largo incorrecto",
+  st => { st.detector.sources[1].address = "28:3F:E5"; }, "16 digitos");
+reset(); T.state.detector.sources[1].address = "  ";
+check("vacia no se escribe (rige la del firmware)", !("address" in T.buildJson().detector.sources[1]));
+check("sin direccion el archivo sigue igual al ejemplo del esquema", (() => {
+  reset(); return JSON.stringify(T.buildJson()) === JSON.stringify(example);
+})());
+reset();
+const conDireccion = JSON.parse(JSON.stringify(T.DEFAULTS));
+conDireccion.detector.sources[1].address = ROM;
+T.loadParsed(conDireccion);
+check("cargar un archivo conserva la direccion", T.buildJson().detector.sources[1].address === ROM);
+
 console.log("\n== Cargar un archivo existente (tarjeta 24) ==");
 // Antes "Cargar archivo" no traia wifi ni broker: editar una tarjeta y
 // volver a descargarla borraba las credenciales en silencio.

@@ -120,6 +120,13 @@ matched as a paragraph with attributes `re class=…` and the diagram vanished
 without an error. Keep every diagram ≤ 90 columns — at the print size
 (8.2pt) that is the A4 text width, and Chrome clips the overflow silently.
 
+`docs/puesta-en-marcha.html` is the bench bring-up checklist (phase 0
+preparation → each board alone → link → full runs on synthetic scenarios with
+nothing energized → sensors one at a time → actuators unloaded → power, one
+coil at a time). Same self-contained rule as the manual; ticks and notes live
+in the browser's `localStorage`. When a step's expected log line or behaviour
+changes in firmware, this page goes stale silently — update it with the code.
+
 **The `.docx` is a one-way export, not a synchronized copy.** Re-running the
 script overwrites it. If the manual is ever edited in Word, that file becomes
 the authority and the changes have to come back to the HTML by hand — the same
@@ -365,6 +372,17 @@ Key collaborators:
   `none` registers nothing, the only safe bring-up state without a DS18B20
   since the DS18B20 conversion takes ~750 ms even on an empty bus. TEMP1
   watched with no thermometer is legal but never cuts; Engine logs it.
+  **The DS18B20's ROM code is `detector.sources[TEMP1].address`** (schema
+  §7), no longer only the literal in the `.ino` — another unit of the same
+  sensor read `-127` forever and cut by silence. Validated whole
+  (`onewireaddress.hpp`: family `0x28` + CRC8, mirrored in the generator),
+  a bad one keeps the previous; applied on receipt when not Running (so the
+  screen reads it without a start), else at the next start, through
+  `IThermometer::setAddress()`. `setup()` prints every DS18B20 on the bus
+  (`[ONEWIRE]`, own debug flag) in the file's format — that is how you get
+  the address of a new sensor. The ESP32 sends it without separators for the
+  frame budget. Its error strings are `F()` and `format()` has no hex table
+  on purpose: as plain literals they cost ~130 bytes of the Mega's RAM.
   `ThermometerVoltageSim` reads **A1, 0–5 V → 0–50 °C** (10 °C per volt, so
   every menu zone is reachable with a pot). `ThermometerManager::
   addThermometer()` now skips `begin()` on an already-valid sensor, same

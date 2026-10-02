@@ -25,6 +25,7 @@
 #include "safetymargins.hpp"
 #include "detectorconfigbuilder.hpp"
 #include "sensorchoice.hpp"
+#include "onewireaddress.hpp"
 #include "scenariosensors.hpp"
 #include "debugconfig.hpp"
 
@@ -127,6 +128,10 @@ class Engine :
       SensorChoice sensor;       // que driver la alimenta (ver sensorchoice.hpp)
       ScenarioSignal scenario;   // la senal si sensor == Scenario (scenario.hpp)
       float criticalMultiplier;  // solo CEM1 (sus rangos son derivados)
+      // Solo TEMP1 con el DS18B20: el ROM code que vino de la SD. Sin el,
+      // queda el compilado en el .ino (el del sensor original).
+      bool hasAddress = false;
+      uint8_t address[OneWireAddress::Length] = {0};
       SourceConfig config;
     };
     static constexpr uint8_t SourceCount = 2;
@@ -674,7 +679,10 @@ inline void Engine::_applySourceSettings() {
   SourceSettings* temp = _findSourceSettings("TEMP1");
   SensorChoice tempSensor = (temp != nullptr) ? temp->sensor : SensorChoice::Real;
   IThermometer* thermometer = nullptr;
-  if (tempSensor == SensorChoice::Real) thermometer = _realThermometer;
+  if (tempSensor == SensorChoice::Real) {
+    thermometer = _realThermometer;
+    if (thermometer != nullptr && temp != nullptr && temp->hasAddress) thermometer->setAddress(temp->address);
+  }
   else if (tempSensor == SensorChoice::Sim) thermometer = _simThermometer;
   else if (tempSensor == SensorChoice::Scenario && _scenarioThermometer != nullptr) {
     _scenarioThermometer->setSignal(temp->scenario);
@@ -1560,6 +1568,39 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
         settings->config.maxMissedSamples = (uint16_t)missed;
       } else {
         DEBUG_PRINTLN(DEBUG_ENGINE, F("[CONFIG_SOURCE] maxMissedSamples fuera de rango (1 a 20) -- se ignora"));
+      }
+    }
+
+    // La direccion del DS18B20 (solo TEMP1). Se valida entera -- familia y
+    // CRC -- y una mal copiada se rechaza: quedaria apuntando a un sensor
+    // que no existe, leyendo -127 y cortando por silencio. A diferencia del
+    // resto de la plantilla, fuera de un experimento se aplica YA, para que
+    // la temperatura aparezca en pantalla sin tener que arrancar una
+    // corrida; con una corrida en curso espera al proximo start, como todo.
+    if (params["address"].is<const char*>()) {
+      const char* text = params["address"].as<const char*>();
+      uint8_t address[OneWireAddress::Length];
+      OneWireAddress::ParseResult result = OneWireAddress::parse(text, address);
+      if (strcmp(settings->name, "TEMP1") != 0) {
+        DEBUG_PRINTLN(DEBUG_ENGINE, F("[CONFIG_SOURCE] 'address' solo vale para TEMP1 -- se ignora"));
+      } else if (result != OneWireAddress::ParseResult::Ok) {
+        DEBUG_PRINT(DEBUG_ENGINE, F("[CONFIG_SOURCE][ERROR] direccion del DS18B20 rechazada ("));
+        // F() y no una tabla de textos: en AVR los literales sin F() ocupan RAM.
+        if (result == OneWireAddress::ParseResult::BadFormat) DEBUG_PRINT(DEBUG_ENGINE, F("no son 16 digitos hex"));
+        else if (result == OneWireAddress::ParseResult::NotDs18b20) DEBUG_PRINT(DEBUG_ENGINE, F("no empieza con 28, no es un DS18B20"));
+        else DEBUG_PRINT(DEBUG_ENGINE, F("el CRC no coincide, digito mal copiado"));
+        DEBUG_PRINT(DEBUG_ENGINE, F("): "));
+        DEBUG_PRINTLN(DEBUG_ENGINE, text);
+      } else {
+        memcpy(settings->address, address, OneWireAddress::Length);
+        settings->hasAddress = true;
+        char formatted[OneWireAddress::TextLength];
+        OneWireAddress::format(address, formatted);
+        DEBUG_PRINT(DEBUG_ENGINE, F("[CONFIG_SOURCE] TEMP1 DS18B20 en "));
+        DEBUG_PRINTLN(DEBUG_ENGINE, formatted);
+        if (strcmp(_engineState.getState(), State::Running) != 0 && _realThermometer != nullptr) {
+          _realThermometer->setAddress(address);
+        }
       }
     }
 

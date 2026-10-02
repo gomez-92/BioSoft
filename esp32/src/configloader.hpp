@@ -188,6 +188,11 @@ namespace ConfigLoader {
     // 1-20 lo valida el Mega.
     bool hasMaxMissedSamples = false;
     unsigned long maxMissedSamples = 0;
+    // Direccion del DS18B20 (solo TEMP1), normalizada a 16 digitos hex sin
+    // separadores para ahorrar bytes en config_source. Familia y CRC los
+    // valida el Mega (onewireaddress.hpp), que es quien la usa.
+    bool hasAddress = false;
+    char address[17] = "";
     RuleConfig critical;
     RuleConfig streak;
     RuleConfig frequency;
@@ -726,6 +731,26 @@ namespace ConfigLoader {
         if (source["maxMissedSamples"].is<unsigned long>()) {
           entry.hasMaxMissedSamples = true;
           entry.maxMissedSamples = source["maxMissedSamples"].as<unsigned long>();
+        }
+        if (source["address"].is<const char*>()) {
+          // "28:3F:E5:..." o "283FE5...": se sacan separadores y se exigen
+          // 16 digitos hex. Lo demas se descarta aca mismo, con log.
+          const char* text = source["address"].as<const char*>();
+          uint8_t digits = 0;
+          bool ok = true;
+          for (const char* p = text; *p != '\0' && ok; p++) {
+            if (*p == ':' || *p == '-' || *p == ' ') continue;
+            if (!isxdigit((unsigned char)*p) || digits >= 16) { ok = false; break; }
+            entry.address[digits++] = (char)toupper((unsigned char)*p);
+          }
+          entry.address[digits] = '\0';
+          if (ok && digits == 16) {
+            entry.hasAddress = true;
+          } else {
+            entry.address[0] = '\0';
+            DEBUG_PRINT(DEBUG_CONFIGLOADER, F("[CONFIG] 'address' de la fuente no son 16 digitos hex: se ignora: "));
+            DEBUG_PRINTLN(DEBUG_CONFIGLOADER, text);
+          }
         }
         if (source["bufferSize"].is<unsigned long>()) {
           entry.hasBufferSize = true;

@@ -246,6 +246,34 @@ const INT = "int", FLT = "float";
 // realimentacion del lazo de control.
 const SOURCE_SENSORS = { CEM1: ["mlx90393", "sim", "scenario"], TEMP1: ["ds18b20", "sim", "scenario", "none"] };
 
+// Direccion (ROM code) del DS18B20 de TEMP1: mismas reglas que
+// mega2560/src/onewireaddress.hpp -- 16 digitos hex, con o sin ":" "-" o
+// espacios, familia 0x28 y CRC8 Dallas en el ultimo byte. El Mega rechaza
+// una direccion mala y sigue con la anterior; aca se frena antes. Mismo
+// riesgo de deriva que MAX_BALANCE: si cambia una regla, cambian las dos.
+function crc8Dallas(bytes){
+  let crc = 0;
+  for (let b of bytes){
+    for (let i = 0; i < 8; i++){
+      const mix = (crc ^ b) & 1;
+      crc >>= 1;
+      if (mix) crc ^= 0x8C;
+      b >>= 1;
+    }
+  }
+  return crc;
+}
+function parseRomCode(text){
+  const hex = String(text).replace(/[:\-\s]/g, "");
+  if (!/^[0-9a-fA-F]{16}$/.test(hex)) return {error: "no son 16 digitos hex"};
+  const bytes = [];
+  for (let i = 0; i < 16; i += 2) bytes.push(parseInt(hex.slice(i, i + 2), 16));
+  if (bytes[0] !== 0x28) return {error: "no empieza con 28, asi que no es un DS18B20"};
+  if (crc8Dallas(bytes.slice(0, 7)) !== bytes[7]) return {error: "el CRC no coincide: hay un digito mal copiado"};
+  return {bytes};
+}
+const formatRomCode = bytes => bytes.map(b => b.toString(16).toUpperCase().padStart(2, "0")).join(":");
+
 // Escenarios sinteticos (tarjeta 22): la senal se mide en NIVELES relativos a
 // los rangos de la corrida, no en valores fisicos (mega2560/src/scenario.hpp):
 //   0 = centro del rango normal, +-1 = borde del normal, +-2 = borde del
@@ -417,7 +445,7 @@ function num(path, kind, label){
 function txt(path, label, maxlen){
   return '<label class="f"><span>' + esc(label) + '</span>' +
     '<input type="text" maxlength="' + (maxlen || 60) + '" data-path="' + path + '" data-kind="str"' +
-    ' value="' + esc(getPath(path)) + '"></label>';
+    ' value="' + esc(getPath(path) ?? "") + '"></label>';
 }
 function chk(path, label){
   return '<label class="chk"><input type="checkbox" data-path="' + path + '" data-kind="bool"' +
@@ -657,6 +685,9 @@ function sDetector(){
       '<div style="align-self:end;padding-bottom:6px">' +
         chk("detector.sources." + i + ".enabled", "Vigilada por el Detector") + '</div>' +
       sel("detector.sources." + i + ".sensor", "Sensor", sensors) +
+      (s.name === "TEMP1" && s.sensor === "ds18b20"
+        ? txt("detector.sources." + i + ".address", "Direccion del DS18B20 (vacia = la del firmware)", 23)
+        : "") +
       num("detector.sources." + i + ".bufferSize", INT, "bufferSize — ventana (8 a 32)") +
       num("detector.sources." + i + ".maxMissedSamples", INT, "Lecturas perdidas antes del corte (1 a 20)");
     if (s.sensor === "scenario" && s.scenario) {
@@ -802,12 +833,17 @@ function onEdit(e){
   if (kind === "bool") v = el.checked;
   else if (kind === "str"){
     v = el.value;
-    // address y channel son numericos aunque su widget sea un <select>
-    if (/\.(address|channel)$/.test(path)) v = parseInt(v, 10);
+    // address y channel de los ADS1115 son numericos aunque su widget sea un
+    // <select>. Solo ahi: detector.sources[].address es el ROM code del
+    // DS18B20, un texto, y parseInt lo dejaria en 28.
+    if (/^currentSensors\.\d+\.(address|channel)$/.test(path)) v = parseInt(v, 10);
   } else {
     v = el.value === "" ? NaN : Number(el.value);
   }
   setPath(path, v);
+  // Cambiar el sensor de una fuente cambia que campos tiene (escenario,
+  // direccion del DS18B20): es estructural, se vuelve a dibujar.
+  if (/^detector\.sources\.\d+\.sensor$/.test(path)) { render(); return; }
   validate();
 }
 
@@ -1109,6 +1145,12 @@ function validate(){
       warn("CEM1 no es el sensor real: el lazo regula contra un campo inventado, asi que la etapa de " +
            "potencia y las bobinas quedan BLOQUEADAS (el duty se calcula y se muestra, no sale), y las " +
            "corridas salen marcadas PRUEBA.");
+    if (s.name === "TEMP1" && s.sensor === "ds18b20" && String(s.address ?? "").trim()) {
+      const rom = parseRomCode(s.address);
+      if (rom.error)
+        err("TEMP1: direccion del DS18B20 \"" + s.address + "\": " + rom.error + ". El Mega la " +
+            "rechazaria y seguiria con la anterior. Se copia del log del Mega al arrancar ([ONEWIRE]).");
+    }
     if (s.name === "TEMP1" && s.sensor === "scenario")
       warn("TEMP1 con escenario: la temperatura es calculada, no medida. Las corridas salen marcadas PRUEBA.");
     if (s.name === "TEMP1" && s.sensor === "sim")
@@ -1336,7 +1378,20 @@ function buildJson(){
     intervals: state.intervals,
     control: state.control,
     coils: state.coils,
-    detector: state.detector,
+    // address vacia no se escribe (rige la del firmware); una valida sale
+    // normalizada, "28:3F:...", que es como la imprime el Mega.
+    detector: Object.assign({}, state.detector, {
+      sources: state.detector.sources.map(s => {
+        const copy = Object.assign({}, s);
+        const text = String(s.address ?? "").trim();
+        if (!text) delete copy.address;
+        else {
+          const rom = parseRomCode(text);
+          copy.address = rom.bytes ? formatRomCode(rom.bytes) : text;
+        }
+        return copy;
+      })
+    }),
     currentSensors: state.currentSensors,
     telemetry: state.telemetry,
     // Las filas sin SSID son lugares vacios del formulario, no redes: se

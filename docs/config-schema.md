@@ -608,6 +608,28 @@ Por serie viaja en `config_scenario` (seccion 10.1) con claves cortas
 (`b n r sa s oa op da d`) porque una fuente con las 9 apenas entra en 256
 bytes.
 
+### `address` — direccion del DS18B20 (solo TEMP1)
+
+El ROM code de 8 bytes del DS18B20 que alimenta a TEMP1, como texto:
+`"28:3F:E5:57:04:E1:3D:ED"` (tambien sin separadores, o con `-`). **Opcional**:
+sin la clave rige la compilada en `SoftMega2560.ino`, que es la del sensor
+original. Montar otra unidad sin cargar su direccion hace que TEMP1 lea `-127`
+para siempre y corte por silencio.
+
+- **Como averiguarla**: el Mega lista al arrancar todos los DS18B20 del bus
+  (`[ONEWIRE]` en su monitor serie), ya en este formato.
+- Se valida **entera** en el Mega (`onewireaddress.hpp`) y en el generador:
+  16 digitos hex, primer byte `28` (familia DS18B20) y CRC8 del ultimo byte.
+  Una direccion mal copiada se **rechaza y queda la anterior**, en vez de
+  apuntar a un sensor que no existe.
+- Solo se usa con `sensor: "ds18b20"`; con otro sensor se guarda igual (no se
+  pierde al pasar un rato a `scenario`) y no hace nada.
+- A diferencia del resto de la fuente, **fuera de una corrida se aplica en
+  cuanto llega**, para que la temperatura aparezca en pantalla sin arrancar un
+  experimento. Con una corrida en curso espera al proximo start.
+- Viaja en `config_source`, sin separadores (16 caracteres, para el
+  presupuesto de 256 bytes del frame; pinned en `test_serialframes`).
+
 ### `maxMissedSamples` — corte por sensor sin lecturas
 
 Cuantas lecturas seguidas puede perder una fuente **vigilada** antes de que su
@@ -930,7 +952,7 @@ trajo. Por eso la configuracion se envia **fragmentada** y
 | 1 | `config_intervals` | las 9 claves de `intervals.mega` |
 | 2 | `config_control` | las claves escalares de `control` (kp, maxStep, deadBand, balanceMax, enabled) |
 | 3..6 | `config_coil` | un canal de `coils` cada uno (nombre, enabled, factor) |
-| 7..8 | `config_source` | la CABECERA de una fuente (nombre, enabled, sensor, bufferSize, maxMissedSamples, criticalMultiplier) |
+| 7..8 | `config_source` | la CABECERA de una fuente (nombre, enabled, sensor, bufferSize, maxMissedSamples, criticalMultiplier, address del DS18B20) |
 | 9..14 | `config_rule` | una regla de una fuente (`source`, `rule`, threshold, cooldown, maxEvents) |
 | 15..18 | `config_current` | un canal de `currentSensors` cada uno, identificado por (`address`, `channel`) |
 | 19 | `config_detector` | `enabled` (el interruptor general del Detector), solo si el archivo lo trae |

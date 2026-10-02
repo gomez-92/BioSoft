@@ -177,6 +177,8 @@ void test_config_source_header_fits(void) {
     doc["bufferSize"] = 32;
     doc["criticalMultiplier"] = 1.234567f;
     doc["maxMissedSamples"] = 20;
+    // La direccion del DS18B20 (TEMP1): el ESP32 la manda sin separadores.
+    doc["address"] = "283FE55704E13DED";
 
     TEST_ASSERT_TRUE(survivesTransport(Commands::ConfigSource, doc));
 }

@@ -24,6 +24,11 @@ public:
     // los escenarios son instantaneos y heredan estos defaults.
     virtual bool isAsync() const { return false; }
     virtual bool poll() { return false; }
+
+    // Sensores de bus con direccion propia (el DS18B20, por su ROM code de 8
+    // bytes): la direccion llega de la SD (detector.sources[TEMP1].address).
+    // Los que no tienen direccion devuelven false y no cambian nada.
+    virtual bool setAddress(const uint8_t* /*address*/) { return false; }
 };
 
 // =====================================================
