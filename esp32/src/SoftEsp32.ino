@@ -18,8 +18,12 @@
 constexpr bool DEBUG_MAIN = true;
 
 #define SERIAL_RX_BUFFER_SIZE 512
-#define RXD2 22  // RX del ESP32 ← TX del Mega
-#define TXD2 27  // TX del ESP32 → RX del Mega
+// Pines de la JC2432W328C. En la 2432S028R anterior eran RX 22 / TX 27, pero
+// en esta placa el 27 es la retroiluminacion y el 21 el INT del tactil
+// CST816S: los unicos libres en los conectores son 22 y 35. El 35 es solo
+// entrada, por eso va de RX.
+#define RXD2 35  // RX del ESP32 ← TX del Mega (via divisor 5 V → 3,3 V)
+#define TXD2 22  // TX del ESP32 → RX del Mega
 
 // CA raiz del broker: DigiCert Global Root G2.
 //

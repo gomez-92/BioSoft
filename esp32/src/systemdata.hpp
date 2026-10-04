@@ -481,44 +481,28 @@ inline const char* SystemData::getState() {
   return _state;
 }
 
+// Se guarda SIEMPRE la constante de StateData, nunca el puntero recibido.
+// `newState` puede venir del "status" de un state_data, es decir de un
+// string dentro de la trama, que se libera apenas termina onCommand()
+// (SerialLink ya no guarda copia de los params). Guardar ese puntero dejaba
+// _state colgando: los strcmp daban cualquier cosa y las comparaciones por
+// puntero (getState() == StateData::Starting) fallaban siempre. En banco
+// (2026-10-03) la pantalla se quedo en "Iniciando" toda la corrida.
 inline void SystemData::setState(const char* newState) {
-  if(strcmp(_state, newState) == 0) return;
-  if(strcmp(newState, StateData::Idle) == 0) {
-    if(_listener != nullptr) {
-      _listener->onStateChanged(_state, newState);
-    }
-    _state = newState;
+  const char* canonical = nullptr;
+  if(strcmp(newState, StateData::Idle) == 0)          canonical = StateData::Idle;
+  else if(strcmp(newState, StateData::Ready) == 0)    canonical = StateData::Ready;
+  else if(strcmp(newState, StateData::Starting) == 0) canonical = StateData::Starting;
+  else if(strcmp(newState, StateData::Running) == 0)  canonical = StateData::Running;
+  else if(strcmp(newState, StateData::Stopping) == 0) canonical = StateData::Stopping;
+  else if(strcmp(newState, StateData::Finished) == 0) canonical = StateData::Finished;
+  if(canonical == nullptr) return;          // estado desconocido: se ignora, como antes
+  if(strcmp(_state, canonical) == 0) return;
+
+  if(_listener != nullptr) {
+    _listener->onStateChanged(_state, canonical);
   }
-  else if(strcmp(newState, StateData::Ready) == 0) {
-    if(_listener != nullptr) {
-      _listener->onStateChanged(_state, newState);
-    }
-    _state = newState;
-  }
-  else if(strcmp(newState, StateData::Starting) == 0) {
-    if(_listener != nullptr) {
-      _listener->onStateChanged(_state, newState);
-    }
-    _state = newState;
-  }
-  else if(strcmp(newState, StateData::Running) == 0) {
-    if(_listener != nullptr) {
-      _listener->onStateChanged(_state, newState);
-    }
-    _state = newState;
-  }
-  else if(strcmp(newState, StateData::Stopping) == 0) {
-    if(_listener != nullptr) {
-      _listener->onStateChanged(_state, newState);
-    }
-    _state = newState;
-  }
-  else if(strcmp(newState, StateData::Finished) == 0) {
-    if(_listener != nullptr) {
-      _listener->onStateChanged(_state, newState);
-    }
-    _state = newState;
-  }
+  _state = canonical;
 }
 
 inline void SystemData::setStateListener(StateListener* listener) {

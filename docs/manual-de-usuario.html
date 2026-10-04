@@ -556,8 +556,8 @@ table.pins tbody td{padding:7px 12px 7px 0}
 <pre class="diagram">
  ┌───────────────────────────┐   enlace serie 9600 8N1   ┌───────────────────────────────┐
  │ HMI · ESP32 (JC2432W328C) │                           │ CONTROL · Arduino Mega 2560   │
- │                           │ GPIO27 (TX2) ──► RX1 (19) │                               │
- │ pantalla ST7789   (HSPI)  │ GPIO22 (RX2) ◄── TX1 (18) │ I2C  SDA 20 / SCL 21          │
+ │                           │ GPIO22 (TX2) ──► RX1 (19) │                               │
+ │ pantalla ST7789   (HSPI)  │ GPIO35 (RX2) ◄── TX1 (18) │ I2C  SDA 20 / SCL 21          │
  │ táctil CST816S    (I2C)   │ GND ───────────── GND     │   ├─ MLX90393  0x0C  campo    │
  │ ranura SD         (VSPI)  │                           │   ├─ ADS1115   0x48  corriente│
  │ WiFi → MQTT (telemetría)  │                           │   └─ ADS1115   0x49  corriente│
@@ -589,8 +589,8 @@ table.pins tbody td{padding:7px 12px 7px 0}
         <tr><td>4</td><td>Pulsador de emergencia</td><td>entrada</td><td><em>Pull-up</em> interno activado: el pulsador conecta el pin a GND al presionarse. Contacto normalmente abierto. Antirrebote de 30 ms por software.</td></tr>
         <tr><td>5</td><td>FSYNC (chip select) del generador AD9833</td><td>salida</td><td>Junto con el bus SPI de hardware (pines 50-52).</td></tr>
         <tr><td>6</td><td>PWM de intensidad — bobina 4 (BOB4)</td><td>salida</td><td>Timer4, 3906 Hz. Asignación provisoria: confirmar contra el ruteo de la placa.</td></tr>
-        <tr><td>18</td><td>TX1 — enlace serie hacia la HMI</td><td>salida</td><td>Va al GPIO22 (RX2) del ESP32. Ver 3.3.</td></tr>
-        <tr><td>19</td><td>RX1 — enlace serie desde la HMI</td><td>entrada</td><td>Viene del GPIO27 (TX2) del ESP32.</td></tr>
+        <tr><td>18</td><td>TX1 — enlace serie hacia la HMI</td><td>salida</td><td>Va al GPIO35 (RX2) del ESP32. Ver 3.3.</td></tr>
+        <tr><td>19</td><td>RX1 — enlace serie desde la HMI</td><td>entrada</td><td>Viene del GPIO22 (TX2) del ESP32.</td></tr>
         <tr><td>20</td><td>SDA — bus I2C</td><td>bidireccional</td><td>Magnetómetro MLX90393 y módulos ADS1115. <em>Pull-ups</em> provistos por los módulos.</td></tr>
         <tr><td>21</td><td>SCL — bus I2C</td><td>salida</td><td>Ídem.</td></tr>
         <tr><td>22</td><td>Selector de modo de experimento (mux de fase)</td><td>salida</td><td>HIGH = campo nulo, LOW = campo X. La polaridad está fijada en firmware como provisoria hasta confirmar el cableado del multiplexor.</td></tr>
@@ -627,8 +627,8 @@ table.pins tbody td{padding:7px 12px 7px 0}
     <div class="tablewrap"><table>
       <thead><tr><th>ESP32 (HMI)</th><th>Mega 2560 (control)</th></tr></thead>
       <tbody>
-        <tr><td>GPIO27 — TX2</td><td>pin 19 — RX1</td></tr>
-        <tr><td>GPIO22 — RX2</td><td>pin 18 — TX1</td></tr>
+        <tr><td>GPIO22 — TX2</td><td>pin 19 — RX1</td></tr>
+        <tr><td>GPIO35 — RX2</td><td>pin 18 — TX1</td></tr>
         <tr><td>GND</td><td>GND</td></tr>
       </tbody>
     </table></div>
@@ -636,7 +636,7 @@ table.pins tbody td{padding:7px 12px 7px 0}
     <div class="callout warn">
       <span class="tag">Niveles lógicos</span>
       <p>El Mega 2560 trabaja a 5 V y el ESP32 a 3,3 V. La rama
-        <strong>TX1 (Mega) → GPIO22 (ESP32)</strong> entrega 5 V a una entrada
+        <strong>TX1 (Mega) → GPIO35 (ESP32)</strong> entrega 5 V a una entrada
         de 3,3 V y debe pasar por un adaptador de nivel o un divisor
         resistivo. La rama inversa (3,3 V hacia una entrada del Mega) es
         directa. El firmware no puede verificar la presencia de ese adaptador;
@@ -767,9 +767,10 @@ table.pins tbody td{padding:7px 12px 7px 0}
         <tr><td>13</td><td>TFT — MOSI</td><td>HSPI</td><td></td></tr>
         <tr><td>14</td><td>TFT — SCLK</td><td>HSPI</td><td>55 MHz.</td></tr>
         <tr><td>15</td><td>TFT — CS</td><td>HSPI</td><td></td></tr>
-        <tr><td>21</td><td>TFT — retroiluminación / INT del táctil</td><td>—</td><td>El firmware asigna este GPIO dos veces (<code>TFT_BL</code> y <code>CST816S_INT</code>). El INT no se utiliza, ya que el táctil se lee por sondeo; si la retroiluminación fallara tras un cambio de placa, es el primer punto a revisar.</td></tr>
-        <tr><td>22</td><td>UART2 — RX (desde TX1 del Mega)</td><td>UART2</td><td>Entrada de 3,3 V: ver 3.3.</td></tr>
-        <tr><td>27</td><td>UART2 — TX (hacia RX1 del Mega)</td><td>UART2</td><td></td></tr>
+        <tr><td>21</td><td>Táctil — INT</td><td>—</td><td>No se utiliza (el táctil se lee por sondeo), pero el CST816S maneja la línea: no debe usarse para otra función.</td></tr>
+        <tr><td>27</td><td>TFT — retroiluminación</td><td>—</td><td>En la revisión R era el GPIO21 y el 27 quedaba libre para el enlace serie; en la C el 27 es la retroiluminación.</td></tr>
+        <tr><td>22</td><td>UART2 — TX (hacia RX1 del Mega)</td><td>UART2</td><td></td></tr>
+        <tr><td>35</td><td>UART2 — RX (desde TX1 del Mega)</td><td>UART2</td><td>GPIO solo de entrada. Entrada de 3,3 V: ver 3.3.</td></tr>
         <tr><td>32</td><td>Táctil — SCL</td><td>I2C</td><td>CST816S en 0x15.</td></tr>
         <tr><td>33</td><td>Táctil — SDA</td><td>I2C</td><td></td></tr>
         <tr><td>25</td><td>Táctil — RST</td><td>—</td><td></td></tr>
@@ -816,7 +817,7 @@ table.pins tbody td{padding:7px 12px 7px 0}
       <li><strong>Masa común.</strong> Continuidad entre el GND del Mega, el GND
         del ESP32 y el GND de la etapa de potencia.</li>
       <li><strong>Enlace serie.</strong> Continuidad pin 18 (Mega) → adaptador
-        de nivel → GPIO22 (ESP32); y GPIO27 (ESP32) → pin 19 (Mega). Confirmar
+        de nivel → GPIO35 (ESP32); y GPIO22 (ESP32) → pin 19 (Mega). Confirmar
         que las líneas están cruzadas (TX con RX) y no en paralelo.</li>
       <li><strong>Bus I2C.</strong> Continuidad de SDA (pin 20) y SCL (pin 21)
         hasta cada módulo. Verificar el pin ADDR de cada ADS1115: a GND en el
@@ -954,7 +955,9 @@ table.pins tbody td{padding:7px 12px 7px 0}
 
     <p>La pantalla <strong>Configuración</strong> ofrece siete listas
       desplegables. <em>Guardar</em> aplica los cambios y regresa a Principal;
-      <em>Volver</em> sale sin aplicar modificaciones.</p>
+      <em>Volver</em> sale sin aplicar modificaciones. La pantalla no avisa
+      si hay cambios sin guardar: al salir con <em>Volver</em> se descartan
+      sin confirmación.</p>
 
     <div class="tablewrap"><table>
       <thead><tr><th>Parámetro</th><th>Definición</th></tr></thead>
@@ -1181,13 +1184,36 @@ table.pins tbody td{padding:7px 12px 7px 0}
       permite determinar si el experimento se perdió por el equipo, por la
       muestra o por el ambiente.</p>
 
-    <p>La pantalla congela el progreso, el tiempo transcurrido y la salud
-      <strong>en el instante de la finalización</strong>; no continúan
-      avanzando.</p>
+    <p>En el caso de <strong>Detenido</strong>, el detalle indica de dónde vino
+      la orden: el <em>pulsador de emergencia</em> o el <em>botón de la
+      pantalla</em>. Para el experimento ambos casos son equivalentes, pero no
+      para quien revisa después por qué se interrumpió.</p>
 
-    <p>De Resultado solo se sale mediante <strong>Volver</strong>. El equipo no
-      abandona esta pantalla por sí mismo, de manera deliberada: el resultado
-      debe poder leerse y anotarse sin apremio.</p>
+    <p>La pantalla muestra el progreso, el tiempo transcurrido y el
+      <strong>campo medio</strong> (mT), es decir, el promedio de todas las
+      lecturas del campo recibidas durante la exposición. Los tres quedan
+      congelados <strong>en el instante de la finalización</strong>; no
+      continúan avanzando. Si no llegó ninguna lectura del campo, el campo
+      medio figura como «--», no como cero, para que no se confunda con un
+      campo nulo medido.</p>
+
+    <p>Desde Resultado hay dos salidas, y el equipo no abandona esta pantalla
+      por sí mismo, de manera deliberada: el resultado debe poder leerse y
+      anotarse sin apremio.</p>
+
+    <ul>
+      <li><strong>Volver</strong> regresa a Principal.</li>
+      <li><strong>Repetir</strong> inicia de inmediato un nuevo experimento con
+        la misma configuración, igual que <em>Iniciar</em> en Principal. Solo
+        aparece cuando el experimento resultó <em>Exitoso</em> o
+        <em>Detenido</em>. Tras una <em>Falla</em> se oculta, porque repetir la
+        misma configuración que acaba de alcanzar un límite muy probablemente
+        volvería a cortar, y la causa debe revisarse antes. Tampoco aparece en
+        <em>No inició</em> (sección 8). Si el enlace con la placa de control
+        está caído, Repetir no hace nada, salvo que la tarjeta haya
+        desactivado la exigencia de esa placa (<code>requireMega</code>,
+        sección 14).</li>
+    </ul>
 
     <h2 id="s11">Sección 11</h2>
     <p class="h2title">Parada de emergencia</p>

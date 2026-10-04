@@ -19,20 +19,16 @@ constexpr bool DEBUG_SERIALLINK = true;
 #define MAX_COMMAND_SIZE  24
 #define FRAME_TIMEOUT     100
 
-#define TX_QUEUE_SIZE     10
+// Cola de salida: bytes de tramas YA armadas, no JsonDocuments. Ver
+// sendCommand(). Sobrescribible desde platformio.ini: el Mega la achica
+// por RAM. Tiene que entrar al menos una trama maxima (MAX_JSON_SIZE + 5).
+#ifndef TX_BUFFER_SIZE
+#define TX_BUFFER_SIZE    2048
+#endif
 #define TX_INTERVAL_MS    50
 
 #define LAST_PING_INTERVAL_MS 10000
 #define LAST_COMMAND_INTERVAL_MS 10000
-
-// =========================
-// Estructuras
-// =========================
-
-struct TxMessage {
-    char command[MAX_COMMAND_SIZE];
-    StaticJsonDocument<128> params;
-};
 
 
 // =========================
@@ -61,9 +57,9 @@ public:
     // Envío
     bool sendCommand(const char* command, JsonDocument& params);
 
-    // Último mensaje recibido
+    // Último mensaje recibido. Los params ya no se guardan: solo viven
+    // durante onCommand() (ver _processFrame).
     const char* getCommand();
-    JsonVariantConst getParam(const char* key);
 
     // Ping / conexión
     void sendPing();
@@ -109,15 +105,15 @@ private:
     // =========================
 
     char _command[MAX_COMMAND_SIZE];
-    StaticJsonDocument<256> _params;
 
     // =========================
     // TX Queue
     // =========================
 
-    TxMessage _txQueue[TX_QUEUE_SIZE];
-    uint8_t _txHead = 0;
-    uint8_t _txTail = 0;
+    // Tramas completas una detras de otra (STX..ETX); la primera es la
+    // proxima a salir.
+    uint8_t _txBuffer[TX_BUFFER_SIZE];
+    uint16_t _txLength = 0;
 
     unsigned long _lastSend = 0;
 
@@ -145,9 +141,7 @@ private:
     void _resetParser();
     void _processFrame();
 
-    bool _isQueueFull();
-    bool _isQueueEmpty();
-    void _sendFrame(const TxMessage& msg);
+    void _sendNextFrame();
 
     uint8_t _crc8(const uint8_t* data, size_t len);
 
@@ -205,40 +199,67 @@ inline uint8_t SerialLink::_crc8(const uint8_t* data, size_t len) {
 // TX
 // =========================
 
+// La trama se arma ACA, entera, directo en _txBuffer: el JSON se escribe
+// a mano como {"command":"<cmd>","params":<params>} -- los mismos bytes que
+// daba serializar un sobre {command, params} -- y despues CRC y ETX.
+//
+// Antes la cola guardaba una COPIA del JsonDocument por mensaje y al enviar
+// armaba un sobre (otra copia) mas un char[256] en el stack: tres copias
+// del mismo mensaje en el heap/stack de un Mega con 8 KB. En banco
+// (2026-10-03) eso dejaba el corte de un experimento sin memoria para su
+// result_data: salia vacio, la ESP32 no sabia por que habia terminado y el
+// monitor no cerraba la corrida. Ahora el unico heap es el `params` del que
+// llama, que vive solo mientras dura su funcion.
+//
+// Devuelve false si la cola no tiene lugar o si la trama no entra en
+// MAX_JSON_SIZE. Lo segundo antes se truncaba en silencio con CRC valido
+// (ver test_serialframes); ahora no sale.
 inline bool SerialLink::sendCommand(const char* command, JsonDocument& params) {
-    if (_isQueueFull())
+    static const char Head[] = "{\"command\":\"";
+    static const char Middle[] = "\",\"params\":";
+    const size_t headLen = sizeof(Head) - 1;
+    const size_t middleLen = sizeof(Middle) - 1;
+    const size_t commandLen = strlen(command);
+    const size_t paramsLen = measureJson(params);
+
+    const size_t jsonLen = headLen + commandLen + middleLen + paramsLen + 1;   // + '}'
+    if (jsonLen > MAX_JSON_SIZE)
         return false;
 
-    TxMessage& msg = _txQueue[_txTail];
+    const size_t frameLen = jsonLen + 5;   // STX, LEN_LO, LEN_HI, ..., CRC, ETX
+    if (_txLength + frameLen > TX_BUFFER_SIZE)
+        return false;
 
-    strncpy(msg.command, command, MAX_COMMAND_SIZE - 1);
-    msg.command[MAX_COMMAND_SIZE - 1] = '\0';
+    uint8_t* frame = _txBuffer + _txLength;
+    frame[0] = SERIAL_STX;
+    frame[1] = (uint8_t)(jsonLen & 0xFF);
+    frame[2] = (uint8_t)(jsonLen >> 8);
 
-    msg.params.clear();
-    msg.params.set(params);
+    char* json = (char*)(frame + 3);
+    size_t pos = 0;
+    memcpy(json + pos, Head, headLen);           pos += headLen;
+    memcpy(json + pos, command, commandLen);     pos += commandLen;
+    memcpy(json + pos, Middle, middleLen);       pos += middleLen;
+    // serializeJson pone un '\0' al final: cae justo donde va la '}'.
+    serializeJson(params, json + pos, paramsLen + 1);
+    pos += paramsLen;
+    json[pos] = '}';
 
-    _txTail = (_txTail + 1) % TX_QUEUE_SIZE;
+    frame[3 + jsonLen] = _crc8((uint8_t*)json, jsonLen);
+    frame[4 + jsonLen] = SERIAL_ETX;
 
+    _txLength += frameLen;
     return true;
 }
 
-inline void SerialLink::_sendFrame(const TxMessage& msg) {
-    StaticJsonDocument<256> doc;
+inline void SerialLink::_sendNextFrame() {
+    const uint16_t jsonLen = (uint16_t)_txBuffer[1] | ((uint16_t)_txBuffer[2] << 8);
+    const uint16_t frameLen = jsonLen + 5;
 
-    doc["command"] = msg.command;
-    doc["params"]  = msg.params;
+    _serial.write(_txBuffer, frameLen);
 
-    char json[MAX_JSON_SIZE];
-    size_t len = serializeJson(doc, json);
-
-    uint8_t crc = _crc8((uint8_t*)json, len);
-
-    _serial.write(SERIAL_STX);
-    _serial.write((uint8_t)(len & 0xFF));
-    _serial.write((uint8_t)(len >> 8));
-    _serial.write((uint8_t*)json, len);
-    _serial.write(crc);
-    _serial.write(SERIAL_ETX);
+    _txLength -= frameLen;
+    memmove(_txBuffer, _txBuffer + frameLen, _txLength);
 }
 
 
@@ -380,16 +401,9 @@ inline bool SerialLink::update() {
 
     unsigned long now = millis();
 
-    if (now - _lastSend >= TX_INTERVAL_MS &&
-        !_isQueueEmpty()) {
-
+    if (now - _lastSend >= TX_INTERVAL_MS && _txLength > 0) {
         _lastSend = now;
-
-        TxMessage& msg = _txQueue[_txHead];
-
-        _sendFrame(msg);
-
-        _txHead = (_txHead + 1) % TX_QUEUE_SIZE;
+        _sendNextFrame();
     }
 
     return newMessage;
@@ -420,19 +434,14 @@ inline void SerialLink::_processFrame() {
     strncpy(_command, cmd, MAX_COMMAND_SIZE - 1);
     _command[MAX_COMMAND_SIZE - 1] = '\0';
 
-    _params.clear();
-
-    if (doc.containsKey("params")) {
-        JsonObject p = doc["params"];
-
-        for (JsonPair kv : p) {
-            _params[kv.key()] = kv.value();
-        }
-    }
-
+    // Los params se pasan directo desde `doc`, sin copiarlos a un documento
+    // miembro: esa segunda copia duplicaba el heap de cada trama y en el Mega
+    // (8 KB) fue parte de lo que lo colgaba. Consecuencia: los handlers NO
+    // pueden guardar punteros a strings de params mas alla de onCommand()
+    // (copiar con strncpy/snprintf, como ya hacen).
     if (_listener) {
         _lastCommandTime = millis();
-        _listener->onCommand(_command, _params);
+        _listener->onCommand(_command, doc["params"]);
     }
 }
 
@@ -443,10 +452,6 @@ inline void SerialLink::_processFrame() {
 
 inline const char* SerialLink::getCommand() {
     return _command;
-}
-
-inline JsonVariantConst SerialLink::getParam(const char* key) {
-    return _params[key];
 }
 
 
@@ -505,22 +510,6 @@ inline void SerialLink::handlePingResponse(long value) {
 
 inline bool SerialLink::isConnected() {
     return _connected;
-}
-
-
-// =========================
-// Queue helpers
-// =========================
-
-// Truco clasico de buffer circular: se sacrifica un slot para distinguir
-// "lleno" de "vacio" sin necesitar un contador aparte. Con TX_QUEUE_SIZE=10
-// la cola realmente guarda 9 mensajes como maximo, no 10.
-inline bool SerialLink::_isQueueFull() {
-    return ((_txTail + 1) % TX_QUEUE_SIZE) == _txHead;
-}
-
-inline bool SerialLink::_isQueueEmpty() {
-    return _txHead == _txTail;
 }
 
 

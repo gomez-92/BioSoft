@@ -193,6 +193,71 @@ describe.skipIf(!hayMongo)('envio de una configuracion a la placa', () => {
     expect(publicados).toHaveLength(3);
   });
 
+  // Lo que paso en el banco (2026-10-03): una confirmacion llega despues del
+  // plazo, el monitor reenvia el bloque y la placa confirma las dos copias.
+  // La segunda confirmacion cae mientras se espera el bloque siguiente: no
+  // tiene que gastar ese intento ni provocar un reenvio.
+  it('una confirmacion atrasada no hace reenviar el bloque siguiente', async () => {
+    let esperado = 0;
+    configurarSync({
+      publicar: async (topic, raw) => {
+        const payload = JSON.parse(raw);
+        publicados.push({ topic, payload });
+        const { r, i, n } = payload;
+        // Como la placa: una copia repetida se vuelve a confirmar.
+        let respuesta: Record<string, unknown>;
+        // 30 ms normal: asi la confirmacion lenta (150) cae mientras se
+        // espera el bloque 2 y no despues de que termino todo.
+        let demora = 30;
+        if (i + 1 === esperado) respuesta = { r, st: 'parcial', i };
+        else {
+          esperado++;
+          respuesta = esperado < n ? { r, st: 'parcial', i } : { r, st: 'aceptada', id: '0badc0de' };
+          if (i === 1) demora = 150;   // la confirmacion lenta (plazo: 100 ms)
+        }
+        setTimeout(() => void handleConfigMessage({
+          topic: 'biosoft/config/status', payload: respuesta, retained: false,
+        }), demora);
+      },
+    });
+    const { requestId, bloques } = await enviarConfiguracion(CONFIG, 'tester');
+    const pedido = await terminado(requestId);
+
+    expect(pedido.state).toBe('aceptada');
+    const enviados = publicados.map((m) => m.payload.i);
+    expect(enviados.filter((i) => i === 1)).toHaveLength(2);
+    for (let i = 0; i < bloques; i++) {
+      if (i !== 1) expect(enviados.filter((x) => x === i)).toHaveLength(1);
+    }
+  });
+
+  // Un reenvio que la placa recibe despues de terminar se contesta
+  // "incompleta" (firmware anterior); eso no puede pisar "aceptada".
+  it('un estado final tardio no pisa el resultado de la placa', async () => {
+    placa((r) => ({ r, st: 'aceptada', id: '0badc0de' }));
+    const { requestId } = await enviarConfiguracion(CONFIG, 'tester');
+    await terminado(requestId);
+    await handleConfigMessage({
+      topic: 'biosoft/config/status',
+      payload: { r: requestId, st: 'incompleta', msg: 'bloque de un pedido que no esta en curso' },
+      retained: false,
+    });
+    const pedido = await ConfigRequest.findOne({ requestId }).lean();
+    expect(pedido?.state).toBe('aceptada');
+  });
+
+  // Al reves si: un "no_entregada" lo decidio el monitor, y la respuesta
+  // tardia de la placa es mas cierta.
+  it('una respuesta tardia corrige un no_entregada', async () => {
+    configurarSync({ publicar: async (topic, raw) => { publicados.push({ topic, payload: JSON.parse(raw) }); } });
+    const { requestId } = await enviarConfiguracion(CONFIG, 'tester');
+    expect((await terminado(requestId)).state).toBe('no_entregada');
+    await handleConfigMessage({
+      topic: 'biosoft/config/status', payload: { r: requestId, st: 'ocupada' }, retained: false,
+    });
+    expect((await ConfigRequest.findOne({ requestId }).lean())?.state).toBe('ocupada');
+  });
+
   it('rechaza lo que no es una configuracion', async () => {
     placa(() => null);
     await expect(enviarConfiguracion([1, 2], 'tester')).rejects.toThrow();

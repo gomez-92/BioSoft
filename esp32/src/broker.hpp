@@ -62,6 +62,9 @@ class BrokerManager {
 
     bool isConnected();
     bool publish(const char* topic, const char* message, bool retain = false);
+    // Para emisores de rafagas (la config vigente, de a un bloque): publish()
+    // con la cola llena desaloja al mas viejo en vez de fallar.
+    bool isPublishQueueEmpty();
     bool subscribe(const char* topic);
     void processPublishQueue();
 
@@ -298,6 +301,11 @@ inline void BrokerManager::processPublishQueue() {
         PublishMessage sent;
         xQueueReceive(_publishQueue, &sent, 0);
     }
+}
+
+inline bool BrokerManager::isPublishQueueEmpty() {
+    if (_publishQueue == nullptr) return false;
+    return uxQueueMessagesWaiting(_publishQueue) == 0;
 }
 
 inline bool BrokerManager::publish(const char* topic, const char* message, bool retain) {

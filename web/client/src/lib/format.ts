@@ -70,6 +70,9 @@ export function nombreTipoAlerta(type: string): string {
 
 const NOMBRE_MOTIVO: Record<string, string> = {
   completed: 'Completado', critical: 'Cortado por alerta critica', stopped: 'Detenido',
+  // La placa lo pone cuando el Mega corto sin informar el motivo (se quedo
+  // sin memoria para armar result_data): la corrida termino, el porque no.
+  unknown: 'Terminado sin motivo informado',
 };
 
 export function nombreMotivo(reason: string): string {

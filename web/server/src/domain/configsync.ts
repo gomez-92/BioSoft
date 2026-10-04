@@ -206,11 +206,22 @@ async function mandarBloques(requestId: string, bloques: string[]): Promise<void
   for (let i = 0; i < total; i++) {
     let respuesta: Respuesta | null = null;
     for (let intento = 0; intento < REINTENTOS && !respuesta; intento++) {
-      const espera = esperar(requestId, ESPERA_BLOQUE_MS);
+      const limite = Date.now() + ESPERA_BLOQUE_MS;
+      let espera = esperar(requestId, ESPERA_BLOQUE_MS);
       await publicar!(config.configTopics.set, JSON.stringify({ r: requestId, i, n: total, d: bloques[i] }));
       respuesta = await espera;
-      // Una confirmacion de OTRO bloque (un reenvio tardio) no cuenta.
-      if (respuesta && respuesta.st === 'parcial' && respuesta.i !== i) respuesta = null;
+      // Una confirmacion de OTRO bloque (la segunda respuesta a un reenvio
+      // que llego tarde) no cuenta, pero tampoco gasta el intento: se sigue
+      // esperando lo que queda del plazo SIN reenviar. Antes se reenviaba,
+      // y cada reenvio generaba otra confirmacion repetida que caia sobre
+      // el bloque siguiente: en el banco (2026-10-03) 18 "parcial" para 12
+      // bloques, y reenvios que llegaban despues de "aceptada".
+      while (respuesta && respuesta.st === 'parcial' && respuesta.i !== i) {
+        const resta = limite - Date.now();
+        if (resta <= 0) { respuesta = null; break; }
+        espera = esperar(requestId, resta);
+        respuesta = await espera;
+      }
     }
 
     if (!respuesta) {
@@ -247,12 +258,27 @@ async function recibirEstado(payload: unknown): Promise<void> {
     return;
   }
   // Un estado final sin nadie esperando (p. ej. "ocupada" de un pedido que ya
-  // se dio por perdido): igual se registra.
+  // se dio por perdido): igual se registra, pero solo sobre un pedido que no
+  // tiene ya un resultado de la placa. Un reenvio tardio del ultimo bloque
+  // llega despues de "aceptada", la placa contesta "incompleta" y eso
+  // pisaba el resultado real: la SD estaba grabada y el monitor decia que no.
   if (FINALES.has(respuesta.st)) {
-    await actualizar(data.r, {
+    await actualizarSiAbierto(data.r, {
       state: respuesta.st, message: respuesta.msg ?? null, newConfigId: respuesta.id ?? null,
     });
   }
+}
+
+// Abiertos: todavia sin respuesta final de la placa. "no_entregada" lo puso
+// el monitor (se canso de esperar), asi que una respuesta tardia si lo
+// corrige.
+const ABIERTOS = ['enviando', 'parcial', 'no_entregada'];
+
+async function actualizarSiAbierto(requestId: string, cambios: Record<string, unknown>): Promise<void> {
+  const pedido = await ConfigRequest.findOneAndUpdate(
+    { requestId, state: { $in: ABIERTOS } }, { $set: cambios }, { new: true },
+  ).lean();
+  if (pedido) emitir('config:request', pedido);
 }
 
 /* ----------------------------- entrada ----------------------------- */

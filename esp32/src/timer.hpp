@@ -12,8 +12,13 @@ constexpr bool DEBUG_TIMER = true;
 // Configuración
 // =========================
 
+// Sobrescribibles desde platformio.ini: el Mega los achica por RAM.
+#ifndef MAX_TASKS
 #define MAX_TASKS      20   // Cantidad máxima de tareas
+#endif
+#ifndef MAX_TASK_NAME
 #define MAX_TASK_NAME  30   // Longitud máxima del nombre de tarea
+#endif
 
 
 // =========================

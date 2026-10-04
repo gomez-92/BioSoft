@@ -155,6 +155,7 @@ class MySystem :
 
     // RemoteConfig::Output
     bool publishConfigMessage(const char* topic, const char* payload, bool retain) override;
+    bool publishQueueIdle() override;
     bool experimentInProgress() override;
     void onScreenChanged(ScreenType from, ScreenType to) override;
     void onScreenEvent(ScreenEvent e) override;
@@ -292,6 +293,10 @@ inline void MySystem::_updateRemoteConfig() {
 
 inline bool MySystem::publishConfigMessage(const char* topic, const char* payload, bool retain) {
   return _publish(topic, payload, retain);
+}
+
+inline bool MySystem::publishQueueIdle() {
+  return _brokerManager.isPublishQueueEmpty();
 }
 
 // Starting y Stopping cuentan como "en curso": el Mega puede estar
@@ -1052,7 +1057,15 @@ inline void MySystem::_processState(const char* status, bool forceStatus) {
     // Engine::_finish -- _stop()+_reset() son sincronicos), pero la
     // pantalla de Resultado se abandona solo con el boton Volver, no con un
     // ready espureo que llegue por el timer periodico de SendState.
-    if(current == ScreenType::PRINCIPAL || current == ScreenType::CONFIG || current == ScreenType::RESULT) return;
+    // El ESTADO si se actualiza: lo que se evita es solo la navegacion.
+    // Antes se volvia sin setState, y despues de Detener (o de un corte)
+    // el estado quedaba en Stopping/Running mientras se miraba Resultado:
+    // la placa rechazaba la configuracion remota con "hay un experimento en
+    // curso" y las tareas de la corrida no se limpiaban (banco, 2026-10-03).
+    if(current == ScreenType::PRINCIPAL || current == ScreenType::CONFIG || current == ScreenType::RESULT) {
+      _data.setState(status);
+      return;
+    }
     if(current == ScreenType::BUSY) {
       // Starting: un "ready" que llegue mientras se espera confirmacion de
       // un start es viejo/espureo -- se ignora salvo forceStatus. Stopping
@@ -1363,7 +1376,32 @@ inline void MySystem::_applyResult(const char* reason, const char* description, 
   // duration siguen siendo los suyos), asi que se ponen a cero a mano.
   // Tampoco se publica: sin un targets previo, el monitor web armaria con
   // este result una corrida huerfana de un experimento que nunca existio.
-  bool refused = strcmp(reason, "refused") == 0;
+  //
+  // Un result_data SIN motivo con el estado en Starting tambien se trata
+  // como rechazo: es la respuesta a nuestro start, y el Mega no llego a
+  // escribir el motivo (en banco, 2026-10-03, llegaba vacio por falta de RAM
+  // en el Mega). Tratarlo como un resultado comun dejaba el estado en
+  // Starting y el reenvio de start vivo: el Mega lo volvia a rechazar y la
+  // pantalla saltaba a Resultado una y otra vez. Solo sin motivo: un
+  // "stopped" legitimo (emergencia en los primeros segundos) tambien puede
+  // llegar antes del state_data "running".
+  if (reason[0] == '\0' && strcmp(_data.getState(), StateData::Starting) == 0) {
+    snprintf(_data.result.reason, sizeof(_data.result.reason), "refused");
+    if (_data.result.description[0] == '\0') {
+      snprintf(_data.result.description, sizeof(_data.result.description), "el Mega rechazo el inicio sin informar el motivo");
+    }
+  }
+  // Sin motivo con una corrida en marcha: termino, pero no se sabe por que.
+  // "unknown" y no vacio, porque el monitor descarta un result sin REASON y
+  // la corrida le quedaba abierta para siempre (banco, 2026-10-03: el Mega
+  // se quedo sin memoria al armar result_data en un corte por alerta).
+  else if (reason[0] == '\0') {
+    snprintf(_data.result.reason, sizeof(_data.result.reason), "unknown");
+    if (_data.result.description[0] == '\0') {
+      snprintf(_data.result.description, sizeof(_data.result.description), "el Mega no informo el motivo del corte");
+    }
+  }
+  bool refused = strcmp(_data.result.reason, "refused") == 0;
   if (refused) {
     _data.result.progressPercent = 0.0f;
     snprintf(_data.result.elapsed, sizeof(_data.result.elapsed), "00:00:00");
@@ -1528,7 +1566,12 @@ inline void MySystem::onScreenEvent(ScreenEvent e) {
   }
   else if(e.type == ScreenType::BUSY && e.name == EventName::Timeout) {
     if(_data.getState() == StateData::Starting) {
-      _processState(StateData::Ready);
+      // Forzado: sin el `true`, la guarda de _processState(Ready) para
+      // Starting (descartar un "ready" viejo del Mega) se tragaba tambien
+      // este timeout y la pantalla quedaba en "Iniciando" para siempre. Si
+      // el Mega si arranco, el proximo state_data "running" (cada 5 s) lleva
+      // de Principal a En curso.
+      _processState(StateData::Ready, true);
     }
     else if(_data.getState() == StateData::Stopping) {
       _processState(StateData::Ready);

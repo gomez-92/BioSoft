@@ -31,6 +31,41 @@ serial protocol, edit both copies and keep them in sync manually. In practice
 `Serial.print`-era logging (ping/pong, connection-state changes) the Mega copy
 never had; the framing/CRC/queue logic itself is still identical. Don't assume
 the two copies are interchangeable without diffing first.
+Their sizes (`MAX_TASKS`, `MAX_TASK_NAME`, `TX_BUFFER_SIZE`) are `#ifndef`
+defaults and the Mega overrides them in its `platformio.ini` (10 / 24 / 384),
+so the files stay identical. That is a RAM fix, not tuning: at the defaults
+the Mega had ~200 bytes free and **hung on the first frames it exchanged**
+(heap and stack colliding — `[PING] ... | RAM libre -4`, 2026-10-03). A task
+name longer than `MAX_TASK_NAME - 1` is truncated and never matches in
+`onTimer()`, so a new Mega task name must fit in 23 chars.
+**The TX queue holds finished frame bytes, not `JsonDocument`s**:
+`sendCommand()` writes `{"command":"…","params":…}` by hand straight into
+`_txBuffer` (same bytes the old envelope serialized to — pinned by
+`test_seriallink`, which pushes frames through the real parser), and
+`update()` just copies one frame out per `TX_INTERVAL_MS`. The old queue kept
+a heap copy of every pending message plus an envelope copy and a 256-byte
+stack buffer at send time; a critical cut then had 245 bytes left and built
+an **empty `result_data`** (ArduinoJson nulls strings on OOM, silently) — the
+ESP32 showed a blank Resultado, the monitor never closed the run, and the
+`reset` ack came out empty too, so the ESP32 resent `reset` forever. Two
+behaviour changes ride along: a frame over `MAX_JSON_SIZE` is now **refused**
+(`false`) instead of truncated with a valid CRC, and "full" is measured in
+bytes, not messages. The ESP32 also turns an empty `reason` into `refused`
+(while Starting) or `unknown` (otherwise), so neither the screen nor the
+monitor is left without an ending. `SerialLink` also **no longer keeps a copy
+of the last params** (`_params`/`getParam()` are gone, nothing read them): the
+listener gets `doc["params"]` from `_processFrame()`'s local document, so a
+handler must copy any string it wants past `onCommand()`. One did not:
+`SystemData::setState()` stored the pointer it was given, and `state_data`
+hands it the frame's `status` string — dangling the moment `onCommand()`
+returned, after which state compares returned garbage (`oldstate: <` in the
+log) and the screen sat on "Iniciando" through a whole run. It now stores
+the matching `StateData` constant, which is also what makes the existing
+pointer compares (`getState() == StateData::Starting`) valid.
+`config_current`'s `name` is the other close call (copied, then nulled). The Mega also builds
+with `ARDUINOJSON_POOL_CAPACITY=8` (48-byte pools instead of 96). With the
+first round of these it still hung mid-`config_*` burst with 666 bytes free
+at a ping; `Engine::onCommand` alone takes ~245 bytes of stack.
 
 ## Commands
 
@@ -154,8 +189,10 @@ building — the ESP32 build will fail to compile without it.
 
 ### Serial protocol (`seriallink.hpp`)
 
-Both boards talk over a hardware UART (`Serial2` on ESP32 pins 22/27 ↔ `Serial1`
-on the Mega) using a custom framed protocol:
+Both boards talk over a hardware UART (`Serial2` on ESP32 RX 35 / TX 22 ↔
+`Serial1` on the Mega — on the JC2432W328C; the old 2432S028R used RX 22 / TX 27,
+but on this board 27 is the backlight and 21 the touch INT, and 22/35 are the
+only free GPIOs on its connectors) using a custom framed protocol:
 
 ```
 STX(1) LEN_LO(1) LEN_HI(1) JSON(LEN bytes) CRC8(1) ETX(1)
@@ -880,6 +917,14 @@ and `StateListener` (own app state, from `SystemData`).
     volatile flag, `update()` adds the timer task (`Timer` isn't core-safe).
   - `BrokerManager::handleMessage` used to truncate inbound payloads to 128
     bytes; a chunk is ~400, so it's `BrokerBufferSize` now.
+  - The current config (12-ish chunks + meta) is published **one chunk at a
+    time and only with the publish queue empty** (`Output::publishQueueIdle()`).
+    `BrokerManager::publish()` never fails on a full queue — it evicts the
+    oldest and returns true — so the old "returns false, retry next tick"
+    guard never fired: the chunks went into a 4-slot queue at once, the middle
+    ones were evicted (seen on the bench 2026-10-03: 5–8 and 10 missing) and
+    the monitor dropped the whole config on CRC. The receiver's status acks
+    keep using `publishConfigMessage()` ungated: those must not wait.
   - **No new 8 KB statics**: they come out of the same DRAM as the heap TLS
     needs. `ConfigLoader::_currentText` (the text published as "current",
     exactly what was CRC'd) *is* `load()`'s read buffer — `load()` parses with
@@ -1086,7 +1131,7 @@ NULO"` placeholder the SquareLine export ships with.
   only one of each can be in flight. Once every entry is inactive,
   `_cancelPendingConfig()` removes the task itself.
   Note `_sendMegaConfig()` does **not** blast all 14 out at once: the
-  SerialLink TX queue holds 9 usable messages and drains one per 50 ms, so
+  SerialLink TX buffer (2 KB on the ESP32) fills and drains one frame per 50 ms, so
   `_sendConfigFrame()` stops as soon as `sendCommand()` returns false and the
   rest go out on the following `ReSendConfig` ticks. That `false` used to be
   ignored, which was harmless at 6 frames and would have silently dropped
@@ -1395,7 +1440,15 @@ Other things worth knowing before touching it:
   by `configId`). Reassembled text must CRC32 to the board's id or it's
   dropped — retained chunks of two configs can mix in the broker. Sending is
   one chunk at a time, waiting for the board's `parcial` ack (5 s, 3 retries,
-  then `no_entregada`); one request at a time (409 otherwise). CRC32 and
+  then `no_entregada`); one request at a time (409 otherwise). **A late ack
+  is the normal case, not an edge case** (first real-board send, 2026-10-03:
+  18 `parcial` for 12 chunks, then `incompleta` shown over an accepted
+  file). So: an ack for another chunk keeps waiting out the same attempt
+  without resending (resending cascaded — each copy produced another stray
+  ack on the next chunk); an unsolicited final status only lands on a
+  request still open (`enviando`/`parcial`/`no_entregada`), never over a
+  board verdict; and the board re-answers `aceptada` to a chunk of the
+  request it just accepted instead of `incompleta`. CRC32 and
   chunking are reimplemented (no `zlib.crc32`, which needs Node ≥ 22.2) and
   mirror `remoteconfig.hpp` — same drift hazard as the bit order of `RLX`.
   The Configuracion page **embeds the generator** (`postMessage`, same origin

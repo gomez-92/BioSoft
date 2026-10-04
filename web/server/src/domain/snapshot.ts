@@ -41,13 +41,17 @@ export async function buildSnapshot(): Promise<Snapshot> {
 
   // Las alertas se acotan a la corrida en curso: una alerta de un experimento
   // anterior no dice nada del que esta pasando ahora, y mostrarla arriba
-  // sugeriria un problema actual que no existe.
+  // sugeriria un problema actual que no existe. Sin corrida en curso, ninguna:
+  // antes se mostraban las de runId null -- las huerfanas, que llegaron sin
+  // una corrida abierta (su `targets` nunca llego) --, y quedaban en el panel
+  // indefinidamente con "Sin experimento en curso" al lado (banco,
+  // 2026-10-03). No se borran: siguen siendo datos reales de la base.
   const [run, measure, coil, status, alerts] = await Promise.all([
     runId ? Run.findById(runId).lean() : null,
     Measure.findOne().sort({ ts: -1 }).lean(),
     CoilSample.findOne().sort({ ts: -1 }).lean(),
     StatusSample.findOne().sort({ ts: -1 }).lean(),
-    Alert.find(runId ? { runId } : { runId: null }).sort({ ts: -1 }).limit(MAX_ALERTAS).lean(),
+    runId ? Alert.find({ runId }).sort({ ts: -1 }).limit(MAX_ALERTAS).lean() : [],
   ]);
 
   return {

@@ -17,19 +17,16 @@ void tearDown(void) {}
 // =====================================================================
 // Presupuesto de tamaño de los frames de configuracion.
 //
-// El transporte tiene UN solo punto donde recorta, y lo hace en silencio:
-// SerialLink::_sendFrame() arma {"command":...,"params":{...}} y lo
-// serializa a un char[MAX_JSON_SIZE]. serializeJson() trunca si no entra y
-// el CRC se calcula sobre el texto YA recortado -- asi que el frame llega
-// al otro lado con CRC valido y menos claves, sin ningun error visible: el
-// receptor no puede distinguirlo de un frame que nunca trajo esas claves,
-// y se queda con sus defaults creyendo que la config no las traia.
+// El tope real es MAX_JSON_SIZE para {"command":...,"params":{...}}.
+// Hasta 2026-10-03 un frame mas largo se TRUNCABA en silencio con CRC
+// valido y llegaba con menos claves; hoy SerialLink::sendCommand() lo
+// rechaza (devuelve false, test_seriallink) -- que no es mejor para la
+// config: el frame no sale y esa parte nunca llega. Por eso el presupuesto
+// se sigue pineando aca, frame por frame.
 //
-// OJO con los numeros de seriallink.hpp: TxMessage::params es un
-// StaticJsonDocument<128> y el envelope un StaticJsonDocument<256>, pero en
-// ArduinoJson 7 esa clase es solo un JsonDocument elastico cuyo capacity()
-// devuelve N sin limitar nada (ver compatibility.hpp de la libreria). El
-// unico tope real es el buffer de serializacion.
+// OJO: StaticJsonDocument<N> no limita nada en ArduinoJson 7 (es un
+// JsonDocument elastico cuyo capacity() devuelve N, ver compatibility.hpp
+// de la libreria).
 //
 // Estos tests fijan que cada frame que MySystem manda entra entero, con la
 // misma logica que test_pwmdriver usa para la tabla de prescalers: lo que

@@ -202,6 +202,7 @@ class Engine :
 
   private:
     void _refuseStart(const char* cause, const char* description);
+    static int _freeRam();
     void _start();
     void _stop();
     void _reset();
@@ -370,7 +371,29 @@ inline void Engine::update() {
 // pantalla Resultado; despues el flujo sigue normal, Volver lleva a
 // Principal. No pasa por _finish(): no hay nada que apagar ni un estado
 // Finished que transitar, y el Engine nunca dejo de estar en Ready.
+// RAM libre entre el tope del heap y el stack. El Mega queda al ~77 %
+// estatico y cada trama reserva JsonDocuments en el heap: con menos de
+// ~300 bytes ya se colgo (2026-10-03). -1 fuera del AVR (tests nativos).
+inline int Engine::_freeRam() {
+#ifdef __AVR__
+  extern char __heap_start, *__brkval;
+  char top;
+  return &top - (__brkval == 0 ? &__heap_start : __brkval);
+#else
+  return -1;
+#endif
+}
+
 inline void Engine::_refuseStart(const char* cause, const char* description) {
+  // El start SI se recibio: se confirma igual, para que la ESP32 corte el
+  // reenvio. Sin el ack seguia mandando start cada pocos segundos y cada
+  // uno se volvia a rechazar (en banco, 2026-10-03).
+  {
+    JsonDocument ack;
+    ack["command"] = Commands::Start;
+    _serial.sendCommand(Commands::Ack, ack);
+  }
+
   ResultData data;
   strncpy(data.reason, "refused", sizeof(data.reason) - 1);
   strncpy(data.cause, cause, sizeof(data.cause) - 1);
@@ -780,6 +803,14 @@ inline void Engine::_sendResultData() {
     doc["cause"] = data.cause;
   }
 
+  // Sin heap, ArduinoJson deja los textos en null EN SILENCIO y el frame
+  // sale igual: la ESP32 recibia un result_data con motivo vacio. Que por lo
+  // menos quede dicho en el log, con cuanta RAM habia.
+  if (doc.overflowed()) {
+    DEBUG_PRINT(DEBUG_ENGINE, F("[RESULT][ERROR] sin memoria para armar result_data | RAM libre "));
+    DEBUG_PRINTLN(DEBUG_ENGINE, _freeRam());
+  }
+
   _serial.sendCommand(Commands::ResultData, doc);
 }
 
@@ -1011,6 +1042,13 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
     }
 
     long value = params["value"].as<long>();
+    // Unica señal en el monitor del Mega de que la linea ESP32 -> Mega
+    // funciona (en Ready no se loguea nada mas), y testigo del margen de
+    // RAM: con <~300 bytes el Mega ya se colgo al procesar tramas.
+    DEBUG_PRINT(DEBUG_ENGINE, F("[PING] recibido "));
+    DEBUG_PRINT(DEBUG_ENGINE, value);
+    DEBUG_PRINT(DEBUG_ENGINE, F(" -> respondiendo pong | RAM libre "));
+    DEBUG_PRINTLN(DEBUG_ENGINE, _freeRam());
     _serial.sendPong(value);
   }
 
@@ -1035,7 +1073,8 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
 
     DEBUG_PRINTLN(DEBUG_ENGINE, );
     DEBUG_PRINTLN(DEBUG_ENGINE, F("========================================"));
-    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Comando START recibido"));
+    DEBUG_PRINT(DEBUG_ENGINE, F("[START] Comando START recibido | RAM libre "));
+    DEBUG_PRINTLN(DEBUG_ENGINE, _freeRam());
     DEBUG_PRINTLN(DEBUG_ENGINE, F("========================================"));
 
     // ========================================================

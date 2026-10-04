@@ -1131,6 +1131,10 @@ inline void ResultadoController::_applyResult() {
   bool isCritical  = strcmp(_data.result.reason, "critical") == 0;
   bool isStopped   = strcmp(_data.result.reason, "stopped") == 0;
   bool isRefused   = strcmp(_data.result.reason, "refused") == 0;
+  // Cualquier otro motivo ("unknown": el Mega no lo informo, ver
+  // MySystem::_applyResult) va al panel de falla. Antes no mostraba ningun
+  // panel y la pantalla quedaba en blanco sin decir que paso.
+  bool isUnknown   = !isCompleted && !isCritical && !isStopped && !isRefused;
 
   char alerts[32];
   _buildAlertsClause(alerts, sizeof(alerts));
@@ -1157,8 +1161,8 @@ inline void ResultadoController::_applyResult() {
   char refusedDetail[64];
   _buildRefusedTexts(refusedHeadline, sizeof(refusedHeadline), refusedDetail, sizeof(refusedDetail));
 
-  _applyPanel(ui_ResultadoFalla, isCritical || isRefused, ui_ResultadoMotivoFallaTipoCampo, ui_ResultadoMotivoFallaMotivoDetalle,
-              isRefused ? refusedDetail : criticalDetail);
+  _applyPanel(ui_ResultadoFalla, isCritical || isRefused || isUnknown, ui_ResultadoMotivoFallaTipoCampo, ui_ResultadoMotivoFallaMotivoDetalle,
+              isRefused ? refusedDetail : (isUnknown ? _data.result.description : criticalDetail));
 
   if (isCritical) {
     lv_label_set_text(ui_ResultadoMotivoFallaMotivo, criticalHeadline);
@@ -1167,12 +1171,17 @@ inline void ResultadoController::_applyResult() {
     lv_label_set_text(ui_ResultadoMotivoFallaTitle, "NO INICIO");
     lv_label_set_text(ui_ResultadoMotivoFallaMotivo, refusedHeadline);
   }
+  else if (isUnknown) {
+    lv_label_set_text(ui_ResultadoMotivoFallaTitle, "TERMINO");
+    lv_label_set_text(ui_ResultadoMotivoFallaMotivo, "MOTIVO DESCONOCIDO");
+  }
 
   // REPETIR se oculta cuando corto por falla: repetir el mismo experimento
   // con la misma configuracion que acaba de disparar un limite lo mas
   // probable es que vuelva a cortar igual. Hay que revisar la causa (o la
-  // configuracion) antes, y para eso hay que salir de esta pantalla.
-  bool hideRepeat = isCritical || isRefused;
+  // configuracion) antes, y para eso hay que salir de esta pantalla. Con
+  // motivo desconocido tampoco: no se sabe si fue un limite.
+  bool hideRepeat = isCritical || isRefused || isUnknown;
   if (hideRepeat) lv_obj_add_flag(ui_ButtonResultadoRepetir, LV_OBJ_FLAG_HIDDEN);
   else            lv_obj_remove_flag(ui_ButtonResultadoRepetir, LV_OBJ_FLAG_HIDDEN);
 

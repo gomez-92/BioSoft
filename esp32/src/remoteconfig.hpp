@@ -63,6 +63,12 @@ namespace RemoteConfig {
   class Output {
     public:
       virtual bool publishConfigMessage(const char* topic, const char* payload, bool retain) = 0;
+      // true si la cola de publicacion esta vacia. BrokerManager::publish()
+      // con la cola llena descarta el mensaje MAS VIEJO y devuelve true, asi
+      // que un false de publishConfigMessage nunca frenaba al publicador: los
+      // 12 bloques entraban de golpe en una cola de 4 y se perdian bloques
+      // del medio (el monitor descarta la config entera por CRC).
+      virtual bool publishQueueIdle() = 0;
       virtual bool experimentInProgress() = 0;
       virtual ~Output() {}
   };
@@ -123,10 +129,13 @@ namespace RemoteConfig {
 
       bool active() const { return _active; }
 
-      // Publica el siguiente mensaje. Si la cola de publicacion esta llena
-      // no avanza: se reintenta en el proximo tick.
+      // Publica el siguiente mensaje, solo con la cola de publicacion vacia:
+      // asi hay a lo sumo un bloque esperando, y una rafaga de telemetria o
+      // un pong que caiga encima entra sin desalojarlo. Si no, no avanza y
+      // se reintenta en el proximo tick.
       void publishNext(Output& out, const char* configId) {
         if (!_active) return;
+        if (!out.publishQueueIdle()) return;
         char payload[512];
 
         if (_index < _total) {
@@ -180,6 +189,12 @@ namespace RemoteConfig {
       uint16_t _total = 0;
       bool _active = false;
       unsigned long _lastChunkMs = 0;
+      // El ultimo pedido aceptado. Si el monitor reenvia un bloque suyo
+      // (no le llego a tiempo la confirmacion) se le repite "aceptada": sin
+      // esto se le contestaba "incompleta" y el monitor mostraba como
+      // fallido un archivo que ya estaba grabado.
+      char _doneRequestId[MaxRequestIdLength + 1] = "";
+      char _doneNewId[ConfigLoader::ConfigIdLength] = "";
 
       void _status(Output& out, const char* request, const char* state,
                    int index = -1, const char* message = nullptr, const char* newId = nullptr) {
@@ -269,6 +284,10 @@ namespace RemoteConfig {
         }
 
         _status(out, _requestId, "aceptada", -1, "se aplica en el proximo reinicio", newId);
+        strncpy(_doneRequestId, _requestId, MaxRequestIdLength);
+        _doneRequestId[MaxRequestIdLength] = '\0';
+        strncpy(_doneNewId, newId, sizeof(_doneNewId) - 1);
+        _doneNewId[sizeof(_doneNewId) - 1] = '\0';
         _abort();   // limpia config.new y el estado
       }
 
@@ -293,6 +312,11 @@ namespace RemoteConfig {
         uint16_t index = doc["i"];
         uint16_t total = doc["n"];
         const char* data = doc["d"];
+
+        if (_doneRequestId[0] != '\0' && strcmp(request, _doneRequestId) == 0) {
+          _status(out, request, "aceptada", -1, "se aplica en el proximo reinicio", _doneNewId);
+          return;
+        }
 
         if (!_storage.isReady()) {
           _status(out, request, "error", -1, "la placa no tiene tarjeta SD");
