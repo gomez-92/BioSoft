@@ -97,7 +97,10 @@ const secondsPerStep = Math.round((durationMinutes * 60) / steps);
 
 async function run() {
   publish(T.targets, {
-    MODE: mode, CEM: 1.5, FREQ: 50, DUR: durationMinutes, TOL: 10,
+    // DUR en MILISEGUNDOS, como la placa (optionsDuration[].duration). Se
+    // mandaba en minutos, y por eso el monitor mostraba bien la duracion del
+    // simulador y mal la de la placa real.
+    MODE: mode, CEM: 1.5, FREQ: 50, DUR: durationMinutes * 60_000, TOL: 10,
     TNMIN: 20, TNMAX: 30, TCMIN: 15, TCMAX: 35, ...marca, ...traza,
   }, true);
 

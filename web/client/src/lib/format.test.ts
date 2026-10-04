@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  esAlertaCritica, esCampoNulo, etiquetaTipoCorrida, motivoConfig, nombreModo, nombreTipoAlerta,
+  avanceFinal, duracionPedida, esAlertaCritica, esCampoNulo, etiquetaTipoCorrida, motivoConfig, nombreModo, nombreTipoAlerta,
   relajacionesConAviso, relajacionesDe, tipoDesdeMarca,
 } from './format.js';
 
@@ -112,5 +112,24 @@ describe('motivoConfig', () => {
   });
   it('una configuracion cargada no avisa nada', () => {
     expect(motivoConfig('cbf43926', 'ok').aviso).toBe(false);
+  });
+});
+
+describe('duracion pedida y avance final', () => {
+  // La placa publica DUR en milisegundos: 300000 son 5 minutos, no 300000.
+  it('formatea la duracion pedida desde milisegundos', () => {
+    expect(duracionPedida(300_000)).toBe('5m 00s');
+    expect(duracionPedida(3_600_000)).toBe('1h 00m');
+    expect(duracionPedida(undefined)).toBe('--');
+  });
+
+  it('una corrida completed cerro al 100% y con la duracion entera', () => {
+    expect(avanceFinal({ reason: 'completed', progressPercent: 99, elapsedSeconds: 298 }, 300_000))
+      .toEqual({ porcentaje: 100, segundos: 300 });
+  });
+
+  it('una cortada antes conserva lo que informo la placa', () => {
+    expect(avanceFinal({ reason: 'critical', progressPercent: 55, elapsedSeconds: 165 }, 300_000))
+      .toEqual({ porcentaje: 55, segundos: 165 });
   });
 });

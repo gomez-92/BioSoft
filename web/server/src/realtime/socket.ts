@@ -1,6 +1,7 @@
 import type { Server as HttpServer } from 'node:http';
 import mongoose from 'mongoose';
 import { Server } from 'socket.io';
+import { sesionVigente } from '../auth/sesiones.js';
 import { verifyToken } from '../auth/tokens.js';
 import { config } from '../config.js';
 import { buildSnapshot } from '../domain/snapshot.js';
@@ -25,7 +26,8 @@ export function startRealtime(server: HttpServer): void {
   // socket: la puerta de atras del mismo dato.
   io.use((socket, next) => {
     const token = socket.handshake.auth?.token;
-    if (typeof token === 'string' && verifyToken(token)) return next();
+    const payload = typeof token === 'string' ? verifyToken(token) : null;
+    if (payload && sesionVigente(payload)) return next();
     next(new Error('no autorizado'));
   });
 

@@ -1,3 +1,5 @@
+import type { Perfil } from './types.js';
+
 // Sesion del navegador.
 //
 // El token se guarda en localStorage para que abrir el monitor desde el
@@ -56,7 +58,7 @@ export async function authFetch(url: string, init: RequestInit = {}): Promise<Re
   return respuesta;
 }
 
-export async function login(username: string, password: string): Promise<string> {
+export async function login(username: string, password: string): Promise<Perfil> {
   const respuesta = await fetch('/api/auth/login', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -70,5 +72,43 @@ export async function login(username: string, password: string): Promise<string>
 
   const data = await respuesta.json();
   setToken(data.token);
-  return data.user.username;
+  return data.user;
+}
+
+async function postJson(url: string, cuerpo: unknown, conToken = false): Promise<Record<string, unknown>> {
+  const init: RequestInit = {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(cuerpo),
+  };
+  const respuesta = conToken ? await authFetch(url, init) : await fetch(url, init);
+  const data = await respuesta.json().catch(() => ({}));
+  if (!respuesta.ok) throw new Error(data.error ?? `error ${respuesta.status}`);
+  return data;
+}
+
+/** "Olvide mi contraseña". Devuelve el mensaje a mostrar (no dice si la cuenta existe). */
+export async function pedirRecuperacion(usuario: string): Promise<string> {
+  const data = await postJson('/api/auth/forgot', { username: usuario });
+  return String(data.mensaje ?? '');
+}
+
+/** Fija la contraseña con un enlace de recuperacion o invitacion. */
+export async function restablecerClave(token: string, password: string): Promise<string> {
+  const data = await postJson('/api/auth/reset', { token, password });
+  return String(data.username ?? '');
+}
+
+/**
+ * Cambio de la propia contraseña. El servidor revoca las demas sesiones y
+ * devuelve un token nuevo para esta, que se guarda en lugar del anterior.
+ */
+export async function cambiarClave(actual: string, nueva: string): Promise<void> {
+  const data = await postJson('/api/auth/password', { current: actual, password: nueva }, true);
+  if (typeof data.token === 'string') setToken(data.token);
+}
+
+/** El enlace que se le pasa a alguien para que fije su contraseña. */
+export function enlaceDeClave(token: string): string {
+  return `${window.location.origin}/restablecer?token=${encodeURIComponent(token)}`;
 }

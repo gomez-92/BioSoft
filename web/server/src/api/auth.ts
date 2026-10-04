@@ -1,7 +1,11 @@
 import { Router } from 'express';
 import { asincrono } from './asincrono.js';
 import { requireAuth } from '../auth/middleware.js';
+import { correoDisponible, enviarCorreoDeClave } from '../auth/correo.js';
 import { hashPassword, verifyPassword } from '../auth/password.js';
+import {
+  ClaveInvalida, HORAS_RECUPERACION, crearTokenDeClave, fijarClave, usarTokenDeClave, validarClave,
+} from '../auth/recuperacion.js';
 import { signToken } from '../auth/tokens.js';
 import { User } from '../models/user.js';
 
@@ -70,12 +74,102 @@ authRouter.post('/auth/login', asincrono(async (req, res) => {
 
   res.json({
     token: signToken({ sub: user._id.toString(), username: user.username }),
-    user: { username: user.username },
+    user: perfil(user),
   });
 }));
 
+function perfil(user: { username: string; role?: string | null; email?: string | null }) {
+  return { username: user.username, role: user.role ?? 'viewer', email: user.email ?? null };
+}
+
 // Sirve para que el cliente valide al arrancar el token que tiene guardado, en
-// vez de descubrir que vencio al primer pedido de datos.
-authRouter.get('/auth/me', requireAuth, (req, res) => {
-  res.json({ user: req.user ? { username: req.user.username } : null });
-});
+// vez de descubrir que vencio al primer pedido de datos. El rol sale de la
+// base, no del token: es lo que decide que pestañas y botones se muestran.
+authRouter.get('/auth/me', requireAuth, asincrono(async (req, res) => {
+  const user = await User.findById(req.user?.sub).lean();
+  if (!user) { res.status(401).json({ error: 'no autorizado' }); return; }
+  res.json({ user: perfil(user), correo: correoDisponible() });
+}));
+
+/**
+ * Cambio de la propia contraseña. Pide la actual: un token robado (o una
+ * sesion abierta en una compu ajena) no alcanza para quedarse con la cuenta.
+ * Revoca las demas sesiones y devuelve un token nuevo para esta.
+ */
+authRouter.post('/auth/password', requireAuth, asincrono(async (req, res) => {
+  const actual = typeof req.body?.current === 'string' ? req.body.current : '';
+  const user = await User.findById(req.user?.sub);
+  if (!user) { res.status(401).json({ error: 'no autorizado' }); return; }
+
+  const clave = `clave|${user._id.toString()}`;
+  if (limitado(clave)) { res.status(429).json({ error: 'demasiados intentos, espera unos minutos' }); return; }
+  if (!(await verifyPassword(actual, user.passwordHash))) {
+    anotarFallo(clave);
+    res.status(400).json({ error: 'la contraseña actual no es correcta' });
+    return;
+  }
+  try {
+    await fijarClave(user._id.toString(), validarClave(req.body?.password));
+  } catch (error) {
+    if (error instanceof ClaveInvalida) { res.status(400).json({ error: error.message }); return; }
+    throw error;
+  }
+  intentos.delete(clave);
+  res.json({ token: signToken({ sub: user._id.toString(), username: user.username }) });
+}));
+
+/**
+ * "Olvide mi contraseña". Responde SIEMPRE lo mismo, exista o no la cuenta y
+ * tenga o no correo: cualquier diferencia le diria a quien prueba que nombres
+ * de usuario o correos estan registrados.
+ */
+authRouter.post('/auth/forgot', asincrono(async (req, res) => {
+  const quien = typeof req.body?.username === 'string' ? req.body.username.trim().toLowerCase() : '';
+  const respuesta = {
+    correo: correoDisponible(),
+    mensaje: correoDisponible()
+      ? 'Si la cuenta existe y tiene un correo cargado, te llega un enlace para fijar una contraseña nueva. ' +
+        'Si no te llega, pedile a un administrador del monitor que te genere uno.'
+      : 'Este monitor no tiene configurado el envio de correos: pedile a un administrador que te genere ' +
+        'un enlace para fijar una contraseña nueva desde la pagina Usuarios.',
+  };
+  if (!quien) { res.status(400).json({ error: 'falta el usuario o el correo' }); return; }
+
+  const clave = `olvido|${req.ip}`;
+  if (limitado(clave)) { res.status(429).json({ error: 'demasiados pedidos, espera unos minutos' }); return; }
+  anotarFallo(clave);   // cuenta todos los pedidos, no solo los fallidos
+
+  if (correoDisponible()) {
+    const user = await User.findOne({ $or: [{ username: quien }, { email: quien }] }).lean();
+    if (user?.email) {
+      const { token } = await crearTokenDeClave(user._id, HORAS_RECUPERACION);
+      // El correo sale en segundo plano: esperar al SMTP haria que la
+      // respuesta tarde mas cuando la cuenta existe, y eso tambien delata.
+      enviarCorreoDeClave(user.email, user.username, token, HORAS_RECUPERACION)
+        .catch((error) => console.error('[auth] no se pudo mandar el correo de recuperacion:', error));
+    }
+  }
+  res.json(respuesta);
+}));
+
+/** Fija la contraseña con un enlace de recuperacion o de invitacion. */
+authRouter.post('/auth/reset', asincrono(async (req, res) => {
+  const token = typeof req.body?.token === 'string' ? req.body.token : '';
+  const clave = `reset|${req.ip}`;
+  if (limitado(clave)) { res.status(429).json({ error: 'demasiados intentos, espera unos minutos' }); return; }
+
+  let password: string;
+  try {
+    password = validarClave(req.body?.password);
+  } catch (error) {
+    if (error instanceof ClaveInvalida) { res.status(400).json({ error: error.message }); return; }
+    throw error;
+  }
+  const username = await usarTokenDeClave(token, password);
+  if (!username) {
+    anotarFallo(clave);
+    res.status(400).json({ error: 'el enlace no es valido o ya vencio: pedi uno nuevo' });
+    return;
+  }
+  res.json({ ok: true, username });
+}));

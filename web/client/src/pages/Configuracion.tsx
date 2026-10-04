@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { authFetch } from '../lib/auth.js';
 import { motivoConfig } from '../lib/format.js';
+import { useEsAdmin } from '../lib/sesion.js';
 
 // Configuracion de la placa (tarjeta 24): ver la vigente y mandar una nueva.
 //
@@ -75,6 +76,7 @@ export function estadoEnvio(pedido: Pedido | undefined, vigenteId: string | null
 }
 
 export function Configuracion() {
+  const esAdmin = useEsAdmin();
   const marco = useRef<HTMLIFrameElement>(null);
   const [vigente, setVigente] = useState<Vigente | null>(null);
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
@@ -157,6 +159,13 @@ export function Configuracion() {
     marco.current?.contentWindow?.postMessage({ type: 'biosoft-status', status: estado }, window.location.origin);
   }, [generadorListo, estado?.kind, estado?.text, estado?.detail]);
 
+  // Solo lectura: el generador oculta Enviar (y ofrece Descargar). El
+  // servidor rechaza el envio de todas formas (requireAdmin).
+  useEffect(() => {
+    if (!generadorListo || esAdmin) return;
+    marco.current?.contentWindow?.postMessage({ type: 'biosoft-readonly' }, window.location.origin);
+  }, [generadorListo, esAdmin]);
+
   useEffect(() => {
     function alRecibir(ev: MessageEvent) {
       if (ev.origin !== window.location.origin || ev.source !== marco.current?.contentWindow) return;
@@ -187,52 +196,78 @@ export function Configuracion() {
 
   return (
     <>
-      <section className="panel">
-        <h3>Configuracion vigente de la placa</h3>
-        {!vigente?.configId ? (
-          <p className="empty">La placa todavia no informo su configuracion.</p>
-        ) : (
-          <dl className="datos">
-            <div><dt>Configuracion</dt><dd>{vigente.configId === 'default' ? 'Valores de fabrica' : vigente.configId}</dd></div>
-            <div><dt>Origen</dt><dd>{motivoConfig(vigente.configId, vigente.loadStatus).texto}</dd></div>
-            {vigente.reportedAt && (
-              <div><dt>Informada</dt><dd>{new Date(vigente.reportedAt).toLocaleString('es-AR')}</dd></div>
-            )}
-          </dl>
-        )}
-        <p className="aviso">
-          Lo que se envie desde aca se graba en la tarjeta SD y se aplica en el proximo reinicio de la
-          placa, cualquiera sea su causa. Se rechaza si hay un experimento en curso. La configuracion
-          anterior queda respaldada en la tarjeta como config.prev.json. WiFi y broker no se editan desde
-          aca y se conservan.
-        </p>
-        {error && <p className="login-error">{error}</p>}
-        {estado && (
-          <div className={`envio-estado envio-${estado.kind}`} role="status">
-            <strong>{estado.text}</strong>
-            {estado.detail && <span>{estado.detail}</span>}
-          </div>
-        )}
-      </section>
-
-      {pedidos.length > 0 && (
+      <div className="columnas-2">
         <section className="panel">
-          <h3>Envios</h3>
-          <ul className="lista-pedidos">
-            {pedidos.map((p) => (
-              <li key={p.requestId} className={`pedido pedido-${p.state}`}>
-                <span>{new Date(p.createdAt).toLocaleString('es-AR')}</span>
-                <span className="pedido-estado">
-                  {NOMBRE_ESTADO[p.state] ?? p.state}
-                  {EN_CURSO.has(p.state) && p.chunks ? ` (${p.sentChunks ?? 0}/${p.chunks})` : ''}
-                </span>
-                {p.newConfigId && <span>nueva: {p.newConfigId}</span>}
-                {p.message && <span className="pedido-mensaje">{p.message}</span>}
-              </li>
-            ))}
-          </ul>
+          <h3>Configuracion vigente de la placa</h3>
+          {!vigente?.configId ? (
+            <p className="empty">La placa todavia no informo su configuracion.</p>
+          ) : (
+            <dl className="datos">
+              <div><dt>Configuracion</dt><dd>{vigente.configId === 'default' ? 'Valores de fabrica' : vigente.configId}</dd></div>
+              <div><dt>Origen</dt><dd>{motivoConfig(vigente.configId, vigente.loadStatus).texto}</dd></div>
+              {vigente.reportedAt && (
+                <div><dt>Informada</dt><dd>{new Date(vigente.reportedAt).toLocaleString('es-AR')}</dd></div>
+              )}
+            </dl>
+          )}
+          {/* Plegado: es la letra chica de siempre, y abierto empujaba el
+              formulario fuera de la pantalla. */}
+          <details className="letra-chica">
+            <summary>Como se aplica lo que se envia</summary>
+            <p>
+              Lo que se envie desde aca se graba en la tarjeta SD y se aplica en el proximo reinicio de la
+              placa, cualquiera sea su causa. Se rechaza si hay un experimento en curso. La configuracion
+              anterior queda respaldada en la tarjeta como config.prev.json. WiFi y broker no se editan desde
+              aca y se conservan.
+            </p>
+          </details>
+          {!esAdmin && (
+            <p className="tenue">Tu cuenta es de solo lectura: podes revisar y descargar la configuracion, pero
+              enviarla a la placa es para administradores.</p>
+          )}
+          {error && <p className="login-error">{error}</p>}
+          {estado && (
+            <div className={`envio-estado envio-${estado.kind}`} role="status">
+              <strong>{estado.text}</strong>
+              {estado.detail && <span>{estado.detail}</span>}
+            </div>
+          )}
         </section>
-      )}
+
+        {pedidos.length > 0 && (
+          <section className="panel">
+            <h3>Envios</h3>
+            <ul className="lista-pedidos">
+              {pedidos.slice(0, 5).map((p) => (
+                <li key={p.requestId} className={`pedido pedido-${p.state}`}>
+                  <span>{new Date(p.createdAt).toLocaleString('es-AR')}</span>
+                  <span className="pedido-estado">
+                    {NOMBRE_ESTADO[p.state] ?? p.state}
+                    {EN_CURSO.has(p.state) && p.chunks ? ` (${p.sentChunks ?? 0}/${p.chunks})` : ''}
+                  </span>
+                  {p.user && <span className="tenue-celda">{p.user}</span>}
+                  {p.newConfigId && <span>nueva: {p.newConfigId}</span>}
+                  {p.message && <span className="pedido-mensaje">{p.message}</span>}
+                </li>
+              ))}
+            </ul>
+            {pedidos.length > 5 && (
+              <details className="letra-chica">
+                <summary>{pedidos.length - 5} envios anteriores</summary>
+                <ul className="lista-pedidos">
+                  {pedidos.slice(5).map((p) => (
+                    <li key={p.requestId} className={`pedido pedido-${p.state}`}>
+                      <span>{new Date(p.createdAt).toLocaleString('es-AR')}</span>
+                      <span className="pedido-estado">{NOMBRE_ESTADO[p.state] ?? p.state}</span>
+                      {p.user && <span className="tenue-celda">{p.user}</span>}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
+          </section>
+        )}
+      </div>
 
       <section className="panel panel-generador">
         <iframe

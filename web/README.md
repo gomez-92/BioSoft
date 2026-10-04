@@ -127,7 +127,26 @@ tomar datos reales.
 ### Usuarios
 
 El primer usuario sale de `SEED_USER`/`SEED_PASSWORD` del `.env`, y solo se
-crea si la base no tiene ninguno. Despues:
+crea si la base no tiene ninguno (como **administrador**). Despues, los
+usuarios se gestionan desde la pagina **Usuarios** del monitor (solo
+administradores). Dos roles:
+
+- **Administrador**: envia configuracion a la placa, borra corridas y gestiona
+  usuarios.
+- **Solo lectura**: ve todo lo demas.
+
+Las cuentas anteriores a los roles pasan a administrador al arrancar. Siempre
+queda al menos un administrador, y nadie se quita el rol ni se borra a si mismo.
+
+Al crear una cuenta sin contraseña se genera un **enlace de invitacion** (72 h,
+un solo uso) para que la persona elija la suya. "¿Olvidaste tu contraseña?" en
+el login manda un enlace por correo (2 h) si el servidor tiene `SMTP_URL` y
+`PUBLIC_URL` y la cuenta tiene correo; si no, un administrador genera el enlace
+desde Usuarios ("Enlace de clave") y lo pasa a mano. Cambiar o restablecer una
+contraseña, o borrar una cuenta, **cierra al instante** sus sesiones abiertas
+(tabla de revocacion en memoria, `server/src/auth/sesiones.ts`).
+
+La consola sigue como camino de ultimo recurso (crea administradores):
 
 ```
 npm run usuario --workspace server -- <usuario> <contraseña>

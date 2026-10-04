@@ -236,6 +236,12 @@
         <span class="que">En cada corrida: En curso, Resultado y monitor coherentes</span>
         <span class="det">En curso muestra el duty que se aplicaría. Resultado con el motivo correcto
           (REPETIR oculto tras un critical). En el monitor la corrida sale marcada <b>PRUEBA</b>, con gráfico.</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f3-broker-estable">
+        <span class="que">Corrida de 15 min o más: el broker no se cae y no se pierde telemetría</span>
+        <span class="det">En el log de la ESP32 no aparece <code>[BROKER] Queue llena</code> ni
+          <code>[BROKER] Desconectado: …</code>, y las publicaciones salen a su cadencia (cada 2–5 s), no en
+          ráfagas cada 10 s. Si hubo una caída, esa línea dice el motivo (keepalive, socket cerrado, WiFi caída).
+          En el monitor, el gráfico de En curso no muestra huecos.</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f3-detener">
         <span class="que">Detener en pantalla → Resultado "detenido"</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f3-emergencia">

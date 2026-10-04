@@ -10,10 +10,12 @@ import { config } from '../config.js';
 // llegar a validarse. Es la confusion de algoritmos, el agujero mas conocido
 // de JWT.
 
-export interface Payload { sub: string; username: string }
+// `iat` (emitido en, segundos) solo viene al verificar: lo pone la libreria al
+// firmar, y es lo que auth/sesiones.ts compara para revocar sesiones viejas.
+export interface Payload { sub: string; username: string; iat?: number }
 
 export function signToken(payload: Payload): string {
-  return jwt.sign(payload, config.auth.secret, {
+  return jwt.sign({ sub: payload.sub, username: payload.username }, config.auth.secret, {
     algorithm: 'HS256',
     // El tipo de la libreria es un literal ("7d", "12h"...) y esto viene de
     // una variable de entorno, que es string a secas.
@@ -25,7 +27,11 @@ export function verifyToken(token: string): Payload | null {
   try {
     const decoded = jwt.verify(token, config.auth.secret, { algorithms: ['HS256'] });
     if (typeof decoded === 'string' || !decoded.sub || typeof decoded.sub !== 'string') return null;
-    return { sub: decoded.sub, username: String((decoded as Record<string, unknown>).username ?? '') };
+    return {
+      sub: decoded.sub,
+      username: String((decoded as Record<string, unknown>).username ?? ''),
+      iat: typeof decoded.iat === 'number' ? decoded.iat : undefined,
+    };
   } catch {
     // Token invalido, vencido o firmado con otra clave. No se distingue entre
     // los casos hacia afuera: decir "vencido" vs "invalido" le confirma a

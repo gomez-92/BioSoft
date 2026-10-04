@@ -1,15 +1,18 @@
 import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
-  GraficoBobinas, GraficoCampo, GraficoTemperatura,
-  type AlertaMarca, type PuntoMedicion,
+  GraficoBobinas, GraficoCampo, GraficoTemperatura, type PuntoMedicion,
 } from '../components/Graficos.js';
+import { ListaAlertas } from '../components/ListaAlertas.js';
 import { authFetch } from '../lib/auth.js';
+import { bobinasHabilitadas, filtrarBobinas } from '../lib/bobinas.js';
 import {
-  duracion, esCampoNulo, horaCorta, nombreModo, nombreMotivo, nombreTipoAlerta, numero,
+  avanceFinal, duracion, duracionPedida, esCampoNulo, nombreModo, nombreMotivo, nombreTipoAlerta, numero,
   relajacionesConAviso, relajacionesDe,
 } from '../lib/format.js';
-import type { RunType, Targets } from '../lib/types.js';
+import { useEsAdmin } from '../lib/sesion.js';
+import { useConfigDeCorrida } from '../lib/useConfig.js';
+import type { AlertItem, RunType, Targets } from '../lib/types.js';
 import { ConRelajaciones, TipoCorrida } from '../components/TipoCorrida.js';
 
 // Detalle de una corrida: que se pidio, que paso y por que termino.
@@ -36,8 +39,9 @@ export function DetalleCorrida() {
   const [detalle, setDetalle] = useState<Detalle | null>(null);
   const [mediciones, setMediciones] = useState<SerieMediciones | null>(null);
   const [bobinas, setBobinas] = useState<SerieBobinas | null>(null);
-  const [alertas, setAlertas] = useState<Array<AlertaMarca & { count: number; limit: number }>>([]);
+  const [alertas, setAlertas] = useState<AlertItem[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const config = useConfigDeCorrida(detalle?.targets?.configId);
 
   useEffect(() => {
     if (!id) return;
@@ -64,6 +68,12 @@ export function DetalleCorrida() {
   const inicio = new Date(detalle.startedAt).getTime();
   const fin = detalle.endedAt ? new Date(detalle.endedAt).getTime() : Date.now();
   const esNulo = esCampoNulo(detalle.targets?.mode);
+  const contexto = { targets: detalle.targets, config, inicio };
+  // Solo las bobinas habilitadas en la configuracion con la que corrio (ver
+  // lib/bobinas.ts): el Mega informa tambien las registradas y apagadas.
+  const bobinasVisibles = bobinas
+    ? filtrarBobinas(bobinas.coils.map((n) => ({ n })), bobinasHabilitadas(config)).map((b) => b.n)
+    : [];
 
   return (
     <>
@@ -113,13 +123,25 @@ export function DetalleCorrida() {
 
       {mediciones && mediciones.points.length > 0 ? (
         <section className="panel">
-          <GraficoCampo puntos={mediciones.points} bucket={mediciones.bucket}
-            targets={detalle.targets} alertas={alertas} inicio={inicio} fin={fin} />
-          <GraficoTemperatura puntos={mediciones.points} bucket={mediciones.bucket}
-            targets={detalle.targets} alertas={alertas} inicio={inicio} fin={fin} />
+          <div className="grilla-graficos">
+            <GraficoCampo puntos={mediciones.points} bucket={mediciones.bucket}
+              contexto={contexto} alertas={alertas} fin={fin} />
+            <GraficoTemperatura puntos={mediciones.points} bucket={mediciones.bucket}
+              contexto={contexto} alertas={alertas} fin={fin} />
+            {bobinas && bobinas.points.length > 0 && (
+              <>
+                <GraficoBobinas puntos={bobinas.points} bucket={bobinas.bucket} bobinas={bobinasVisibles}
+                  magnitud="corriente" inicio={inicio} fin={fin} />
+                <GraficoBobinas puntos={bobinas.points} bucket={bobinas.bucket} bobinas={bobinasVisibles}
+                  magnitud="duty" inicio={inicio} fin={fin} />
+              </>
+            )}
+          </div>
           {alertas.length > 0 && (
             <p className="tenue">
-              Las lineas punteadas verticales marcan cuando se levanto cada alerta.
+              Cada alerta es un punto en el grafico de su magnitud (CEM1 en el campo, TEMP1 en la temperatura), a la
+              altura de la ultima medicion antes de levantarse; pasa por encima para ver el detalle. Un anillo marca la
+              que corto el experimento.
             </p>
           )}
         </section>
@@ -127,20 +149,44 @@ export function DetalleCorrida() {
         <p className="empty panel">Esta corrida no tiene mediciones guardadas.</p>
       )}
 
-      {bobinas && bobinas.points.length > 0 && (
+      {alertas.length > 0 && (
         <section className="panel">
-          <GraficoBobinas puntos={bobinas.points} bucket={bobinas.bucket} bobinas={bobinas.coils}
-            magnitud="corriente" inicio={inicio} fin={fin} />
-          <GraficoBobinas puntos={bobinas.points} bucket={bobinas.bucket} bobinas={bobinas.coils}
-            magnitud="duty" inicio={inicio} fin={fin} />
+          <h3>Alertas ({alertas.length})</h3>
+          <ListaAlertas alertas={alertas} targets={detalle.targets} config={config} inicio={detalle.startedAt} />
         </section>
       )}
 
-      <Alertas alertas={alertas} />
-
       <section className="acciones">
         <BotonCsv id={detalle.id} />
+        <BotonBorrar id={detalle.id} enCurso={detalle.state === 'running'} />
       </section>
+    </>
+  );
+}
+
+/** Borrar la corrida (solo administradores). Irreversible: lo confirma. */
+function BotonBorrar({ id, enCurso }: { id: string; enCurso: boolean }) {
+  const esAdmin = useEsAdmin();
+  const navigate = useNavigate();
+  const [error, setError] = useState<string | null>(null);
+  if (!esAdmin) return null;
+
+  async function borrar() {
+    if (!window.confirm('¿Borrar esta corrida con todas sus mediciones y alertas? No se puede deshacer.')) return;
+    setError(null);
+    const respuesta = await authFetch(`/api/runs/${id}`, { method: 'DELETE' });
+    if (respuesta.ok) { navigate('/historial'); return; }
+    const data = await respuesta.json().catch(() => ({}));
+    setError(data.error ?? 'no se pudo borrar');
+  }
+
+  return (
+    <>
+      <button type="button" className="boton boton-peligro" onClick={borrar} disabled={enCurso}
+        title={enCurso ? 'La corrida esta en curso: se puede borrar cuando termine' : undefined}>
+        Borrar corrida
+      </button>
+      {error && <p className="login-error">{error}</p>}
     </>
   );
 }
@@ -239,7 +285,7 @@ function Objetivos({ targets, resultado }: { targets: Targets | null; resultado:
           <D t="Campo medio medido" v={`${numero(resultado.meanMagneticField, 3)} mT`} />
         )}
         {targets?.freq !== undefined && <D t="Frecuencia" v={`${numero(targets.freq, 0)} Hz`} />}
-        {targets?.dur !== undefined && <D t="Duracion pedida" v={`${numero(targets.dur, 0)} min`} />}
+        {targets?.dur !== undefined && <D t="Duracion pedida" v={duracionPedida(targets.dur)} />}
         {targets?.tol !== undefined && <D t="Tolerancia" v={`±${numero(targets.tol, 0)} %`} />}
         {targets?.tnmin !== undefined && (
           <D t="Temp. normal" v={`${numero(targets.tnmin, 0)}–${numero(targets.tnmax, 0)} °C`} />
@@ -247,7 +293,9 @@ function Objetivos({ targets, resultado }: { targets: Targets | null; resultado:
         {targets?.tcmin !== undefined && (
           <D t="Temp. critica" v={`${numero(targets.tcmin, 0)}–${numero(targets.tcmax, 0)} °C`} />
         )}
-        {resultado?.progressPercent !== undefined && <D t="Avance" v={`${resultado.progressPercent} %`} />}
+        {avanceFinal(resultado, targets?.dur).porcentaje !== undefined && (
+          <D t="Avance" v={`${avanceFinal(resultado, targets?.dur).porcentaje} %`} />
+        )}
         {/* Con que configuracion de la tarjeta SD corrio: el id lo calcula
             la placa ("default" = valores de fabrica, sin tarjeta). */}
         {targets?.configId && <D t="Configuracion" v={targets.configId} />}
@@ -269,23 +317,4 @@ function Objetivos({ targets, resultado }: { targets: Targets | null; resultado:
 
 function D({ t, v }: { t: string; v: string }) {
   return (<><dt>{t}</dt><dd>{v}</dd></>);
-}
-
-function Alertas({ alertas }: { alertas: Array<AlertaMarca & { count: number; limit: number }> }) {
-  if (alertas.length === 0) return null;
-  return (
-    <section className="panel">
-      <h3>Alertas ({alertas.length})</h3>
-      <ul className="alertas">
-        {alertas.map((alerta, index) => (
-          <li key={index} className={`alerta alerta-${alerta.type}`}>
-            <span className="alerta-fuente">{alerta.source}</span>
-            <span className="alerta-tipo">{nombreTipoAlerta(alerta.type)}</span>
-            <span className="alerta-cuenta">{alerta.count}/{alerta.limit}</span>
-            <time className="tenue">{horaCorta(alerta.ts)}</time>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
 }

@@ -70,12 +70,18 @@ namespace Topics {
 
   /* ---------------- GRUPOS PERIODICOS ---------------- */
 
+  // Cadencias por defecto: mediciones cada 2 s (lo que tarda el Mega en
+  // renovar el RMS de CEM1, Intervals::MeasureMagneticField) y bobinas/estado
+  // cada 5 s. Eran 30 s, y con eso el monitor remoto se perdia casi todo lo
+  // que pasaba en una prueba de pocos minutos: una excursion de temperatura
+  // que dispara una racha podia armarse y deshacerse entre dos publicaciones.
+
   // Campo magnetico y temperatura: lo que mide el experimento.
-  inline TelemetryGroup Measures = { true, "biosoft/telemetry/measures", 30000, true };
+  inline TelemetryGroup Measures = { true, "biosoft/telemetry/measures", 2000, true };
   // Corriente y duty aplicado de cada bobina registrada.
-  inline TelemetryGroup Coils    = { true, "biosoft/telemetry/coils", 30000, true };
+  inline TelemetryGroup Coils    = { true, "biosoft/telemetry/coils", 5000, true };
   // Salud, avance, tiempos, estado de la maquina y enlace con el Mega.
-  inline TelemetryGroup Status   = { true, "biosoft/telemetry/status", 30000, true };
+  inline TelemetryGroup Status   = { true, "biosoft/telemetry/status", 5000, true };
 
   /* ---------------- GRUPOS POR EVENTO ---------------- */
 

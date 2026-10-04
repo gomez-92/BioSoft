@@ -813,9 +813,9 @@ adivinar la forma del JSON.
 ```json
 "telemetry": {
   "groups": {
-    "measures": { "enabled": true, "topic": "biosoft/telemetry/measures", "interval": 30000, "retain": true },
-    "coils":    { "enabled": true, "topic": "biosoft/telemetry/coils",    "interval": 30000, "retain": true },
-    "status":   { "enabled": true, "topic": "biosoft/telemetry/status",   "interval": 30000, "retain": true },
+    "measures": { "enabled": true, "topic": "biosoft/telemetry/measures", "interval": 2000,  "retain": true },
+    "coils":    { "enabled": true, "topic": "biosoft/telemetry/coils",    "interval": 5000,  "retain": true },
+    "status":   { "enabled": true, "topic": "biosoft/telemetry/status",   "interval": 5000,  "retain": true },
     "targets":  { "enabled": true, "topic": "biosoft/telemetry/targets",  "retain": true },
     "alerts":   { "enabled": true, "topic": "biosoft/telemetry/alerts",   "retain": false },
     "result":   { "enabled": true, "topic": "biosoft/telemetry/result",   "retain": true }

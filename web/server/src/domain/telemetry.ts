@@ -156,6 +156,9 @@ export function parseTargets(payload: unknown): ParsedTargets | null {
 
   const parsed: ParsedTargets = {
     mode: str(data.MODE), cem: num(data.CEM), freq: num(data.FREQ),
+    // DUR viene en MILISEGUNDOS (`optionsDuration[].duration` de la placa,
+    // el mismo numero que viaja en el start al Mega) y se guarda asi. Se
+    // mostraba con "min" pegado: 300000 min por un experimento de 5 min.
     dur: num(data.DUR), tol: num(data.TOL),
     tnmin: num(data.TNMIN), tnmax: num(data.TNMAX),
     tcmin: num(data.TCMIN), tcmax: num(data.TCMAX),

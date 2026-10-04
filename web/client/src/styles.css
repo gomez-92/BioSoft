@@ -23,7 +23,12 @@ body {
   line-height: 1.5;
 }
 
-main { max-width: 900px; margin: 0 auto; padding: 16px 16px 48px; }
+/* Ancho: hasta 1440 px. Antes 900, y en un monitor de escritorio la mitad de
+   la pantalla quedaba vacia mientras los graficos se apilaban de a uno. En
+   pantallas anchas las secciones pasan a columnas (ver mas abajo); en el
+   celular todo sigue apilado como antes. */
+main { max-width: 1440px; margin: 0 auto; padding: 16px 16px 48px; }
+@media (min-width: 1100px) { main { padding: 20px 28px 56px; } }
 
 h1 { font-size: 1.35rem; margin: 0; }
 h2 { font-size: 1.05rem; margin: 0 0 8px; }
@@ -262,7 +267,8 @@ h3 { font-size: 0.78rem; margin: 0 0 10px; text-transform: uppercase; letter-spa
 .tooltip-fila { margin: 2px 0; display: flex; align-items: center; gap: 6px; }
 .tooltip-marca { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
 
-.acciones { margin-top: 18px; }
+.acciones { margin-top: 18px; display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start; }
+.acciones .boton { margin-top: 0; }
 .boton {
   display: inline-block;
   background: var(--panel);
@@ -326,7 +332,7 @@ h3 { font-size: 0.78rem; margin: 0 0 10px; text-transform: uppercase; letter-spa
 /* Configuracion de la placa (tarjeta 24). El generador embebido trae su
    propio estilo; el marco solo le da lugar. */
 .panel-generador { padding: 0; overflow: hidden; }
-.generador { width: 100%; height: 80vh; min-height: 600px; border: 0; display: block; }
+.generador { width: 100%; height: calc(100vh - 110px); min-height: 640px; border: 0; display: block; }
 .lista-pedidos { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .pedido { display: flex; flex-wrap: wrap; gap: 12px; padding: 8px 12px; border-left: 3px solid var(--muted); }
 .pedido-aceptada { border-left-color: var(--ok); }
@@ -345,3 +351,138 @@ h3 { font-size: 0.78rem; margin: 0 0 10px; text-transform: uppercase; letter-spa
 .envio-ok { background: rgba(61, 220, 151, 0.1); border-color: rgba(61, 220, 151, 0.4); color: var(--ok); }
 .envio-error { background: rgba(255, 92, 92, 0.1); border-color: rgba(255, 92, 92, 0.4); color: var(--down); }
 .envio-progress { background: rgba(91, 140, 255, 0.1); border-color: rgba(91, 140, 255, 0.4); color: var(--accent); }
+
+/* ---------------- columnas en pantallas anchas ---------------- */
+
+/* En curso: lo que se mira (mediciones y graficos) a la izquierda, lo que se
+   consulta (bobinas, alertas, objetivos) a la derecha. */
+.en-curso { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0 16px; align-items: start; }
+@media (min-width: 1100px) { .en-curso { grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr); } }
+.en-curso-principal, .en-curso-lateral { min-width: 0; }
+
+.grilla-graficos { display: grid; grid-template-columns: minmax(0, 1fr); gap: 22px 24px; }
+.grilla-graficos .figura { margin: 0; }
+@media (min-width: 900px) { .grilla-graficos { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+.columnas-2 { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0 16px; align-items: start; }
+@media (min-width: 900px) { .columnas-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+.columnas-usuarios { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0 16px; align-items: start; }
+@media (min-width: 1000px) { .columnas-usuarios { grid-template-columns: minmax(0, 2fr) minmax(300px, 1fr); } }
+
+@media (min-width: 1100px) { .medicion-valor { font-size: 2.6rem; } }
+
+/* ---------------- alertas en el grafico ---------------- */
+
+.grafico-area { position: relative; }
+.marca-alerta { cursor: pointer; }
+.globo-alerta {
+  position: absolute;
+  z-index: 5;
+  max-width: min(340px, 85%);
+  background: #10131a;
+  border: 1px solid var(--warn);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 0.78rem;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+}
+.globo-critica { border-color: var(--down); }
+.globo-titulo { margin: 0 0 4px; font-weight: 600; }
+.globo-linea { margin: 2px 0; color: var(--muted); }
+
+/* ---------------- lista de alertas con detalle ---------------- */
+
+.alerta { flex-direction: column; align-items: stretch; gap: 0; padding: 0; }
+.alerta-cabecera {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  width: 100%; padding: 8px 12px; background: none; border: 0; color: inherit;
+  font: inherit; font-size: 0.85rem; text-align: left; cursor: pointer;
+}
+.alerta-cabecera:hover { background: rgba(255, 255, 255, 0.03); }
+.alerta-flecha { color: var(--muted); font-size: 0.75rem; }
+.alerta-detalle { padding: 2px 12px 10px; font-size: 0.82rem; color: var(--muted); }
+.alerta-detalle p { margin: 3px 0; }
+.alerta-detalle-titulo { color: var(--text); font-weight: 600; }
+.alerta-corte { box-shadow: inset 0 0 0 1px rgba(255, 92, 92, 0.35); }
+.chip-chico { font-size: 0.64rem; padding: 2px 8px; margin-left: 6px; }
+
+/* ---------------- historial: pestañas y seleccion ---------------- */
+
+.pestañas { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 16px; }
+.pestañas button {
+  background: transparent; color: var(--muted); border: 1px solid var(--border);
+  border-radius: 999px; padding: 6px 14px; font-size: 0.82rem; cursor: pointer;
+}
+.pestañas button:hover { color: var(--text); }
+.pestañas button.activa { color: var(--text); background: var(--panel); border-color: var(--accent); }
+.pestaña-cuenta {
+  margin-left: 8px; font-size: 0.72rem; padding: 1px 7px; border-radius: 999px;
+  background: #232833; color: var(--muted); font-variant-numeric: tabular-nums;
+}
+.chk-todas { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 0.8rem; }
+.fila-con-seleccion { display: flex; align-items: stretch; gap: 8px; }
+.fila-con-seleccion .fila-corrida { flex: 1; min-width: 0; }
+.fila-check { align-self: center; width: 18px; height: 18px; flex: none; }
+.fila-con-seleccion.seleccionada .fila-corrida { border-color: var(--down); }
+
+/* ---------------- botones y formularios ---------------- */
+
+.boton:disabled { opacity: 0.45; cursor: default; }
+.boton-chico { padding: 4px 10px; font-size: 0.75rem; margin-top: 0; }
+.boton-peligro { border-color: rgba(255, 92, 92, 0.5); color: var(--down); }
+.boton-peligro:hover:not(:disabled) { border-color: var(--down); background: rgba(255, 92, 92, 0.08); }
+.enlace-texto {
+  background: none; border: 0; padding: 0; margin-top: 14px; color: var(--accent);
+  font: inherit; font-size: 0.82rem; cursor: pointer; text-align: center;
+}
+td .enlace-texto, .enlace-en-linea { margin-top: 0; text-align: left; }
+.enlace-texto:hover { text-decoration: underline; }
+.login-aviso {
+  color: var(--ok); background: rgba(61, 220, 151, 0.08); border: 1px solid rgba(61, 220, 151, 0.35);
+  border-radius: 8px; padding: 10px 12px; font-size: 0.85rem; margin: 0 0 12px;
+}
+.login-nota { margin: -6px 0 12px; }
+.panel-aviso { margin-top: 16px; }
+
+.formulario { display: flex; flex-direction: column; }
+.formulario label {
+  font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 6px;
+}
+.formulario input, .formulario select, .tabla select, .enlace-fila input {
+  background: #10131a; border: 1px solid var(--border); border-radius: 8px; color: var(--text);
+  padding: 8px 10px; font-size: 0.9rem; margin-bottom: 12px;
+}
+.tabla select { margin: 0; padding: 4px 8px; font-size: 0.82rem; }
+.formulario input:focus, .formulario select:focus { outline: none; border-color: var(--accent); }
+
+.usuario-actual {
+  color: var(--muted); text-decoration: none; font-size: 0.75rem; padding: 4px 10px;
+  border: 1px solid var(--border); border-radius: 999px; white-space: nowrap;
+}
+.usuario-actual:hover, .usuario-actual.active { color: var(--text); border-color: var(--muted); }
+
+.tabla-scroll { overflow-x: auto; }
+.tabla-usuarios td { vertical-align: middle; padding-right: 12px; }
+.tenue-celda { color: var(--muted); font-size: 0.8rem; }
+.acciones-fila { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
+
+.enlace-generado { border-color: var(--accent); }
+.enlace-generado p { margin: 0 0 10px; font-size: 0.85rem; }
+.enlace-fila { display: flex; gap: 8px; flex-wrap: wrap; }
+.enlace-fila input { flex: 1; min-width: 220px; margin: 0; font-family: ui-monospace, monospace; font-size: 0.8rem; }
+.enlace-fila .boton { margin-top: 0; }
+
+.letra-chica { margin-top: 12px; font-size: 0.82rem; color: var(--muted); }
+.letra-chica summary { cursor: pointer; }
+.letra-chica p { margin: 8px 0 0; }
+.encabezado-run.centrado { justify-content: center; margin: 6px 0; }
+
+/* Ventana deslizante de los graficos en vivo. */
+.ventana-selector { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 14px; }
+.ventana-selector button {
+  background: transparent; color: var(--muted); border: 1px solid var(--border);
+  border-radius: 999px; padding: 3px 11px; font-size: 0.75rem; cursor: pointer;
+}
+.ventana-selector button:hover { color: var(--text); }
+.ventana-selector button.activa { color: var(--text); border-color: var(--accent); background: rgba(91, 140, 255, 0.12); }

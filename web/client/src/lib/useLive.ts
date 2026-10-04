@@ -11,8 +11,8 @@ import { tipoDesdeMarca } from './format.js';
 // Arranca del `snapshot` que el backend manda apenas se conecta el socket
 // (lo que reemplaza al retain del broker para el navegador) y despues lo va
 // pisando con cada evento. Sin el snapshot, una pantalla recien abierta se
-// quedaria en guiones hasta la proxima tanda: hasta 30 segundos mirando una
-// pantalla vacia durante un experimento que corre perfectamente.
+// quedaria en guiones hasta la proxima tanda (segundos con los defaults, pero
+// la cadencia la elige la SD) durante un experimento que corre perfectamente.
 
 export interface LiveState {
   conectado: boolean;
@@ -34,7 +34,9 @@ const VACIO: LiveState = {
   measures: null, coils: null, status: null, alerts: [], ultimoResultado: null, placa: null,
 };
 
-const MAX_ALERTAS = 5;
+// Las que se guardan para la lista de En curso. El grafico pide todas las de
+// la corrida aparte (GraficosEnVivo).
+const MAX_ALERTAS = 50;
 
 export function useLive(): LiveState {
   const [state, setState] = useState<LiveState>(VACIO);
@@ -78,6 +80,17 @@ export function useLive(): LiveState {
         coils: snap.coils,
         status: snap.status,
         alerts: snap.alerts,
+        // Sin corrida en curso, el resultado de la ultima: antes vivia solo en
+        // la memoria del navegador que lo vio llegar, y recargar la pagina
+        // despues de una prueba borraba como habia terminado.
+        ultimoResultado: !snap.run && snap.lastRun?.result
+          ? {
+              ...snap.lastRun.result,
+              ts: snap.lastRun.endedAt ?? snap.lastRun.startedAt,
+              runId: snap.lastRun.id,
+              runType: snap.lastRun.runType,
+            }
+          : s.ultimoResultado,
       }));
     });
 
@@ -110,7 +123,7 @@ export function useLive(): LiveState {
       setState((s) => ({ ...s, alerts: [data, ...s.alerts].slice(0, MAX_ALERTAS) })));
 
     socket.on('telemetry:result', (data: ResultItem) =>
-      setState((s) => ({ ...s, run: null, ultimoResultado: data })));
+      setState((s) => ({ ...s, run: null, ultimoResultado: { ...data, runType: s.run?.runType } })));
 
     return () => { socket.close(); socketRef.current = null; };
   }, []);

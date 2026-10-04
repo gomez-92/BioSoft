@@ -79,9 +79,11 @@ Dos confusiones que cuestan tiempo, las dos vistas en el primer despliegue:
   distinto en el identificador del proyecto da `querySrv ENOTFOUND`, que parece
   un problema de red y no lo es.
 
-**Retención.** El plan M0 son 512 MB. A 30 s por muestra, unos 8 MB por cada
-100 h de experimento — entra cómodo, pero conviene decidir cuánto se conserva
-*antes* de que se llene, no después. Esa decisión es del experimento, no
+**Retención.** El plan M0 son 512 MB. Con las cadencias por defecto (mediciones
+cada 2 s, bobinas y estado cada 5 s; eran 30 s) son unos 70 MB por cada 100 h de
+experimento — unas 700 h antes de llenarlo. Las corridas (sobre todo las pruebas
+de banco) se pueden borrar desde el Historial con una cuenta de administrador,
+pero conviene decidir cuánto se conserva *antes* de que se llene, no después. Esa decisión es del experimento, no
 técnica: qué se archiva y qué se borra lo define quien usa los datos.
 
 ## 2. Broker — el mismo EMQX de la placa

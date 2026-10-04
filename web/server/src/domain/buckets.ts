@@ -1,8 +1,10 @@
 // Agregacion de las series por intervalo de tiempo.
 //
-// A 30 s por muestra, un experimento de 8 h son ~960 puntos por serie, y el
-// dia que el intervalo baje a 5 s son 5760. Mandarlos todos al navegador
-// funciona hasta que deja de funcionar, asi que se agregan en la base.
+// A 2 s por muestra (el default de `measures` desde que bajo de 30 s), un
+// experimento de 8 h son 14400 puntos por serie. Mandarlos todos al navegador
+// funciona hasta que deja de funcionar, asi que el detalle los agrega en la
+// base. La pantalla En curso pide la serie cruda (`bucket=raw`) porque la va
+// completando en vivo.
 //
 // Cada bucket lleva PROMEDIO, MINIMO Y MAXIMO, no solo el promedio: promediar
 // esconde justamente las excursiones que disparan las alertas. Un pico de

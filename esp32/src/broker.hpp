@@ -53,6 +53,18 @@ struct PublishMessage {
 // vinieran atras.
 constexpr uint16_t BrokerBufferSize = 512;
 
+// Keepalive de MQTT, en segundos. El default de PubSubClient es 15: si pasan
+// 15 s sin recibir nada manda un PINGREQ, y si en el loop() siguiente sigue
+// sin respuesta CORTA la conexion (MQTT_CONNECTION_TIMEOUT). Con la tarea de
+// comunicaciones demorada unos segundos (un escaneo WiFi, un reintento TLS),
+// una sola respuesta tarde alcanzaba para tirar el broker en plena corrida
+// (banco, 2026-10-04). 60 s tolera esas demoras; el costo es que el broker
+// tarda hasta 90 s en dar por muerta a una placa que se apago.
+constexpr uint16_t BrokerKeepAliveSeconds = 60;
+// Cuanto espera PubSubClient una respuesta del broker (CONNACK, lecturas).
+// Su default es 15 s, todo ese tiempo con la tarea de comunicaciones parada.
+constexpr uint16_t BrokerSocketTimeoutSeconds = 5;
+
 class BrokerManager {
   public:
     BrokerManager();
@@ -86,6 +98,7 @@ class BrokerManager {
     unsigned long _lastReconnectAttempt = 0;
     unsigned long _reconnectInterval = 5000;
     bool _wasConnected = false;
+    unsigned long _connectedSince = 0;
 
     /* ---------------- COLA MESSAGES ---------------- */
     QueueHandle_t _publishQueue = nullptr;
@@ -102,6 +115,7 @@ class BrokerManager {
     void subscribeAll();
     bool reconnect();
     void generateClientId(char* buffer, size_t len);
+    static const char* stateName(int state);
 
     /* MQTT callback bridge */
     static void _mqttCallback(char* topic, byte* payload, unsigned int length);
@@ -144,6 +158,8 @@ inline void BrokerManager::begin(const MqttConfig& config) {
     if (!_client.setBufferSize(BrokerBufferSize)) {
         DEBUG_PRINTLN(DEBUG_BROKER, "[BROKER] ERROR: no se pudo agrandar el buffer MQTT");
     }
+    _client.setKeepAlive(BrokerKeepAliveSeconds);
+    _client.setSocketTimeout(BrokerSocketTimeoutSeconds);
     configureTLS();
     if (_config.server) _client.setServer(_config.server, _config.port);
     _client.setCallback(_mqttCallback);
@@ -161,11 +177,21 @@ inline void BrokerManager::loop() {
     /* ================= ESTADO ================= */
     if (nowConnected && !_wasConnected) {
         _wasConnected = true;
+        _connectedSince = millis();
         if (_listener)
             _listener->onBrokerConnected();
     }
     else if (!nowConnected && _wasConnected) {
         _wasConnected = false;
+        // POR QUE se cayo. Antes la caida no dejaba ninguna linea en el log
+        // (solo el "Conectando..." del reintento), y no habia forma de
+        // distinguir un keepalive vencido de un socket cerrado por la red.
+        int state = _client.state();
+        DEBUG_PRINTF(DEBUG_BROKER,
+                     "[BROKER] Desconectado: %s (state=%d) tras %lu s conectado -- WiFi %s, RSSI %d, heap libre %u\n",
+                     stateName(state), state, (unsigned long) ((millis() - _connectedSince) / 1000UL),
+                     WiFi.status() == WL_CONNECTED ? "ok" : "caida", (int) WiFi.RSSI(),
+                     (unsigned) ESP.getFreeHeap());
         if (_listener)
             _listener->onBrokerDisconnected();
     }
@@ -242,9 +268,28 @@ inline bool BrokerManager::reconnect() {
 
     // state() es el codigo de PubSubClient, no el de TLS: el -32512 o el
     // -9984 los imprime mbedTLS por su cuenta arriba de esta linea.
-    DEBUG_PRINTF(DEBUG_BROKER, "[BROKER] Fallo la conexion (state=%d, heap libre %u)\n",
-                 _client.state(), (unsigned) ESP.getFreeHeap());
+    DEBUG_PRINTF(DEBUG_BROKER, "[BROKER] Fallo la conexion: %s (state=%d, heap libre %u)\n",
+                 stateName(_client.state()), _client.state(), (unsigned) ESP.getFreeHeap());
     return false;
+}
+
+/* ============================================================
+ *  ESTADO -> TEXTO (codigos de PubSubClient.h)
+ * ============================================================ */
+inline const char* BrokerManager::stateName(int state) {
+    switch (state) {
+        case MQTT_CONNECTION_TIMEOUT:      return "keepalive vencido (el broker no respondio a tiempo)";
+        case MQTT_CONNECTION_LOST:         return "conexion perdida (socket cerrado)";
+        case MQTT_CONNECT_FAILED:          return "fallo la conexion de red/TLS";
+        case MQTT_DISCONNECTED:            return "desconectado";
+        case MQTT_CONNECTED:               return "socket cerrado sin aviso MQTT";
+        case MQTT_CONNECT_BAD_PROTOCOL:    return "protocolo rechazado";
+        case MQTT_CONNECT_BAD_CLIENT_ID:   return "clientId rechazado";
+        case MQTT_CONNECT_UNAVAILABLE:     return "broker no disponible";
+        case MQTT_CONNECT_BAD_CREDENTIALS: return "credenciales rechazadas";
+        case MQTT_CONNECT_UNAUTHORIZED:    return "no autorizado";
+        default:                           return "desconocido";
+    }
 }
 
 /* ============================================================

@@ -23,7 +23,7 @@ const targetsSchema = new Schema({
   mode: String,    // "campo X" | "campo nulo" -- la diferencia entre grupo tratado y control
   cem: Number,     // mT
   freq: Number,    // Hz
-  dur: Number,     // minutos
+  dur: Number,     // MILISEGUNDOS, como lo publica la placa (corridas viejas del simulador: ver normalizarDuraciones)
   tol: Number,     // %
   tnmin: Number, tnmax: Number,   // rango normal de temperatura
   tcmin: Number, tcmax: Number,   // rango critico

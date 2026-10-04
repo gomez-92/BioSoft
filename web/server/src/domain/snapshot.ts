@@ -1,6 +1,7 @@
 import { config } from '../config.js';
 import { Alert, CoilSample, Measure, Run, StatusSample } from '../models/index.js';
 import { mqttStatus } from '../mqtt/ingestor.js';
+import { valorAntesDeAlerta } from './alertas.js';
 import { getCurrentRunId } from './runtracker.js';
 
 // El estado completo del sistema, armado desde la base.
@@ -32,7 +33,19 @@ export interface Snapshot {
     ts: string; health?: string; progress?: number; elapsedSeconds?: number;
     elapsedText?: string; remainingSeconds?: number; state?: string; megaOk?: boolean;
   } | null;
-  alerts: Array<{ ts: string; source: string; type: string; count: number; limit: number }>;
+  alerts: Array<{
+    ts: string; source: string; type: string; count: number; limit: number;
+    value?: number; valueAt?: Date;
+  }>;
+  /**
+   * La ultima corrida terminada, con su resultado. Sin esto, recargar la
+   * pagina despues de una prueba borraba el cartel de "como termino": el
+   * resultado solo vivia en la memoria del navegador que lo vio llegar.
+   */
+  lastRun: {
+    id: string; startedAt: string; endedAt: string | null; state: string; runType: string;
+    result: Record<string, unknown> | null;
+  } | null;
   link: { broker: boolean; lastMessageAt: Record<string, string> };
 }
 
@@ -46,13 +59,19 @@ export async function buildSnapshot(): Promise<Snapshot> {
   // una corrida abierta (su `targets` nunca llego) --, y quedaban en el panel
   // indefinidamente con "Sin experimento en curso" al lado (banco,
   // 2026-10-03). No se borran: siguen siendo datos reales de la base.
-  const [run, measure, coil, status, alerts] = await Promise.all([
+  const [run, measure, coil, status, alerts, ultima] = await Promise.all([
     runId ? Run.findById(runId).lean() : null,
     Measure.findOne().sort({ ts: -1 }).lean(),
     CoilSample.findOne().sort({ ts: -1 }).lean(),
     StatusSample.findOne().sort({ ts: -1 }).lean(),
     runId ? Alert.find({ runId }).sort({ ts: -1 }).limit(MAX_ALERTAS).lean() : [],
+    runId ? null : Run.findOne({ state: { $ne: 'running' } }).sort({ startedAt: -1 }).lean(),
   ]);
+  const alertasConValor = await Promise.all(alerts.map(async (alert) => ({
+    ts: alert.ts.toISOString(),
+    source: alert.source, type: alert.type, count: alert.count, limit: alert.limit,
+    ...(await valorAntesDeAlerta(runId, alert.source, alert.ts)),
+  })));
 
   return {
     deviceId: config.deviceId,
@@ -92,10 +111,17 @@ export async function buildSnapshot(): Promise<Snapshot> {
           megaOk: status.megaOk ?? undefined,
         }
       : null,
-    alerts: alerts.map((alert) => ({
-      ts: alert.ts.toISOString(),
-      source: alert.source, type: alert.type, count: alert.count, limit: alert.limit,
-    })),
+    alerts: alertasConValor,
+    lastRun: ultima
+      ? {
+          id: ultima._id.toString(),
+          startedAt: ultima.startedAt.toISOString(),
+          endedAt: ultima.endedAt?.toISOString() ?? null,
+          state: ultima.state,
+          runType: ultima.runType ?? 'unknown',
+          result: (ultima.result as Record<string, unknown>) ?? null,
+        }
+      : null,
     link: { broker: mqttStatus().connected, lastMessageAt: mqttStatus().lastMessageAt },
   };
 }

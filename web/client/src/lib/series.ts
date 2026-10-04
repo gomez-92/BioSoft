@@ -42,3 +42,19 @@ export function insertarHuecos<T extends { ts: string }>(
 export function aMilisegundos<T extends { ts: string }>(puntos: T[]): Array<T & { t: number }> {
   return puntos.map((punto) => ({ ...punto, t: new Date(punto.ts).getTime() }));
 }
+
+/**
+ * Lo que entra en una ventana deslizante que empieza en `desde` (ms).
+ *
+ * Se conserva ademas el ULTIMO punto anterior a la ventana: sin el, la linea
+ * arrancaria en la primera muestra de adentro, despegada del borde izquierdo,
+ * y pareceria que no hubo datos en ese tramo. El eje lo recorta (ver
+ * `allowDataOverflow` en Graficos). La serie tiene que venir ordenada por
+ * fecha, que es como la arma GraficosEnVivo.
+ */
+export function recortarVentana<T extends { ts: string }>(puntos: T[], desde: number | null): T[] {
+  if (desde === null || puntos.length === 0) return puntos;
+  let primero = puntos.findIndex((punto) => new Date(punto.ts).getTime() >= desde);
+  if (primero === -1) primero = puntos.length;   // todo quedo antes de la ventana
+  return puntos.slice(Math.max(0, primero - 1));
+}

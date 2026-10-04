@@ -12,10 +12,12 @@ import { boardRouter } from './api/board.js';
 import { configurarPing, handlePong, iniciarPingPeriodico } from './domain/boardping.js';
 import { configurarSync, handleConfigMessage } from './domain/configsync.js';
 import { config } from './config.js';
-import { requireAuth } from './auth/middleware.js';
+import { requireAdmin, requireAuth } from './auth/middleware.js';
 import { seedInitialUser } from './auth/seed.js';
+import { cargarSesiones } from './auth/sesiones.js';
+import { usuariosRouter } from './api/usuarios.js';
 import { connectMongo } from './db/mongo.js';
-import { initRunTracker, sweepStaleRuns } from './domain/runtracker.js';
+import { initRunTracker, normalizarDuraciones, sweepStaleRuns } from './domain/runtracker.js';
 import { registerHandlers } from './mqtt/handlers.js';
 import {
   mqttStatus, onConfigMessage, onPong, publishToBoard, startIngestor, stopIngestor,
@@ -65,8 +67,11 @@ app.use('/api', requireAuth, healthRouter);
 // El ping no toca la base: tiene que contestar aunque Mongo este caido.
 app.use('/api', requireAuth, boardRouter);
 app.use('/api', requireAuth, requiereBase, liveRouter);
+// Los caminos de escritura (mandar configuracion, borrar corridas) exigen
+// ademas el rol admin; cada router lo pide en las rutas que corresponde.
 app.use('/api', requireAuth, requiereBase, runsRouter);
 app.use('/api', requireAuth, requiereBase, configRouter);
+app.use('/api/users', requireAuth, requiereBase, requireAdmin, usuariosRouter);
 
 // El front va DESPUES de las rutas de la API: su comodin atrapa todo lo que
 // no empiece con /api.
@@ -101,9 +106,15 @@ iniciarPingPeriodico(config.boardPingSeconds * 1000, () => mqttStatus().connecte
 startIngestor();
 
 mongoose.connection.once('connected', () => {
-  seedInitialUser().catch((error) => console.error('[auth] fallo la semilla:', error));
+  // La semilla antes que la tabla de sesiones, para que el usuario recien
+  // creado ya este en ella.
+  seedInitialUser()
+    .then(cargarSesiones)
+    .catch((error) => console.error('[auth] fallo la semilla o la carga de sesiones:', error));
   initRunTracker().catch((error) =>
     console.error('[app] no se pudo recuperar la corrida abierta:', error));
+  normalizarDuraciones().catch((error) =>
+    console.error('[corridas] no se pudieron normalizar las duraciones:', error));
 });
 
 // El barrido corre por intervalo, no por evento, porque el caso que atiende es

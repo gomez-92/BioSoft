@@ -1,10 +1,17 @@
-import { useEffect, useState } from 'react';
+import { Suspense, lazy, useEffect, useState } from 'react';
 import {
-  antiguedad, duracion, esCampoNulo, esViejo, horaCorta, nombreModo, nombreMotivo,
-  nombreSalud, nombreTipoAlerta, numero, relajacionesConAviso,
+  antiguedad, avanceFinal, duracion, duracionPedida, esCampoNulo, esViejo, horaCorta, nombreModo, nombreMotivo,
+  nombreSalud, numero, relajacionesConAviso,
 } from '../lib/format.js';
+import { bobinasHabilitadas, filtrarBobinas, sinCorriente } from '../lib/bobinas.js';
+import { useConfigDeCorrida } from '../lib/useConfig.js';
 import type { LiveState } from '../lib/useLive.js';
+import { ListaAlertas } from '../components/ListaAlertas.js';
 import { TipoCorrida } from '../components/TipoCorrida.js';
+
+// Los graficos traen recharts: se cargan aparte, y los numeros de arriba se
+// ven sin esperarlos.
+const GraficosEnVivo = lazy(() => import('../components/GraficosEnVivo.js'));
 
 // Pantalla En curso. La que se mira desde afuera del laboratorio, casi siempre
 // desde un celular, para contestar una sola pregunta: el experimento, ¿va bien?
@@ -22,6 +29,10 @@ export function Live({ estado, onVerCorrida }: {
 
   const { run, targets, measures, coils, status, alerts } = estado;
   const enCurso = run !== null;
+  // La configuracion con la que corre: dice que bobinas estan habilitadas y
+  // los umbrales de las reglas (para el detalle de las alertas).
+  const config = useConfigDeCorrida(targets?.configId);
+  const habilitadas = bobinasHabilitadas(config);
 
   return (
     <>
@@ -40,35 +51,58 @@ export function Live({ estado, onVerCorrida }: {
             <Progreso status={status} startedAt={run.startedAt} />
           </section>
 
-          <section className="grilla-mediciones">
-            <Medicion
-              titulo="Campo magnetico"
-              valor={numero(measures?.magneticField, 3)}
-              unidad="mT"
-              objetivo={targets?.cem !== undefined
-                ? `objetivo ${numero(targets.cem, 2)} mT ±${numero(targets.tol, 0)}%`
-                : undefined}
-              ts={measures?.ts}
-              ahora={ahora}
-            />
-            <Medicion
-              titulo="Temperatura"
-              valor={numero(measures?.temperature, 1)}
-              unidad="°C"
-              objetivo={targets?.tnmin !== undefined
-                ? `normal ${numero(targets.tnmin, 0)}–${numero(targets.tnmax, 0)} °C`
-                : undefined}
-              ts={measures?.ts}
-              ahora={ahora}
-            />
-          </section>
+          <div className="en-curso">
+            <div className="en-curso-principal">
+              <section className="grilla-mediciones">
+                <Medicion
+                  titulo="Campo magnetico"
+                  valor={numero(measures?.magneticField, 3)}
+                  unidad="mT"
+                  objetivo={targets?.cem !== undefined
+                    ? (esCampoNulo(targets.mode)
+                      ? `objetivo 0 mT (campo nulo) ±${numero((targets.cem * (targets.tol ?? 0)) / 100, 3)} mT`
+                      : `objetivo ${numero(targets.cem, 2)} mT ±${numero(targets.tol, 0)}%`)
+                    : undefined}
+                  ts={measures?.ts}
+                  ahora={ahora}
+                />
+                <Medicion
+                  titulo="Temperatura"
+                  valor={numero(measures?.temperature, 1)}
+                  unidad="°C"
+                  objetivo={targets?.tnmin !== undefined
+                    ? `normal ${numero(targets.tnmin, 0)}–${numero(targets.tnmax, 0)} °C`
+                    : undefined}
+                  ts={measures?.ts}
+                  ahora={ahora}
+                />
+              </section>
 
-          <Bobinas coils={coils} ahora={ahora} />
-          <Objetivos targets={targets} />
+              <section className="panel">
+                <h3>Evolucion</h3>
+                <Suspense fallback={<p className="empty">Cargando graficos...</p>}>
+                  <GraficosEnVivo runId={run.id} startedAt={run.startedAt} targets={targets} config={config}
+                    measures={measures} coils={coils} alerts={alerts} habilitadas={habilitadas} ahora={ahora} />
+                </Suspense>
+                <p className="tenue">
+                  Los puntos marcan las alertas, cada una en el grafico de su magnitud: pasa por encima (o
+                  tocalos) para ver el detalle. Un anillo alrededor indica la alerta que corto el experimento.
+                </p>
+              </section>
+            </div>
+
+            <div className="en-curso-lateral">
+              <Bobinas coils={coils} habilitadas={habilitadas} ahora={ahora} />
+              <section className="panel">
+                <h3>Alertas{alerts.length > 0 ? ` (${alerts.length})` : ''}</h3>
+                <ListaAlertas alertas={alerts} targets={targets} config={config} inicio={run.startedAt}
+                  vacia="Sin alertas en esta corrida." />
+              </section>
+              <Objetivos targets={targets} />
+            </div>
+          </div>
         </>
       )}
-
-      <Alertas alerts={alerts} enCurso={enCurso} />
     </>
   );
 }
@@ -112,23 +146,27 @@ function SinExperimento({ estado, onVerCorrida }: {
   estado: LiveState; onVerCorrida: (id: string) => void;
 }) {
   const resultado = estado.ultimoResultado;
+  // Los objetivos siguen en el estado tras el cierre: de ahi sale la duracion.
+  const final = avanceFinal(resultado, estado.targets?.dur);
   return (
     <section className="panel vacio">
       <h2>Sin experimento en curso</h2>
       {resultado ? (
         <div className={`resultado resultado-${resultado.reason}`}>
+          <p className="tenue">Ultima corrida{resultado.ts ? `, terminada ${new Date(resultado.ts).toLocaleString('es-AR')}` : ''}</p>
+          {resultado.runType && <div className="encabezado-run centrado"><TipoCorrida runType={resultado.runType} /></div>}
           <p className="resultado-motivo">{nombreMotivo(resultado.reason)}</p>
           {resultado.description && <p className="resultado-detalle">{resultado.description}</p>}
           <p className="resultado-datos">
-            {resultado.progressPercent !== undefined && `${resultado.progressPercent}% completado`}
-            {resultado.elapsedSeconds !== undefined && ` · ${duracion(resultado.elapsedSeconds)}`}
+            {final.porcentaje !== undefined && `${final.porcentaje}% completado`}
+            {final.segundos !== undefined && ` · ${duracion(final.segundos)}`}
             {resultado.meanMagneticField !== undefined
               && ` · campo medio ${numero(resultado.meanMagneticField, 3)} mT`}
           </p>
           {resultado.runId && (
             <button type="button" className="boton"
               onClick={() => onVerCorrida(resultado.runId!)}>
-              Ver el detalle de esta corrida
+              Ver el detalle y los graficos de esta corrida
             </button>
           )}
         </div>
@@ -181,26 +219,46 @@ function Medicion({ titulo, valor, unidad, objetivo, ts, ahora }: {
   );
 }
 
-// Una fila por bobina que REPORTO, no siempre cuatro: cuantas bobinas hay
-// montadas es un hecho de la placa de control, y mostrar cuatro filas en cero
-// inventaria bobinas que no existen.
-function Bobinas({ coils, ahora }: { coils: LiveState['coils']; ahora: number }) {
+// Una fila por bobina que REPORTO y que la configuracion tiene habilitada (ver
+// lib/bobinas.ts), no siempre cuatro: cuantas bobinas hay montadas es un
+// hecho de la placa de control, y mostrar filas en cero inventaria bobinas
+// que no existen.
+function Bobinas({ coils, habilitadas, ahora }: {
+  coils: LiveState['coils']; habilitadas: Set<number> | null; ahora: number;
+}) {
   if (!coils || coils.coils.length === 0) return null;
+  const visibles = filtrarBobinas(coils.coils, habilitadas);
+  const ocultas = coils.coils.length - visibles.length;
   return (
     <section className={`panel ${esViejo(coils.ts, ahora) ? 'viejo' : ''}`}>
-      <h3>Bobinas</h3>
+      <h3>Bobinas activas ({visibles.length})</h3>
       <table className="tabla">
         <thead><tr><th>Bobina</th><th>Corriente</th><th>Duty</th></tr></thead>
         <tbody>
-          {coils.coils.map((coil) => (
+          {visibles.map((coil) => (
             <tr key={coil.n}>
-              <td>B{coil.n}</td>
-              <td>{numero(coil.current, 2)} A</td>
+              <td>
+                B{coil.n}
+                {sinCorriente(coil) && (
+                  <span className="chip chip-warning chip-chico"
+                    title="Se le aplica duty pero no circula corriente: ¿desconectada, sin montar o etapa de potencia apagada?">
+                    sin corriente
+                  </span>
+                )}
+              </td>
+              <td>{coil.current === undefined ? <span className="tenue">sin sensor</span> : `${numero(coil.current, 2)} A`}</td>
               <td>{numero(coil.duty, 1)} %</td>
             </tr>
           ))}
         </tbody>
       </table>
+      {ocultas > 0 && (
+        <p className="tenue">
+          {ocultas === 1
+            ? 'Una bobina registrada en la placa esta deshabilitada en la configuracion y no se muestra.'
+            : `${ocultas} bobinas registradas en la placa estan deshabilitadas en la configuracion y no se muestran.`}
+        </p>
+      )}
       <p className="tenue">{antiguedad(coils.ts, ahora)}</p>
     </section>
   );
@@ -214,7 +272,7 @@ function Objetivos({ targets }: { targets: LiveState['targets'] }) {
       <dl className="datos">
         <Dato termino="Intensidad" valor={targets.cem !== undefined ? `${numero(targets.cem, 2)} mT` : '--'} />
         <Dato termino="Frecuencia" valor={targets.freq !== undefined ? `${numero(targets.freq, 0)} Hz` : '--'} />
-        <Dato termino="Duracion" valor={targets.dur !== undefined ? `${numero(targets.dur, 0)} min` : '--'} />
+        <Dato termino="Duracion" valor={duracionPedida(targets.dur)} />
         <Dato termino="Tolerancia" valor={targets.tol !== undefined ? `±${numero(targets.tol, 0)} %` : '--'} />
         <Dato termino="Temp. normal" valor={`${numero(targets.tnmin, 0)}–${numero(targets.tnmax, 0)} °C`} />
         <Dato termino="Temp. critica" valor={`${numero(targets.tcmin, 0)}–${numero(targets.tcmax, 0)} °C`} />
@@ -225,27 +283,4 @@ function Objetivos({ targets }: { targets: LiveState['targets'] }) {
 
 function Dato({ termino, valor }: { termino: string; valor: string }) {
   return (<><dt>{termino}</dt><dd>{valor}</dd></>);
-}
-
-function Alertas({ alerts, enCurso }: { alerts: LiveState['alerts']; enCurso: boolean }) {
-  if (!enCurso && alerts.length === 0) return null;
-  return (
-    <section className="panel">
-      <h3>Alertas</h3>
-      {alerts.length === 0 ? (
-        <p className="empty">Sin alertas en esta corrida.</p>
-      ) : (
-        <ul className="alertas">
-          {alerts.map((alert, index) => (
-            <li key={`${alert.ts}-${index}`} className={`alerta alerta-${alert.type}`}>
-              <span className="alerta-fuente">{alert.source}</span>
-              <span className="alerta-tipo">{nombreTipoAlerta(alert.type)}</span>
-              <span className="alerta-cuenta">{alert.count}/{alert.limit}</span>
-              <time className="tenue">{horaCorta(alert.ts)}</time>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
-  );
 }

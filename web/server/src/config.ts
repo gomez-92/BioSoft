@@ -53,11 +53,21 @@ export const config = {
     seedPassword: process.env.SEED_PASSWORD || '',
   },
 
+  // Correo para la recuperacion de contraseña (auth/correo.ts). Opcional: sin
+  // SMTP_URL y PUBLIC_URL, el enlace lo genera un administrador.
+  //   SMTP_URL=smtps://usuario:clave@smtp.ejemplo.com:465
+  //   PUBLIC_URL=https://biosoft-monitor.fly.dev
+  mail: {
+    smtpUrl: process.env.SMTP_URL || '',
+    publicUrl: process.env.PUBLIC_URL || '',
+    from: env('MAIL_FROM', 'BioSoft <no-responder@biosoft.local>'),
+  },
+
   run: {
     // Una corrida sin datos por este tiempo se da por muerta y se cierra como
     // huerfana. Tiene que ser holgadamente mayor al intervalo de `status`
-    // (30 s por defecto), o un experimento sano con la red lenta se cerraria
-    // solo; el default son 5 minutos, 10 tandas perdidas seguidas.
+    // (5 s por defecto, hasta lo que diga la SD), o un experimento sano con
+    // la red lenta se cerraria solo; el default son 5 minutos.
     staleAfterSeconds: Number(env('RUN_STALE_SECONDS', '300')),
     sweepIntervalSeconds: Number(env('RUN_SWEEP_SECONDS', '60')),
   },

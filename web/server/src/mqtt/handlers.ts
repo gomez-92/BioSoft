@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import { config } from '../config.js';
+import { valorAntesDeAlerta } from '../domain/alertas.js';
 import {
   closeRun, getCurrentRunId, noteSample, openRun,
 } from '../domain/runtracker.js';
@@ -91,7 +92,10 @@ export async function handleTelemetry(message: TelemetryMessage): Promise<void> 
       if (!parsed) return;
       await Alert.create({ ts, runId: getCurrentRunId(), deviceId: config.deviceId, ...parsed });
       await noteSample(ts, 'alert');
-      emitTelemetry('alert', { ts, ...parsed });
+      // Con la ultima medicion de su fuente, igual que la API de historicos:
+      // el detalle de la alerta en vivo y el del historial dicen lo mismo.
+      const cercano = await valorAntesDeAlerta(getCurrentRunId(), parsed.source, ts);
+      emitTelemetry('alert', { ts, ...parsed, ...cercano });
       break;
     }
   }

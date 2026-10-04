@@ -20,6 +20,9 @@ export async function seedInitialUser(): Promise<void> {
   await User.create({
     username: seedUser.toLowerCase(),
     passwordHash: await hashPassword(seedPassword),
+    // La primera cuenta es la que crea a las demas: sin el rol, el monitor
+    // arrancaria sin nadie capaz de gestionar usuarios.
+    role: 'admin',
   });
   console.log(`[auth] usuario inicial "${seedUser}" creado desde el entorno`);
 }

@@ -32,12 +32,16 @@ export interface Status {
 
 export interface AlertItem {
   ts: string; source: string; type: string; count: number; limit: number;
+  /** Ultima medicion de esa fuente antes de la alerta (server/src/domain/alertas.ts). */
+  value?: number; valueAt?: string;
 }
 
 export interface ResultItem {
   ts: string; runId?: string; reason: string; description?: string;
   progressPercent?: number; elapsedSeconds?: number; meanMagneticField?: number;
   source?: string; type?: string; count?: number; limit?: number; emergency?: boolean;
+  /** Tipo de la corrida que cerro (lo completa el cliente; la placa no lo manda en result). */
+  runType?: RunType;
 }
 
 export interface Snapshot {
@@ -47,8 +51,16 @@ export interface Snapshot {
   coils: Coils | null;
   status: Status | null;
   alerts: AlertItem[];
+  /** La ultima corrida terminada (solo cuando no hay una en curso). */
+  lastRun: {
+    id: string; startedAt: string; endedAt: string | null; state: string; runType: RunType;
+    result: Omit<ResultItem, 'ts'> | null;
+  } | null;
   link: { broker: boolean; lastMessageAt: Record<string, string> };
 }
+
+export type Rol = 'admin' | 'viewer';
+export interface Perfil { username: string; role: Rol; email: string | null }
 
 /** Ping a la placa (server/src/domain/boardping.ts). */
 export interface PlacaStatus {

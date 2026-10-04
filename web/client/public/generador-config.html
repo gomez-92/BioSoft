@@ -53,6 +53,26 @@
   th,td{text-align:left;padding:5px 8px 5px 0;vertical-align:bottom}
   th{color:var(--muted);font-weight:500;font-size:12px}
   .msgs{max-width:1100px;margin:0 auto}
+  /* La cabecera fija lleva SOLO la barra de botones y una linea de resumen.
+     La lista completa de errores y avisos va debajo, en el flujo de la
+     pagina: con una configuracion de prueba (sensores simulados, detector
+     apagado) son facilmente diez avisos, y fijos ocupaban media pantalla --
+     embebido en el monitor, casi todo el marco --, dejando un hueco minimo
+     para recorrer el formulario. */
+  .resumen{display:flex;flex-wrap:wrap;gap:8px;align-items:center;max-width:1100px;margin:8px auto 0;
+           font-size:12.5px}
+  .resumen .pill{padding:2px 9px;border-radius:999px;border:1px solid var(--line);background:var(--bg);
+                 cursor:pointer;font:inherit;font-size:12.5px}
+  .resumen .pill.e{color:var(--err);border-color:var(--err);background:var(--errbg)}
+  .resumen .pill.w{color:var(--warn);border-color:var(--warn);background:var(--warnbg)}
+  .resumen .pill.o{color:var(--ok);border-color:var(--ok);background:var(--okbg)}
+  .resumen .envio{flex:1;min-width:200px}
+  .resumen .envio .msg{margin:0;padding:4px 10px}
+  #msgs{margin-bottom:16px;scroll-margin-top:120px}
+  #msgs .msg:first-child{margin-top:0}
+  #msgs .msg ul{max-height:none}
+  body.embebido .bar, body.embebido .resumen, body.embebido main, body.embebido .msgs{max-width:1400px}
+  .solo-lectura{color:var(--muted);font-size:12.5px}
   .msg{padding:8px 12px;border-radius:6px;margin-top:8px;font-size:13px}
   .msg ul{margin:6px 0 0;padding-left:20px}
   .msg.e{background:var(--errbg);color:var(--err);border:1px solid var(--err)}
@@ -93,12 +113,18 @@
     <button id="btnReset">Restaurar defaults</button>
     <button class="primary" id="dl">Descargar config.json</button>
     <button class="primary" id="send" hidden>Enviar a la placa</button>
+    <span class="solo-lectura" id="readonlyNote" hidden>Solo lectura: enviar a la placa es para administradores.</span>
   </div>
-  <div class="msgs" id="msgs"></div>
-  <div class="msgs" id="sendStatus" role="status" aria-live="polite"></div>
+  <div class="resumen">
+    <span id="msgSummary"></span>
+    <span class="envio" id="sendStatus" role="status" aria-live="polite"></span>
+  </div>
 </header>
 
-<main id="app"></main>
+<main>
+  <div class="msgs" id="msgs"></div>
+  <div id="app"></div>
+</main>
 
 <script>
 "use strict";
@@ -177,9 +203,9 @@ const DEFAULTS = {
   },
   telemetry: {
     groups:{
-      measures:{enabled:true,topic:"biosoft/telemetry/measures",interval:30000,retain:true},
-      coils:   {enabled:true,topic:"biosoft/telemetry/coils",   interval:30000,retain:true},
-      status:  {enabled:true,topic:"biosoft/telemetry/status",  interval:30000,retain:true},
+      measures:{enabled:true,topic:"biosoft/telemetry/measures",interval:2000,retain:true},
+      coils:   {enabled:true,topic:"biosoft/telemetry/coils",   interval:5000,retain:true},
+      status:  {enabled:true,topic:"biosoft/telemetry/status",  interval:5000,retain:true},
       targets: {enabled:true,topic:"biosoft/telemetry/targets",                retain:true},
       alerts:  {enabled:true,topic:"biosoft/telemetry/alerts",                 retain:false},
       result:  {enabled:true,topic:"biosoft/telemetry/result",                 retain:true}
@@ -1421,8 +1447,23 @@ function paint(){
          "combinaciones tienen consecuencias que recien se ven en banco." + li(warns) + "</div>";
   if (info) h += '<div class="msg o">' + esc(info) + "</div>";
   document.getElementById("msgs").innerHTML = h;
+
+  // El resumen fijo: cuantos errores y avisos hay, y un toque lleva a la
+  // lista (que esta arriba del formulario, fuera de la cabecera fija).
+  let r = "";
+  if (errors.length) r += '<button type="button" class="pill e" data-ir="msgs">' + errors.length + " error(es)</button> ";
+  if (warns.length) r += '<button type="button" class="pill w" data-ir="msgs">' + warns.length + " aviso(s)</button> ";
+  if (!errors.length && !warns.length) r += '<span class="pill o">Sin errores ni avisos</span>';
+  document.getElementById("msgSummary").innerHTML = r;
   updateProfileMarks();
 }
+
+// Un solo listener (delegado) para las pastillas del resumen, que se
+// redibujan con cada validacion.
+document.getElementById("msgSummary").addEventListener("click", ev => {
+  if (ev.target && ev.target.dataset && ev.target.dataset.ir)
+    document.getElementById("msgs").scrollIntoView({behavior: "smooth", block: "start"});
+});
 
 function download(){
   if (errors.length) return;
@@ -1499,6 +1540,7 @@ function showSendStatus(st){
 }
 
 if (EMBEDDED) {
+  document.body.classList.add("embebido");
   document.getElementById("dl").hidden = true;
   const send = document.getElementById("send");
   send.hidden = false;
@@ -1516,6 +1558,13 @@ if (EMBEDDED) {
       updateProfileMarks();
     }
     if (ev.data.type === "biosoft-status") showSendStatus(ev.data.status);
+    // Un usuario de solo lectura ve y edita (para descargar o mirar), pero no
+    // envia: el servidor lo rechazaria igual, mejor no ofrecer el boton.
+    if (ev.data.type === "biosoft-readonly") {
+      document.getElementById("send").hidden = true;
+      document.getElementById("readonlyNote").hidden = false;
+      document.getElementById("dl").hidden = false;
+    }
   });
 }
 

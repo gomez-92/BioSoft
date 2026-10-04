@@ -44,10 +44,10 @@ estructurales y fijas.
 
 | Topic | Cadencia | Retain | Payload |
 |---|---|---|---|
-| `biosoft/telemetry/measures` | 30 s (config.) mientras Running | sí | `{CEM1: float mT, TEMP1: float °C}` |
-| `biosoft/telemetry/coils` | 30 s (config.) mientras Running | sí | `{c1..c4: float A, d1..d4: float %}` — **solo las bobinas que reportaron** |
-| `biosoft/telemetry/status` | 30 s (config.) mientras Running | sí | `{ESTADO, PROGRESS int %, ELAPSED_TIME "hh:mm:ss", REMAINING seg, STATE, MEGA bool}` |
-| `biosoft/telemetry/targets` | 1× al entrar en Running | sí | `{MODE, CEM, FREQ, DUR, TOL, TNMIN, TNMAX, TCMIN, TCMAX, TEST bool, CFG, RLX int}` |
+| `biosoft/telemetry/measures` | 2 s (config.) mientras Running | sí | `{CEM1: float mT, TEMP1: float °C}` |
+| `biosoft/telemetry/coils` | 5 s (config.) mientras Running | sí | `{c1..c4: float A, d1..d4: float %}` — **solo las bobinas que reportaron** |
+| `biosoft/telemetry/status` | 5 s (config.) mientras Running | sí | `{ESTADO, PROGRESS int %, ELAPSED_TIME "hh:mm:ss", REMAINING seg, STATE, MEGA bool}` |
+| `biosoft/telemetry/targets` | 1× al entrar en Running | sí | `{MODE, CEM, FREQ, DUR ms, TOL, TNMIN, TNMAX, TCMIN, TCMAX, TEST bool, CFG, RLX int}` |
 | `biosoft/telemetry/alerts` | por evento (`flag_data`) | **no** | `{SRC, TYPE, COUNT, LIMIT}` |
 | `biosoft/telemetry/result` | 1× al cortar | sí | `{REASON, DESC, PROGRESS, ELAPSED "hh:mm:ss", MEAN?, SRC?, TYPE?, COUNT?, LIMIT?, TEST bool}` |
 
@@ -268,8 +268,8 @@ Mismo criterio que el resto del repo — **fijar lo que se rompe en silencio**:
   backend usa un `clientId` propio, distinto del de la placa
   (`SECRET_MQTT_CLIENT_ID`), y distinto entre entorno local y producción — si no,
   local y nube se van a estar pateando la conexión todo el día.
-- **Free tier de Atlas: 512 MB.** A 30 s por muestra y 3 colecciones, ~8 MB por
-  cada 100 h de experimento; entra cómodo, pero conviene definir desde ahora un
+- **Free tier de Atlas: 512 MB.** Con las cadencias por defecto (2 s / 5 s / 5 s;
+  eran 30 s), ~70 MB por cada 100 h de experimento; entra cómodo, pero conviene definir desde ahora un
   TTL sobre las muestras crudas (ej. 1 año) dejando `runs` sin vencimiento. La
   decisión de cuánto se conserva es del experimento, no técnica: **preguntar
   antes de poner un TTL.**

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { asincrono } from './asincrono.js';
+import { requireAdmin } from '../auth/middleware.js';
 import { ConfigRequest, ConfigSnapshot } from '../models/index.js';
 import { PedidoInvalido, enviarConfiguracion, pedidoEnCurso } from '../domain/configsync.js';
 
@@ -48,7 +49,9 @@ configRouter.get('/config/requests', asincrono(async (_req, res) => {
   res.json({ inProgress: pedidoEnCurso(), items });
 }));
 
-configRouter.post('/config/requests', asincrono(async (req, res) => {
+// Mandar configuracion cambia lo que la placa hace en el proximo reinicio:
+// solo administradores.
+configRouter.post('/config/requests', requireAdmin, asincrono(async (req, res) => {
   try {
     const resultado = await enviarConfiguracion(req.body?.config, req.user?.username ?? 'desconocido');
     res.status(202).json(resultado);

@@ -163,6 +163,25 @@ export async function sweepStaleRuns(now: Date = new Date()): Promise<number> {
   return cerradas;
 }
 
+/**
+ * Corridas guardadas con la duracion en MINUTOS. El simulador publicaba
+ * DUR: 60 (minutos) mientras la placa publica milisegundos, y el monitor
+ * mostraba el numero con "min" pegado -- bien para el simulador, absurdo para
+ * la placa. Ahora `dur` es siempre ms; esto corrige las corridas viejas del
+ * simulador. Ningun valor real en ms baja de 1000 (el menu minimo es 1 min =
+ * 60000), y una duracion en minutos de 1000 o mas serian 16 h: el corte es
+ * inequivoco. Idempotente: una vez convertidas, no vuelven a matchear.
+ */
+export async function normalizarDuraciones(): Promise<void> {
+  const { modifiedCount } = await Run.updateMany(
+    { 'targets.dur': { $gt: 0, $lt: 1000 } },
+    [{ $set: { 'targets.dur': { $multiply: ['$targets.dur', 60_000] } } }],
+  );
+  if (modifiedCount > 0) {
+    console.log(`[corridas] ${modifiedCount} corrida(s) con la duracion en minutos pasadas a ms`);
+  }
+}
+
 // Solo para los tests: reinicia el estado en memoria sin tocar la base.
 export function _resetRunTracker(): void {
   currentRunId = null;

@@ -21,7 +21,8 @@ touches no firmware:
   (time elapsed, danger detected, or loss of scientific rigor).
 - **`web/`** — remote monitor. Subscribes to the ESP32's telemetry, stores it in
   MongoDB and serves a dashboard (live + history). No remote commands by
-  design; its one write path is the SD config (card 24, below).
+  design; its only write paths toward the board are the SD config (card 24,
+  below) — plus, locally, deleting runs and managing users, all admin-only.
 
 There is no shared source directory — `esp32/src/seriallink.hpp` and
 `mega2560/src/seriallink.hpp` (and `commands.hpp`, `timer.hpp`, `debugconfig.hpp`)
@@ -902,6 +903,24 @@ and `StateListener` (own app state, from `SystemData`).
   stops burning a full TLS handshake every 5 s on a connection that cannot
   succeed. Don't re-open this as a certificate problem without comparing
   fingerprints first.
+  **Mid-run broker drops were a WiFi scan, not the broker** (bench,
+  2026-10-04, visible once telemetry went from 30 s to 5 s). `WiFiManager`
+  re-ran `WiFi.scanNetworks()` every 10 s *while connected* — blocking for
+  seconds, radio off the AP's channel, on the same `communicationTask` that
+  runs MQTT. The publish queue (4 slots) drained once per ~10 s, so a third
+  of the telemetry was evicted (`Queue llena` twice a cycle; the published
+  order `status, measures, coils, status` is exactly what survives of
+  `M C S M C S`), and now and then PubSubClient's 15 s keepalive expired and
+  dropped the link. Fixed in three places: the priority rescan now runs at
+  most every 10 min, **never while already on network 0** (nothing better to
+  find) and never during a run (`MySystem::remoteUpdate()` calls
+  `setRescanAllowed(!experimentInProgress())`; reconnecting with WiFi down
+  still scans); `BrokerManager` sets keepalive 60 s / socket timeout 5 s
+  (`BrokerKeepAliveSeconds`, `BrokerSocketTimeoutSeconds`); and a drop now
+  logs `[BROKER] Desconectado: <reason> (state=N) tras X s conectado`, with
+  WiFi status, RSSI and heap — before, a drop left no line at all. Don't
+  enlarge the publish queue to hide drops: each slot is ~640 bytes of the
+  heap the TLS handshake needs.
   The remote monitor is a **dashboard of the user's own**, not Datacake, and
   there are **no remote commands**: that is a deliberate boundary — a remote
   `start` would energize coils with animals in the cabinet and nobody in the
@@ -1377,7 +1396,9 @@ telemetry contract are in `docs/plan-monitor-web.md`; deployment in
 `docs/despliegue-monitor-web.md`.
 
 The whole thing hangs off six MQTT topics the ESP32 already publishes
-(`esp32/src/topics.hpp`). Firmware was not modified for any of this.
+(`esp32/src/topics.hpp`). The monitor itself needs no firmware support;
+the firmware changes made alongside it (telemetry cadence, broker stability,
+progress clock — see the bullets below) fix what the monitor exposed.
 
 Four decisions everything else rests on:
 
@@ -1485,6 +1506,67 @@ Other things worth knowing before touching it:
   tests a connection URI — DNS, connection, credential and **write
   permission** — before a deploy: with a read-only user the monitor starts,
   logs no error and stores nothing.
+
+- **Roles: `admin` / `viewer`** (`models/user.ts`). The role only guards the
+  three write paths — `POST /api/config/requests`, run deletion
+  (`DELETE /api/runs/:id`, `POST /api/runs/delete`) and `/api/users` — via
+  `requireAdmin`, which reads the role **from the DB on every request**, not
+  from the JWT (demotion must not wait a week for the token to expire).
+  Accounts predating roles are migrated to admin at startup
+  (`cargarSesiones()`); the API keeps at least one admin and refuses
+  self-demotion/self-deletion.
+- **JWTs are revocable** without making `requireAuth` hit Mongo: an in-memory
+  `tokensValidAfter` table (`auth/sesiones.ts`), loaded on connect and updated
+  on every password change/deletion done *by this server*. `ahoraParaRevocar()`
+  floors to the second because `iat` has 1 s resolution — with the exact
+  instant, the token issued in the same second as the change is born revoked.
+  A user missing from the table is let through (the CLI script runs in another
+  process); a deleted one is marked `Infinity`. Socket.IO's handshake applies
+  the same check.
+- **Password links** (invitation 72 h / recovery 2 h) store only a sha256 of a
+  256-bit token. Email is optional (`SMTP_URL` + `PUBLIC_URL`); the link is
+  built from `PUBLIC_URL`, never from `Host` (reset poisoning). `/auth/forgot`
+  answers identically whether the account exists and sends mail in background
+  so timing doesn't leak it either. Without SMTP, an admin generates the link.
+- **Run deletion** removes the run's measures/coils/statuses/alerts first, then
+  the run; the open run (the tracker's `currentRunId`) is refused with 409.
+- **En curso charts** fetch `bucket=raw` series and append socket samples;
+  alerts carry `value`/`valueAt` = the last *published* measure of their source
+  before the alert (`domain/alertas.ts`) — the board's alert has no value, so
+  it is labelled as an approximation. Each alert is drawn only on its own
+  source's chart. `client/src/lib/rangos.ts` mirrors
+  `detectorconfigbuilder.hpp` (null mode centres the CEM band on 0) — same
+  drift hazard as the two `seriallink.hpp`.
+- **The live charts use a sliding time window** (1/5/15/60 min or the whole
+  run, default 5, remembered per browser), right edge = *now*, not the last
+  sample: a stalled feed shows as a growing gap instead of an axis that
+  quietly stops. It is a time window, not N samples, for the same reason.
+  `recortarVentana()` keeps the last point *before* the window so the line
+  reaches the left edge; that only works because the X axis has
+  `allowDataOverflow` — without it recharts widens the domain to fit the
+  point and the window stops being fixed. The run detail page still shows
+  the whole run.
+- **Coil rows are filtered by the run's config** (`lib/bobinas.ts`, via the
+  stored `ConfigSnapshot` of `targets.configId`): the Mega reports every
+  *registered* channel, including ones the SD disables. A coil with duty but
+  ~0 A is flagged "sin corriente", not hidden.
+- **`targets.dur` is milliseconds** — what the board publishes
+  (`optionsDuration[].duration`). The simulator used to send minutes, so the
+  "N min" label looked right on simulated runs and showed `300000 min` on
+  real ones. The simulator now sends ms, `normalizarDuraciones()` converts old
+  minute-valued runs at startup (`dur < 1000` is never ms: the shortest menu
+  entry is 60000), and the front formats it with `duracionPedida()`.
+- **A `completed` run ends at 100 % and the full duration**, on both sides.
+  The ESP32 used to start its progress clock on the periodic `state_data:
+  running` (up to 5 s late), so a full run closed at 99 % / 4m58s. It now
+  starts the clock at the start `ack` (`_startAckAt`; the Mega sends it in the
+  same `loop()` pass as `_start()`), and `_applyResult()` snaps the clock to
+  the full duration on `completed` before the snapshot. The monitor applies
+  the same rule (`avanceFinal()`) so runs stored by older firmware read right.
+- Default telemetry cadence is now **2 s / 5 s / 5 s** (measures / coils /
+  status; was 30 s everywhere) — `topics.hpp`, `config.example.json`, the
+  generator and the schema all carry it. The generator's errors/warnings no
+  longer live in its sticky header (only a summary line does).
 
 **Nothing here has been fed by the real board yet.** Everything verified so far
 came from the simulator, which reproduces the contract as read from the

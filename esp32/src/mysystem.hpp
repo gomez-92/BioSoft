@@ -59,6 +59,13 @@ class MySystem :
     // Lo levanta onBrokerConnected() (otro nucleo) y lo atiende update(): el
     // Timer no es seguro entre nucleos, asi que la tarea se agrega desde aca.
     volatile bool _publishConfigRequested = false;
+    // millis() del ack del start: el Mega lo manda en la misma vuelta de
+    // loop() en que llama a _start(), asi que es el inicio REAL del
+    // experimento. El paso a Running llega despues, con el state_data
+    // periodico (cada 5 s), y arrancar el reloj ahi dejaba el progreso
+    // atrasado hasta 5 s: una corrida completa cerraba en 99% / 4m58s.
+    // 0 = no hay ack pendiente de usar.
+    unsigned long _startAckAt = 0;
     SerialLink& _serial;
     Timer& _timer;
     WiFiManager& _wifiManager;
@@ -309,6 +316,12 @@ inline bool MySystem::experimentInProgress() {
 }
 
 inline void MySystem::remoteUpdate() {
+  // Durante una corrida no se re-escanean redes con la WiFi conectada: el
+  // escaneo bloquea esta tarea varios segundos y deja sin atender al broker,
+  // que es justo lo que se esta mirando desde afuera (ver WiFiManager).
+  // getState() devuelve una constante de StateData, asi que leerlo desde
+  // este core no corre riesgo de un puntero a medio escribir.
+  _wifiManager.setRescanAllowed(!experimentInProgress());
   _wifiManager.update();
 
   // Sin hora valida no se intenta conectar al broker: el handshake TLS
@@ -1084,7 +1097,16 @@ inline void MySystem::_processState(const char* status, bool forceStatus) {
     if(current == ScreenType::RUNNING) return;
     // Misma duracion (ms) que _sendStart() ya mando como "dur" -- se
     // calcula el progreso localmente, sin esperar nada nuevo del Mega.
-    _data.progress.startTime = millis();
+    // El reloj arranca en el ack del start (ver _startAckAt), no ahora: este
+    // state_data llega hasta 5 s despues de que el Mega arranco. Un ack de
+    // mas de 30 s es de otro intento y no se usa.
+    unsigned long now = millis();
+    bool ackReciente = _startAckAt != 0 && now - _startAckAt < 30000UL;
+    _data.progress.startTime = ackReciente ? _startAckAt : now;
+    _startAckAt = 0;
+    DEBUG_PRINTF(DEBUG_MYSYSTEM, "[PROGRESS] reloj desde %s (%lu ms antes del paso a Running)\n",
+                 ackReciente ? "el ack del start" : "el paso a Running",
+                 ackReciente ? (unsigned long) (now - _data.progress.startTime) : 0UL);
     _data.progress.duration = ConfigurationOptions::optionsDuration[
         _data.configuration.targetDurationOption
     ].duration;
@@ -1157,6 +1179,11 @@ inline void MySystem::onCommand(const char* command, JsonVariantConst params) {
       }
       else if(strcmp(ack, Commands::Start) == 0) {
         _timer.removeTask(Tasks::ReSendStart);
+        // Solo el PRIMER ack mientras se espera el arranque: un reenvio del
+        // start puede traer un segundo ack, que ya no marca el inicio.
+        if (_data.getState() == StateData::Starting && _startAckAt == 0) {
+          _startAckAt = millis();
+        }
       }
       else if(strcmp(ack, Commands::Stop) == 0) {
         _timer.removeTask(Tasks::ReSendStop);
@@ -1359,6 +1386,16 @@ inline void MySystem::_applyResult(const char* reason, const char* description, 
   if (params["count"].is<uint16_t>()) _data.result.count = params["count"].as<uint16_t>();
   if (params["limit"].is<uint16_t>()) _data.result.limit = params["limit"].as<uint16_t>();
   if (params["emerg"].is<bool>())     _data.result.fromEmergency = params["emerg"].as<bool>();
+
+  // Cortado por DURACION: el que mide el tiempo es el Mega (Tasks::Finish),
+  // y si corto con "completed" corrio la duracion entera. El reloj local
+  // puede quedar unos ms -- o, con un ack perdido, unos segundos -- atras, y
+  // entonces Resultado y el monitor mostraban 99% / 4m58s de un experimento
+  // completo. Se lleva el reloj al final exacto antes del snapshot, asi los
+  // tres getters (progreso, hh:mm:ss, segundos) dicen lo mismo.
+  if (strcmp(reason, "completed") == 0 && _data.progress.startTime != 0 && _data.progress.duration > 0) {
+    _data.progress.startTime = millis() - _data.progress.duration;
+  }
 
   // Snapshot de lo que el ESP32 ya venia trackeando en vivo, congelado en
   // el instante del corte (ver comentario de ResultData en systemdata.hpp).

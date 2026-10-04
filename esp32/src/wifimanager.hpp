@@ -68,7 +68,17 @@ private:
     WiFiListener* _listener = nullptr;
 
     unsigned long _lastScan = 0;
-    unsigned long _scanInterval = 10000;
+    // Re-escaneo CON LA WIFI CONECTADA, solo para ver si aparecio una red de
+    // mas prioridad. Era cada 10 s, y eso tiraba el enlace con el broker:
+    // scanNetworks() bloquea varios segundos (recorre todos los canales, con
+    // la radio fuera del canal del router) en la MISMA tarea que atiende
+    // MQTT. En banco (2026-10-04) la cola de publicacion se vaciaba una sola
+    // vez cada ~10 s, se descartaba un tercio de la telemetria, y cada tanto
+    // el keepalive de MQTT vencia y el broker se caia. Ahora: cada 10 min,
+    // nunca si ya se esta en la red preferida (no hay nada mejor que buscar)
+    // y nunca mientras el duenio lo prohiba (MySystem, durante una corrida).
+    unsigned long _rescanInterval = 600000;
+    bool _rescanAllowed = true;
     unsigned long _timeout = 5000;
 
     int _currentIndex = -1;
@@ -102,6 +112,9 @@ public:
 
     void setListener(WiFiListener* listener);
     bool isConnected() const;
+    // Permite o prohibe el re-escaneo de prioridad con la WiFi conectada.
+    // No afecta la reconexion: sin WiFi se escanea igual.
+    void setRescanAllowed(bool allowed);
 };
 
 /* ============================================================
@@ -141,9 +154,17 @@ inline void WiFiManager::update() {
     }
 
     /* --- reevaluar prioridad --- */
-    if (millis() - _lastScan > _scanInterval) {
+    // Ya en la red de mayor prioridad, un escaneo no puede encontrar nada
+    // mejor: solo costaria segundos de radio fuera de canal.
+    if (_currentIndex == 0 || !_rescanAllowed) return;
+    if (millis() - _lastScan > _rescanInterval) {
+        DEBUG_PRINTLN(DEBUG_WIFI, "[WiFi] Re-escaneo de prioridad (conectado a una red secundaria)");
         scanAndConnect();
     }
+}
+
+inline void WiFiManager::setRescanAllowed(bool allowed) {
+    _rescanAllowed = allowed;
 }
 
 inline void WiFiManager::scanAndConnect() {

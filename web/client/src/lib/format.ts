@@ -4,9 +4,9 @@ import type { RunType } from './types.js';
 //  - Un valor ausente se muestra como "--", nunca como 0: durante un
 //    experimento, 0 mT es una medicion posible y real, y confundirla con
 //    "todavia no llego nada" es exactamente el error que hay que evitar.
-//  - La ANTIGUEDAD del dato se muestra siempre. La placa publica cada 30 s por
-//    defecto y con QoS 0, asi que un numero en pantalla puede ser viejo sin
-//    que nada mas lo delate.
+//  - La ANTIGUEDAD del dato se muestra siempre. La placa publica con QoS 0
+//    (cada 2-5 s por defecto, pero la SD lo puede espaciar), asi que un
+//    numero en pantalla puede ser viejo sin que nada mas lo delate.
 
 export function numero(value: number | undefined, decimales = 2): string {
   return value === undefined || value === null ? '--' : value.toFixed(decimales);
@@ -20,6 +20,36 @@ export function duracion(segundos: number | undefined): string {
   if (h > 0) return `${h}h ${String(m).padStart(2, '0')}m`;
   if (m > 0) return `${m}m ${String(s).padStart(2, '0')}s`;
   return `${s}s`;
+}
+
+/**
+ * La duracion pedida de una corrida: `targets.dur`, en MILISEGUNDOS (asi la
+ * publica la placa). Antes se mostraba el numero crudo con "min" pegado.
+ */
+export function duracionPedida(ms: number | undefined | null): string {
+  return ms === undefined || ms === null ? '--' : duracion(ms / 1000);
+}
+
+/**
+ * Avance y tiempo FINALES de una corrida. Si corto por duracion
+ * ("completed"), corrio la duracion entera: la mide el Mega, no la pantalla.
+ * El firmware viejo arrancaba su reloj hasta 5 s tarde (con el state_data
+ * periodico en vez del ack del start) y cerraba un experimento completo en
+ * 99% / 4m58s; las corridas guardadas asi se muestran con lo que de verdad
+ * fue. Mismo criterio que MySystem::_applyResult en el firmware nuevo.
+ */
+export function avanceFinal(
+  resultado: { reason?: string; progressPercent?: number; elapsedSeconds?: number } | null | undefined,
+  durMs: number | undefined | null,
+): { porcentaje?: number; segundos?: number } {
+  if (!resultado) return {};
+  if (resultado.reason === 'completed') {
+    return {
+      porcentaje: 100,
+      segundos: durMs !== undefined && durMs !== null ? durMs / 1000 : resultado.elapsedSeconds,
+    };
+  }
+  return { porcentaje: resultado.progressPercent, segundos: resultado.elapsedSeconds };
 }
 
 export function antiguedad(iso: string | undefined, ahora: number): string {

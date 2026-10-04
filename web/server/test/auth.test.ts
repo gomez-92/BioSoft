@@ -71,7 +71,8 @@ describe('hash de contraseñas', () => {
 describe('tokens', () => {
   it('firma y verifica', () => {
     const token = signToken({ sub: 'abc123', username: 'mario' });
-    expect(verifyToken(token)).toEqual({ sub: 'abc123', username: 'mario' });
+    // `iat` lo agrega la libreria al firmar: es lo que usa la revocacion.
+    expect(verifyToken(token)).toEqual({ sub: 'abc123', username: 'mario', iat: expect.any(Number) });
   });
 
   it('rechaza un token manoseado', () => {
