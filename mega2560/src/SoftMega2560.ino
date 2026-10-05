@@ -133,7 +133,8 @@ int freeMemory() {
 #define COIL4_PWM_PIN 6   // Timer4; confirmar contra el ruteo real de la placa
 
 // Habilitacion individual por bobina: pines digitales sin timer, para no
-// gastar los que sirven para PWM.
+// gastar los que sirven para PWM. Activos en alto (HIGH = habilitada), con
+// pull-down en la etapa: sin un HIGH explicito, la bobina queda cortada.
 #define COIL1_ENABLE_PIN 23
 #define COIL2_ENABLE_PIN 24
 #define COIL3_ENABLE_PIN 25
@@ -263,7 +264,15 @@ FieldController fieldController(config);
 // Interruptor general de la etapa de potencia. El Relay se declara acá y no
 // dentro de MainPowerSwitch para que el pin y el tipo de activacion queden
 // visibles junto al resto del cableado de la placa.
-Relay mainRelay(RELE1_PIN, Relay::ACTIVE_LOW);
+//
+// ACTIVO EN ALTO, igual que los enables de bobina, y no es un detalle: es la
+// especificacion que tiene que cumplir el driver del rele. HIGH = rele
+// cerrado; LOW, pin al aire o Mega sin alimentacion = rele abierto. Con un
+// rele activo en bajo, un Mega apagado o en reset con la etapa de potencia
+// alimentada clava el pin cerca de 0 V (diodos de proteccion) y lo cierra.
+// La entrada del driver lleva pull-down del lado de la etapa. Cambiar esto
+// sin cambiar el hardware CIERRA el rele al arrancar: van siempre juntos.
+Relay mainRelay(RELE1_PIN, Relay::ACTIVE_HIGH);
 MainPowerSwitch mainPowerSwitch(mainRelay);
 Detector detector;
 EmergencyButton emergencyButton(EMERGENCY_BUTTON_PIN);

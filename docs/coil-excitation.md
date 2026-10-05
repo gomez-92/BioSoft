@@ -112,8 +112,7 @@ proporcional al duty. Ese nivel es el que fija la amplitud de la senoidal.
 Una línea digital por bobina, nivel lógico, que habilita o corta ese canal de
 forma individual. Es una entrada digital a una etapa de estado sólido, no un
 contacto mecánico: no lleva blanking ni debounce. Su implementación en
-firmware corresponde a `CoilChannel` (tarjeta separada, todavía no existe en
-código).
+firmware corresponde a `CoilChannel`. Polaridad en 3.5.
 
 ### 3.4 Interruptor general
 
@@ -121,6 +120,37 @@ Un único relé, remoto, en conector de 3 pines (GND, VDD, enable), que corta
 toda la etapa de potencia. Es independiente del enable por bobina: aquél
 selecciona qué bobinas participan, éste corta todo. Ver la tarjeta "Colapsar
 RelayManager → interruptor general único".
+
+### 3.5 Polaridad de los enables: activos en alto, fija
+
+Los dos cortes — el interruptor general (pin 3) y el enable de cada bobina
+(pines 23–26) — son **activos en alto** y la polaridad **no es configurable**
+(ni por SD ni desde el monitor), por decisión de diseño:
+
+- **HIGH (5 V) = energizar.** LOW, pin desconectado, Mega en reset o Mega sin
+  alimentación = **relé abierto / bobina cortada**.
+- Cada entrada lleva **pull-down** (p. ej. 10 kΩ a GND) del lado de la etapa,
+  para que un cable cortado o un pin en alta impedancia (reset, bootloader,
+  `setup()` antes de `begin()`) nunca energice.
+- El relé general se comanda con un driver que quede cortado a 0 V (NPN o
+  MOSFET canal N, o un módulo activo en alto). Los módulos de relé baratos
+  con optoacoplador suelen ser **activos en bajo** y no cumplen esto.
+
+Por qué no activo en bajo: con la etapa de potencia alimentada y el Mega
+apagado, los diodos de protección del pin lo llevan cerca de 0 V, y un relé
+activo en bajo **cierra**. Con activo en alto, energizar exige siempre que el
+firmware ponga 5 V a propósito.
+
+Por qué no parametrizable: la configuración de la SD llega por serie segundos
+después del arranque (y nunca, sin la ESP32). Hasta entonces el firmware
+escribiría el nivel "inactivo" de una polaridad que puede no ser la del
+hardware — es decir, podría habilitar la etapa justo en la ventana en que
+nadie la controla. Una polaridad fija en firmware y especificada para el
+hardware no tiene esa ventana.
+
+Consecuencia en banco: en reposo, y durante toda una corrida sintética (CEM1
+en `sim`/`scenario`, que bloquea las salidas), **todos los enables miden
+0 V**.
 
 ## 4. Por qué 3906 Hz
 

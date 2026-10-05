@@ -130,8 +130,8 @@ En el monitor serie del Mega, con `DEBUG_ENABLED` activo:
   distinguir "el sensor no lee" de "el campo ambiente realmente es así de
   chico", porque cerca de ambiente los mT redondean a 0,0000.
 - **Duty aplicado**: la línea de `Engine::onMagnetometerSample`, que imprime
-  campo y duty juntos. Ojo con la etiqueta: dice `[TESTMODE][PWM]` por herencia
-  del combo `testMode` que ya no existe. Es la línea correcta igual.
+  campo y duty juntos, con la etiqueta `[CONTROL][PWM]` (firmware anterior al
+  2026-10-05: `[TESTMODE][PWM]`, herencia del combo `testMode` que ya no existe).
 - **Saturación de un canal**: si `duty × f_i` supera 1,0, `CoilChannel` recorta
   **y lo registra**. Durante la calibración esa línea no es ruido: es el
   síntoma que se está buscando.

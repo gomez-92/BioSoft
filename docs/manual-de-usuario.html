@@ -585,7 +585,7 @@ table.pins tbody td{padding:7px 12px 7px 0}
       <thead><tr><th>Pin</th><th>Función</th><th>Sentido</th><th>Observaciones</th></tr></thead>
       <tbody>
         <tr><td>2</td><td>Bus OneWire — termómetro DS18B20 (TEMP1)</td><td>bidireccional</td><td>Requiere resistencia de <em>pull-up</em> de 4,7 kΩ entre la línea de datos y +5 V. Solo se atiende el sensor con código ROM <code>28 3F E5 57 04 E1 3D ED</code>.</td></tr>
-        <tr><td>3</td><td>Relé del interruptor general</td><td>salida</td><td><strong>Activo en bajo</strong>: nivel LOW = relé cerrado = etapa de potencia habilitada. Al arrancar queda en HIGH (abierto).</td></tr>
+        <tr><td>3</td><td>Relé del interruptor general</td><td>salida</td><td><strong>Activo en alto</strong>: HIGH = relé cerrado = etapa de potencia habilitada. LOW, pin desconectado o placa sin alimentación = relé abierto. El driver del relé lleva <em>pull-down</em> en su entrada. Al arrancar queda en LOW (abierto).</td></tr>
         <tr><td>4</td><td>Pulsador de emergencia</td><td>entrada</td><td><em>Pull-up</em> interno activado: el pulsador conecta el pin a GND al presionarse. Contacto normalmente abierto. Antirrebote de 30 ms por software.</td></tr>
         <tr><td>5</td><td>FSYNC (chip select) del generador AD9833</td><td>salida</td><td>Junto con el bus SPI de hardware (pines 50-52).</td></tr>
         <tr><td>6</td><td>PWM de intensidad — bobina 4 (BOB4)</td><td>salida</td><td>Timer4, 3906 Hz. Asignación provisoria: confirmar contra el ruteo de la placa.</td></tr>
@@ -594,7 +594,7 @@ table.pins tbody td{padding:7px 12px 7px 0}
         <tr><td>20</td><td>SDA — bus I2C</td><td>bidireccional</td><td>Magnetómetro MLX90393 y módulos ADS1115. <em>Pull-ups</em> provistos por los módulos.</td></tr>
         <tr><td>21</td><td>SCL — bus I2C</td><td>salida</td><td>Ídem.</td></tr>
         <tr><td>22</td><td>Selector de modo de experimento (mux de fase)</td><td>salida</td><td>HIGH = campo nulo, LOW = campo X. La polaridad está fijada en firmware como provisoria hasta confirmar el cableado del multiplexor.</td></tr>
-        <tr><td>23</td><td>Habilitación — bobina 1 (BOB1)</td><td>salida</td><td>Activo en alto. Entrada digital a la etapa de estado sólido.</td></tr>
+        <tr><td>23</td><td>Habilitación — bobina 1 (BOB1)</td><td>salida</td><td>Activo en alto: HIGH = bobina habilitada; LOW o desconectado = cortada. Entrada digital a la etapa de estado sólido, con <em>pull-down</em> del lado de la etapa.</td></tr>
         <tr><td>24</td><td>Habilitación — bobina 2 (BOB2)</td><td>salida</td><td>Ídem.</td></tr>
         <tr><td>25</td><td>Habilitación — bobina 3 (BOB3)</td><td>salida</td><td>Ídem. Canal declarado, no registrado por defecto.</td></tr>
         <tr><td>26</td><td>Habilitación — bobina 4 (BOB4)</td><td>salida</td><td>Ídem. Canal declarado, no registrado por defecto.</td></tr>

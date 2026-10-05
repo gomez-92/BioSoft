@@ -1890,7 +1890,7 @@ inline void Engine::onMagnetometerSample(IMagnetometer* magnetometer) {
     float duty = _fieldController.getOutput();
     _coilChannels.writeAll(duty);
 
-    DEBUG_PRINT(DEBUG_ENGINE, F("[TESTMODE][PWM] "));
+    DEBUG_PRINT(DEBUG_ENGINE, F("[CONTROL][PWM] "));
     DEBUG_PRINT(DEBUG_ENGINE, magnetometer->getName());
     DEBUG_PRINT(DEBUG_ENGINE, F("="));
     DEBUG_PRINT(DEBUG_ENGINE, magnetometer->getMagneticField(), 4);

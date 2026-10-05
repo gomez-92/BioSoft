@@ -249,6 +249,12 @@
         <span class="det">Se distingue de Detener en Resultado. Apretado sin corrida no hace nada.</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f3-nulo">
         <span class="que">Modo campo nulo → NO INICIO (falta el mapa)</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f3-enables">
+        <span class="que">Durante cualquiera de estas corridas, todos los enables miden 0 V</span>
+        <span class="det">Pin 3 (relé general) y pines 23–26 (bobinas), contra GND: son activos en alto y la
+          corrida sintética los bloquea, así que no deben moverse de 0 V ni en reposo ni corriendo. 5 V en
+          cualquiera = la etapa se habilitaría. El log del Mega dice <code>[START] CEM1 no es el sensor real:
+          etapa de potencia y bobinas BLOQUEADAS</code>.</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f3-sim">
         <span class="que">Con <code>sim</code>: potenciómetro en A0 (campo) o A1 (temperatura, 0–5 V = 0–50 °C) provoca los cortes a mano <span class="opc">opcional</span></span></label></li>
     </ul>
@@ -310,7 +316,9 @@
       <li><label class="item"><input type="checkbox" data-id="f5-pwm">
         <span class="que">PWM de 3906 Hz en los pines 44 y 45; habilitación en 23 y 24</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f5-rele">
-        <span class="que">El relé (pin 3) cierra al iniciar y abre al terminar</span></label></li>
+        <span class="que">El relé (pin 3) cierra al iniciar y abre al terminar</span>
+        <span class="det">Activo en alto: 5 V = cerrado, 0 V = abierto. Con el Mega desenchufado y el
+          driver alimentado, el relé tiene que quedar <b>abierto</b> (pull-down en su entrada).</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f5-mux">
         <span class="que">El selector de fase (pin 22) cambia con el modo</span>
         <span class="det">HIGH = campo nulo. Probarlo requiere el mapa; si todavía no está, queda para la fase 6.</span></label></li>

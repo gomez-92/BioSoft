@@ -326,6 +326,17 @@ Key collaborators:
   `isEnabled()` is the only way to confirm what actually happened. `begin()` is
   called once, from `Engine::begin()` — the `.ino` used to call it too, and that
   duplicate is gone.
+  **Both cuts are active-HIGH, fixed, and that is a hardware spec, not a
+  default** (`docs/coil-excitation.md` §3.5): HIGH energizes; LOW, a floating
+  pin or an unpowered Mega leaves the relay open and the coils cut, with a
+  pull-down on each driver input. `mainRelay` was `ACTIVE_LOW` until
+  2026-10-04 — rejected because an unpowered Mega with the stage powered
+  clamps the pin near 0 V and closes an active-low relay. Making polarity
+  SD-configurable was considered and **rejected**: the config arrives over
+  serial seconds after boot (never, without the ESP32), so until then the
+  firmware would write the "inactive" level of a polarity that may not match
+  the hardware. Flipping it in firmware without changing the driver closes
+  the relay at boot — the two always change together.
 - `Detector` — evaluates per-source (`CEM1`, `TEMP1`, ...) rules (critical
   threshold, streak, frequency) from sensor sample history and raises `onFlag`
   events. Overall health scoring used to live here (`Engine::_evaluateHealthData()`)
