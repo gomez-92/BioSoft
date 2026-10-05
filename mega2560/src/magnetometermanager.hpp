@@ -75,6 +75,10 @@ inline uint8_t MagnetometerManager::addMagnetometer(IMagnetometer* magnetometer)
   // ningun problema de cableado real. Si el sensor SI esta invalido (nunca
   // conecto, o se desconecto en medio de un experimento anterior), begin()
   // sigue llamandose para reintentar la inicializacion.
+  // (2026-10-04: ese "falla la segunda vez" era un bug de begin_I2C() de
+  // Adafruit -- uso de memoria liberada --, ver MagnetometerMlx90393::begin().
+  // Hoy el reintento es seguro; el guard se queda para no resetear el chip
+  // en cada start.)
   if (!magnetometer->isValid()) {
     magnetometer->begin();
   }

@@ -505,6 +505,16 @@ Key collaborators:
   `begin_I2C` failing the *second* time (first always OK), with no actual
   wiring problem. A magnetometer that never connected, or that dropped mid-run,
   still gets its `begin()` retried since it's not valid.
+  **That "second time" failure was a library bug, not the chip**:
+  `Adafruit_MLX90393::begin_I2C()` (2.0.5) does `delete i2c_dev` without
+  nulling it and then uses the freed pointer. With the MLX *absent* it is
+  worse than a failure: the detect at the corrupted address 0 is ACKed by the
+  ADS1115 (general call), the next write goes through a broken vtable and the
+  Mega **reboots in a loop before `Engine::begin()`** — seen 2026-10-04 as
+  `[MLX90393] ` followed by NULs, forever, and the ESP32 never linking.
+  `MagnetometerMlx90393::begin()` now probes the address first, calls
+  `begin_I2C()` at most once, and retries with the public
+  `exitMode()`/`reset()`. Never call `begin_I2C()` twice on one object.
 - **CEM1 measures the RMS of the fundamental, not a snapshot, and there is no
   ambient tare** (`fieldsampler.hpp`, driven by `MagnetometerMlx90393`).
   A snapshot depended on where in the 1-100 Hz wave it landed, and the ambient

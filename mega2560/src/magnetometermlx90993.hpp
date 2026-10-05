@@ -41,6 +41,8 @@ private:
 
     float _magneticField;   // mT (el RMS del ultimo ventaneo)
     bool _isValid;
+    // begin_I2C() ya se llamo una vez (ver begin(): no se puede llamar dos).
+    bool _driverCreated;
 
     // IFieldBus
     uint32_t nowUs() const override { return micros(); }
@@ -72,15 +74,39 @@ inline MagnetometerMlx90393::MagnetometerMlx90393(const char* name, uint8_t addr
     _address(address),
     _sampler(*this),
     _magneticField(0),
-    _isValid(false)
+    _isValid(false),
+    _driverCreated(false)
 {}
 
+// begin_I2C() de Adafruit_MLX90393 2.0.5 NO se puede llamar dos veces: hace
+// `delete i2c_dev` sin ponerlo en NULL y despues usa el puntero liberado. El
+// free() de avr-libc escribe su lista libre encima (direccion 0, _wire
+// corrupto), el detect a la direccion 0 lo contesta el ADS1115 (general
+// call) y la primera escritura llama un metodo virtual por un puntero roto:
+// el Mega se reinicia. Con el MLX ausente pasaba en cada arranque, porque
+// addMagnetometer() reintenta begin() de un sensor invalido -- bucle de
+// reinicios antes de llegar a Engine::begin(). Con el MLX presente, el
+// mismo bug era el "begin_I2C falla la segunda vez" del bring-up INT-001.
+// Por eso: begin_I2C() una sola vez y solo si el chip contesta; los
+// reintentos repiten la inicializacion con los metodos publicos.
 inline void MagnetometerMlx90393::begin() {
-    _isValid = _sensor.begin_I2C(_address, &Wire);
+    Wire.beginTransmission(_address);
+    bool present = (Wire.endTransmission() == 0);
 
-    DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, F("[MLX90393] begin_I2C addr=0x"));
+    if (!present) {
+        _isValid = false;
+    } else if (!_driverCreated) {
+        _driverCreated = true;
+        _isValid = _sensor.begin_I2C(_address, &Wire);
+    } else {
+        _isValid = _sensor.exitMode() && _sensor.reset();
+    }
+
+    DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, F("[MLX90393] begin addr=0x"));
     DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, _address, HEX);
-    DEBUG_PRINTLN(DEBUG_MAGNETOMETER_MLX90393, _isValid ? F(" -> OK") : F(" -> FALLO (sensor no detectado en el bus)"));
+    DEBUG_PRINTLN(DEBUG_MAGNETOMETER_MLX90393, _isValid ? F(" -> OK")
+                  : present ? F(" -> FALLO (contesta pero no inicializa)")
+                            : F(" -> FALLO (no contesta en el bus)"));
 
     if (!_isValid)
         return;
