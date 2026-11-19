@@ -563,11 +563,11 @@ table.pins tbody td{padding:7px 12px 7px 0}
  └───────────────────────────┘                           │ OneWire pin 2 ─ DS18B20 TEMP1 │
                                                          │ SPI 50/51/52 + CS 5 ─ AD9833  │
                                                          │ A0 ─ magnetómetro simulado    │
- ┌────────────────────────────────────────────────────┐  │                               │
+ ┌────────────────────────────────────────────────────┐  │ A1 ─ termómetro simulado      │
  │ ETAPA DE POTENCIA (fuera del firmware)             │  │ PWM 44/45/46/6 ─► intensidad  │
  │                                                    │◄─┤ EN  23/24/25/26 ─► habilitar  │
  │ senoidal ─► directa ─────────────► bobinas 1 y 3   │◄─┤ 22 ─► selector de modo (mux)  │
- │          └► inversor ─► mux ─────► bobinas 2 y 4   │◄─┤ 3  ─► relé general (act. bajo)│
+ │          └► inversor ─► mux ─────► bobinas 2 y 4   │◄─┤ 3  ─► relé general (act. alto)│
  │ PWM ─► filtro RC ─► nivel DC ─► amplitud           │  │ 4  ◄─ pulsador de emergencia  │
  └────────────────────────────────────────────────────┘  └───────────────────────────────┘
 </pre>
@@ -583,7 +583,7 @@ table.pins tbody td{padding:7px 12px 7px 0}
     <div class="tablewrap"><table class="pins">
       <thead><tr><th>Pin</th><th>Función</th><th>Sentido</th><th>Observaciones</th></tr></thead>
       <tbody>
-        <tr><td>2</td><td>Bus OneWire — termómetro DS18B20 (TEMP1)</td><td>bidireccional</td><td>Requiere resistencia de <em>pull-up</em> de 4,7 kΩ entre la línea de datos y +5 V. Solo se atiende el sensor con código ROM <code>28 3F E5 57 04 E1 3D ED</code>.</td></tr>
+        <tr><td>2</td><td>Bus OneWire — termómetro DS18B20 (TEMP1)</td><td>bidireccional</td><td>Requiere resistencia de <em>pull-up</em> de 4,7 kΩ entre la línea de datos y +5 V. Solo se atiende el sensor cuyo código ROM coincide con el configurado (de fábrica, <code>28 3F E5 57 04 E1 3D ED</code>; ver 3.5).</td></tr>
         <tr><td>3</td><td>Relé del interruptor general</td><td>salida</td><td><strong>Activo en alto</strong>: HIGH = relé cerrado = etapa de potencia habilitada. LOW, pin desconectado o placa sin alimentación = relé abierto. El driver del relé lleva <em>pull-down</em> en su entrada. Al arrancar queda en LOW (abierto).</td></tr>
         <tr><td>4</td><td>Pulsador de emergencia</td><td>entrada</td><td><em>Pull-up</em> interno activado: el pulsador conecta el pin a GND al presionarse. Contacto normalmente abierto. Antirrebote de 30 ms por software.</td></tr>
         <tr><td>5</td><td>FSYNC (chip select) del generador AD9833</td><td>salida</td><td>Junto con el bus SPI de hardware (pines 50-52).</td></tr>
@@ -604,6 +604,7 @@ table.pins tbody td{padding:7px 12px 7px 0}
         <tr><td>51</td><td>MOSI — bus SPI (SDATA del AD9833)</td><td>salida</td><td></td></tr>
         <tr><td>52</td><td>SCK — bus SPI (SCLK del AD9833)</td><td>salida</td><td></td></tr>
         <tr><td>A0</td><td>Magnetómetro simulado (tensión analógica)</td><td>entrada</td><td>0–5 V se mapean linealmente a 0–3 mT. Solo para banco; si queda sin conectar, la lectura es ruido.</td></tr>
+        <tr><td>A1</td><td>Termómetro simulado (tensión analógica)</td><td>entrada</td><td>0–5 V se mapean linealmente a 0–50 °C (10 °C por volt). Solo se lee con el sensor de TEMP1 en <em>sim</em> (sección 14); con un potenciómetro se recorren todas las zonas de los menús. Solo para banco.</td></tr>
         <tr><td>USB</td><td>Consola de depuración</td><td>—</td><td>115200 baudios. Es la vía de diagnóstico de la sección 4.</td></tr>
       </tbody>
     </table></div>
@@ -677,10 +678,19 @@ table.pins tbody td{padding:7px 12px 7px 0}
     <p><strong>Termómetro (TEMP1).</strong> Un DS18B20 sobre bus OneWire en el
       pin 2, alimentado a 5 V, con <em>pull-up</em> de 4,7 kΩ en la línea de
       datos. El firmware direcciona el sensor por su código ROM de 64 bits;
-      si se reemplaza la unidad física por otra, la dirección compilada no
+      si se reemplaza la unidad física por otra, la dirección configurada no
       coincidirá y la lectura será −127 °C, que el firmware descarta como
-      inválida sin indicar por qué. Reemplazar el sensor implica actualizar
-      <code>TEMP1_ADDRESS</code> en <code>SoftMega2560.ino</code>.</p>
+      inválida sin indicar por qué. Reemplazar el sensor no requiere
+      reprogramar: la dirección del nuevo se carga en el archivo de
+      configuración (campo «Dirección del DS18B20» de TEMP1 en el generador).
+      Para conocerla, la placa de control lista al arrancar, en la consola,
+      cada DS18B20 presente en el bus (líneas <code>[ONEWIRE]</code>), ya en el
+      formato que acepta el archivo.</p>
+
+    <p>El firmware conserva además un termómetro <em>simulado</em>, que lee
+      una tensión en A1 (0–5 V equivale a 0–50 °C). Solo se usa si el archivo
+      de configuración elige <em>sim</em> como sensor de TEMP1, y sirve para
+      provocar alertas y cortes en banco con un potenciómetro.</p>
 
     <p><strong>Corriente (SCT013-1 a 4).</strong> Transformadores de corriente
       SCT-013 leídos por conversores ADS1115 en modo diferencial. Cada
@@ -846,7 +856,7 @@ table.pins tbody td{padding:7px 12px 7px 0}
       <tbody>
         <tr><td><code>[I2C] Dispositivo encontrado en 0xC</code>, <code>0x48</code> (y <code>0x49</code> si existe)</td><td>El bus I2C está vivo y cada módulo responde en su dirección</td><td>«Ningún dispositivo respondió» indica cableado, alimentación o <em>pull-ups</em>; una dirección distinta indica el pin ADDR mal conectado</td></tr>
         <tr><td><code>[MLX90393] begin_I2C addr=0xC</code> seguido de OK</td><td>El magnetómetro inicializó</td><td>Revisar alimentación del módulo; el bus puede estar vivo y el sensor no</td></tr>
-        <tr><td>Lecturas de TEMP1 con valores plausibles</td><td>El DS18B20 responde y su código ROM coincide</td><td>Sin lecturas: revisar el <em>pull-up</em>; si el sensor fue reemplazado, actualizar el código ROM en el firmware</td></tr>
+        <tr><td>Lecturas de TEMP1 con valores plausibles</td><td>El DS18B20 responde y su código ROM coincide</td><td>Sin lecturas: revisar el <em>pull-up</em>; si el sensor fue reemplazado, cargar su código ROM en el archivo de configuración</td></tr>
         <tr><td><code>[CURRENT]</code> sin indicación de módulo ausente</td><td>El ADS1115 contestó y el canal quedó habilitado</td><td>Un módulo que no responde deja su canal deshabilitado sin bloquear el arranque; revisar dirección y alimentación</td></tr>
         <tr><td>Intercambio ping/pong con la HMI («conectado!»)</td><td>El enlace serie funciona en ambos sentidos</td><td>Solo un sentido funciona si las líneas están al revés; ningún sentido funciona si falta la masa común o el adaptador de nivel</td></tr>
       </tbody>
@@ -1286,7 +1296,29 @@ table.pins tbody td{padding:7px 12px 7px 0}
 </pre>
 
     <p>El acceso requiere usuario y contraseña. La dirección y las credenciales
-      las provee quien haya instalado el monitor.</p>
+      las provee quien haya instalado el monitor. Hay dos roles: un
+      <strong>administrador</strong> envía configuración a la placa, crea y
+      modifica escenarios de prueba, borra corridas y gestiona usuarios (menú
+      «Usuarios»); un usuario de <strong>solo lectura</strong> ve todo lo
+      demás.</p>
+
+    <p>La barra superior dice en todo momento qué funciona y qué no, cada
+      indicador por su lado:</p>
+
+    <ul>
+      <li><strong>Monitor</strong>: si el servidor del monitor recibe la
+        telemetría («en línea»), no llega al broker («sin broker») o si este
+        navegador perdió la conexión con el servidor («sin servidor»).</li>
+      <li><strong>Placa</strong>: si la interfaz del equipo contesta. El
+        monitor le pregunta cada 15 segundos, y el botón
+        <strong>Probar</strong> le pregunta en el momento. Al pasar el mouse
+        se ve si la placa de control está conectada y con qué configuración
+        corre. Que el monitor esté en línea no dice nada de la placa: fuera
+        de un experimento la placa no publica nada, y esta es la única forma
+        de saber si está encendida.</li>
+      <li><strong>Tema</strong>: automático (el del sistema), claro u
+        oscuro. Se recuerda en cada navegador.</li>
+    </ul>
 
     <h3>Pantalla «En curso»</h3>
 
@@ -1305,6 +1337,15 @@ table.pins tbody td{padding:7px 12px 7px 0}
         se vería idéntica a una recién tomada.</li>
       <li><strong>Un valor ausente se muestra como «--», nunca como cero.</strong>
         Durante un experimento, 0 mT es una medición posible.</li>
+      <li><strong>Cada medición trae su escala.</strong> Debajo del valor, una
+        barra muestra la zona normal (verde), la de advertencia (ámbar) y la
+        crítica (roja) del experimento, con una marca donde está la lectura:
+        se ve de un vistazo cuánto margen queda, no solo el número.</li>
+      <li><strong>El gráfico «Evolución» es una ventana de tiempo
+        deslizante</strong> (1, 5 o 15 minutos, 1 hora o toda la corrida), cuyo
+        borde derecho es el momento actual y no el último dato. Si los datos
+        dejan de llegar, el hueco crece a la vista en lugar de que el gráfico
+        se detenga en silencio.</li>
       <li><strong>Los avisos encabezan la pantalla.</strong> Si se pierde la
         conexión con el servidor, con el broker o entre la interfaz y la placa
         de control, se anuncia arriba de todo, porque cambia el significado de
@@ -1385,9 +1426,29 @@ table.pins tbody td{padding:7px 12px 7px 0}
 
     <p>Muestra con qué configuración está funcionando la placa y permite
       enviarle una nueva. El formulario es el mismo generador de configuración
-      que acompaña al equipo, con las mismas validaciones: no deja enviar un
-      archivo con errores. La red WiFi y el broker no se editan desde acá y la
-      placa conserva los suyos.</p>
+      que acompaña al equipo (sección 14), con las mismas validaciones y el
+      mismo recorrido por pasos: no deja enviar un archivo con errores ni uno
+      que no se revisó hasta el último paso. La red WiFi y el broker no se
+      editan desde acá y la placa conserva los suyos. Enviar es para
+      administradores.</p>
+
+    <p>Arriba del formulario se distinguen tres etapas, cada una en su
+      renglón:</p>
+
+    <ul>
+      <li><strong>En la placa</strong>: lo que corre ahora. Si la placa corre
+        con los valores de fábrica, se indica el motivo (sin tarjeta, sin
+        archivo, archivo inválido, etc.). Un archivo que está en la tarjeta
+        pero se ignora se señala como aviso.</li>
+      <li><strong>Enviado</strong>: lo mandado que todavía no corre (grabado
+        en la tarjeta, a la espera del reinicio).</li>
+      <li><strong>Editando</strong>: lo que hay en el formulario, que no
+        llega a la placa hasta enviarlo.</li>
+    </ul>
+
+    <p>Las mismas etapas acompañan a los escenarios de prueba en el paso
+      «Escenarios», que además ofrece la <strong>biblioteca de escenarios</strong>
+      del monitor (ver «Escenarios sintéticos» en la sección 14).</p>
 
     <p>Al enviar, la placa recibe la configuración, la valida y la graba en su
       tarjeta SD, dejando la anterior respaldada como
@@ -1452,6 +1513,32 @@ table.pins tbody td{padding:7px 12px 7px 0}
       errores. Se abre con doble clic, funciona sin conexión y no requiere
       instalar nada.</p>
 
+    <p>El formulario se recorre <strong>por pasos</strong>, uno por sección,
+      con pestañas numeradas arriba y los botones Anterior y Siguiente al pie.
+      Las reglas del recorrido evitan enviar algo a medio revisar:</p>
+
+    <ul>
+      <li><strong>Lo elegido en un paso condiciona los siguientes.</strong> Por
+        ejemplo, en un experimento el paso de fuentes solo ofrece los
+        sensores reales, y los escenarios solo existen en una prueba.</li>
+      <li><strong>No se avanza con errores.</strong> La pestaña de cada paso se
+        colorea si tiene errores o avisos, y Siguiente no pasa mientras el paso
+        actual o uno anterior tenga errores.</li>
+      <li><strong>Volver atrás es libre; cambiar algo obliga a recorrer de
+        nuevo.</strong> Los pasos ya revisados se pueden visitar sin perder lo
+        hecho, pero un cambio en un paso hace que los siguientes se vuelvan a
+        recorrer de a uno, para llegar al final con todo validado contra lo
+        nuevo.</li>
+      <li><strong>Descargar (o Enviar) se habilita solo en el último paso,
+        «Revisión final»</strong>, sin errores y después del último cambio.
+        Cargar un archivo o restaurar los valores de fábrica reinicia el
+        recorrido.</li>
+      <li><strong>Cada campo numérico conoce sus límites.</strong> Se pone
+        rojo mientras se escribe un valor fuera de rango y, al salir del campo,
+        vuelve al último valor válido con una nota que indica el rango
+        permitido.</li>
+    </ul>
+
     <h3>Corridas de prueba</h3>
 
     <p>El archivo declara si lo que se corra con esa tarjeta es un
@@ -1470,12 +1557,21 @@ table.pins tbody td{padding:7px 12px 7px 0}
     <div class="callout warn">
       <span class="tag">Qué hace y qué no hace</span>
       <p><strong>Declarar una prueba no apaga ninguna protección.</strong>
-        Solo marca las corridas. Si en una prueba se quiere, por ejemplo,
-        desactivar una fuente del detector, eso se configura aparte, en su
-        propia sección del archivo. A la inversa, una tarjeta declarada como
-        experimento puede tener protecciones desactivadas: antes de un
-        experimento real conviene revisar el archivo completo, no solo el tipo
-        de corrida.</p>
+        Solo marca las corridas y habilita las opciones de banco: si en una
+        prueba se quiere, por ejemplo, desactivar una fuente del detector, eso
+        se configura aparte, en su propia sección del archivo.</p>
+      <p><strong>Un experimento corre solo con los sensores reales y el
+        detector encendido.</strong> Un archivo que se declara experimento (o
+        no declara nada) y trae un sensor simulado, un escenario, TEMP1 sin
+        termómetro o el detector apagado <strong>se descarta entero</strong>:
+        el generador no lo deja armar (al pasar a experimento vuelve las
+        fuentes a sus sensores reales, con opción de deshacer), el monitor no
+        lo envía y la placa lo ignora al encender y corre con los valores de
+        fábrica, informando el motivo. Otras protecciones sí pueden
+        desactivarse en un experimento (una fuente sin vigilar, el control de
+        intensidad): antes de un experimento real conviene revisar el archivo
+        completo, no solo el tipo de corrida. Esas corridas llevan el
+        distintivo CON RELAJACIONES (sección 13).</p>
       <p><strong>La parada de emergencia no puede desactivarse</strong> desde
         la configuración, en ningún tipo de corrida.</p>
     </div>
@@ -1484,7 +1580,8 @@ table.pins tbody td{padding:7px 12px 7px 0}
 
     <p>Tres ajustes del archivo existen para trabajar en el banco sin el
       equipo completo. Los tres vienen de fábrica en su valor más seguro, y
-      el generador avisa cuando se cambian:</p>
+      el generador avisa cuando se cambian. Los dos últimos solo se pueden
+      cambiar en una corrida de prueba:</p>
 
     <div class="tablewrap"><table>
       <thead><tr><th>Ajuste</th><th>De fábrica</th><th>Para qué cambiarlo</th></tr></thead>
@@ -1496,7 +1593,7 @@ table.pins tbody td{padding:7px 12px 7px 0}
           alerta puede cortar el experimento. Se sigue midiendo y
           mostrando.</td></tr>
         <tr><td>Sensor de TEMP1</td><td>DS18B20</td><td><em>sim</em> lee la
-          temperatura de una entrada analógica (0–5 V equivale a 0–50 °C), para
+          temperatura de la entrada analógica A1 (0–5 V equivale a 0–50 °C), para
           provocar un corte con un potenciómetro; <em>none</em> no usa
           termómetro, para cuando no hay uno conectado.</td></tr>
       </tbody>
@@ -1515,12 +1612,56 @@ table.pins tbody td{padding:7px 12px 7px 0}
       un sensor de verdad. Sirve para comprobar el equipo completo sin
       sensores conectados.</p>
 
-    <p>El generador de configuración trae escenarios listos: <em>todo
-      normal</em>, <em>temperatura alta</em>, <em>temperatura que sube</em>,
-      <em>campo inestable</em>, <em>campo fuera de rango</em> y <em>sensor de
-      temperatura caído</em>. Los escenarios se adaptan solos a los rangos
-      elegidos en la pantalla Configuración: «temperatura alta» supera el
-      rango crítico elegido, cualquiera sea.</p>
+    <p>Los escenarios se eligen en el paso <strong>5b · Escenarios de
+      prueba</strong> del generador, que solo los ofrece en una corrida de
+      prueba (en un experimento el paso explica por qué y ofrece pasar a
+      prueba). <strong>Cada fuente se elige por separado</strong>: la
+      temperatura y el campo tienen cada una su selector «Lee», con el sensor
+      real, los escenarios de esa fuente o uno nuevo. Así se arman
+      combinaciones como temperatura normal con campo inestable.</p>
+
+    <div class="tablewrap"><table>
+      <thead><tr><th>Fuente</th><th>Escenarios de fábrica</th></tr></thead>
+      <tbody>
+        <tr><td>Temperatura (TEMP1)</td><td>normal, alta, que sube, baja, que se
+          recupera, en advertencia sostenida, sensor caído</td></tr>
+        <tr><td>Campo (CEM1)</td><td>normal, perturbación compensada por el
+          lazo, inestable, fuera de rango, sensor caído</td></tr>
+      </tbody>
+    </table></div>
+
+    <p>Cada escenario de fábrica indica qué resultado produce («corta por
+      crítico de TEMP1 a los ~75 s», «termina completa») con la otra fuente
+      en su escenario normal; ese resultado está comprobado contra el
+      firmware. Un escenario también define si su fuente queda
+      <strong>vigilada</strong> por el detector, porque eso es parte de lo que
+      prueba: «sensor de campo caído», por ejemplo, demuestra que el equipo
+      corta aun con el campo sin vigilar.</p>
+
+    <p>Los escenarios se adaptan solos a los rangos elegidos en la pantalla
+      Configuración: la señal se define en <em>niveles</em> (0 es el centro
+      del rango normal, 1 su borde, 2 el borde del crítico), de modo que
+      «temperatura alta» supera el rango crítico elegido, cualquiera sea.</p>
+
+    <p>Bajo cada fuente, un gráfico dibuja la señal y lo que leería la placa
+      de control contra una corrida de referencia (intensidad, rangos,
+      duración y modo elegidos arriba, que no se guardan en el archivo), y al
+      pie se muestra el <strong>resultado previsto de la combinación</strong>:
+      si termina o en qué momento y por qué corta. La señal se edita sobre el
+      gráfico: arrastrar un punto lo mueve, un clic en un lugar vacío agrega
+      uno (hasta 8) y un doble clic sobre un punto lo borra; dos puntos en el
+      mismo segundo forman un salto. También se ajustan el ruido, una
+      oscilación, el segundo en que el sensor deja de responder y, en el
+      campo, si responde al regulador.</p>
+
+    <p>Desde el monitor web, el mismo paso trae la <strong>biblioteca de
+      escenarios</strong>. Un administrador puede guardar lo dibujado en el
+      escenario elegido, guardarlo como uno nuevo (con nombre y descripción) o
+      borrarlo, cada fuente desde su propio bloque. Los de fábrica también se
+      pueden editar o borrar; «Restaurar los de fábrica» los devuelve a sus
+      valores originales sin tocar los propios. Un escenario de fábrica
+      editado deja de mostrar su resultado comprobado, porque ya no es el que
+      se comprobó.</p>
 
     <div class="callout warn">
       <span class="tag">Al usar escenarios</span>
@@ -1670,7 +1811,7 @@ table.pins tbody td{padding:7px 12px 7px 0}
         <tr><td>Resultado con panel <em>NO INICIÓ</em> y «Sin punto en el mapa»</td><td>Campo nulo con una intensidad o frecuencia que el mapa de la tarjeta no tiene</td><td>Cargar el punto medido en el banco, o elegir una combinación mapeada (sección 14)</td></tr>
         <tr><td>Resultado con panel <em>NO INICIÓ</em> y «Balance fuera de tope»</td><td>El balance del punto supera <code>balanceMax</code></td><td>Revisar el punto y el tope en la tarjeta</td></tr>
         <tr><td>Una medición indica «Sin datos»</td><td>Ese sensor no reporta</td><td>Revisar la conexión (sección 3.5); confirmar que está habilitado en la configuración</td></tr>
-        <tr><td>La temperatura no reporta pese a estar conectada</td><td>El código ROM del DS18B20 no coincide con el compilado</td><td>Si el sensor fue reemplazado, actualizar <code>TEMP1_ADDRESS</code> en el firmware</td></tr>
+        <tr><td>La temperatura no reporta pese a estar conectada</td><td>El código ROM del DS18B20 no coincide con el configurado</td><td>Si el sensor fue reemplazado, cargar su dirección (líneas <code>[ONEWIRE]</code> de la consola) en el archivo de configuración; ver 3.5</td></tr>
         <tr><td>La consola del Mega indica «Ningún dispositivo respondió» en I2C</td><td>Bus I2C inoperante</td><td>Revisar SDA/SCL, alimentación de los módulos y <em>pull-ups</em></td></tr>
         <tr><td>El campo medido queda muy por debajo de la consigna</td><td>El regulador no alcanza la consigna</td><td>Buscar avisos de recorte en la consola: una bobina puede carecer de margen. Requiere revisar el hardware o recalibrar</td></tr>
         <tr><td>Corta apenas concluye la ventana de asentamiento</td><td>Una condición fuera de rango desde el arranque</td><td>Consultar el detalle en la pantalla Resultado: indica qué sensor fue</td></tr>
