@@ -444,9 +444,32 @@ Key collaborators:
   would only test transport, with fake alerts; streaming samples over serial
   was rejected too (9600 baud shared with everything, and a link drop would
   freeze the "sensor", which reads like a sensor fault). Only the signal's
-  *definition* travels, once, in `config_scenario` (short keys `b n r sa s
-  oa op da d`, budget pinned in `test_serialframes`), stored in the source
-  template and copied into the sensor at the next start.
+  *definition* travels, once, in `config_scenario` (short keys `n oa op da
+  d`) plus `config_scenario_pts` (up to 8 control points as a **flat** list
+  `[t0, n0, t1, n1, ...]` — a list of pairs would cost the Mega one more
+  ArduinoJson slot per point; budgets pinned in `test_serialframes`),
+  stored in the source template and copied into the sensor at the next start.
+  **The shape is control points, not base/ramp/step** (those card-22 keys are
+  gone; the ESP32 logs and ignores them, the generator converts them): points
+  joined by straight lines, two points on the same second are a step, held
+  flat before the first and after the last, level 0 with none. 4 bytes each
+  (`uint16` second + `int16` level×100), validated whole by
+  `Scenario::applyPoints()` (sorted, integer seconds, |level| ≤ 10) — a bad
+  list keeps the previous one. Its refusal reasons are an enum, not strings:
+  as plain literals they cost ~150 bytes of RAM (measured). Sampled arrays
+  were rejected for RAM (an hour of TEMP1 at 5 s is 2.9 KB).
+  **Profiles live in `tools/escenarios.json`**, each with an `expect`
+  (completed, or cut by rule X of source Y at ~N s) and a `minDuration`;
+  `test_scenario_runs` (native) runs every profile through the real
+  Detector + FieldController + scenario sensors over 5 menu-range combos ×
+  3 sampling phases and fails if the ending differs. That test is what
+  caught that the card-22 "campo inestable" (4 s period, sampled every 2 s)
+  never alerted at all, and that any CEM1-watched scenario cut by
+  `critical` at ~16 s because the loop started from duty 0. Hence
+  `Engine::_scenarioStartDuty()`: with CEM1 on a scenario *with plant* and
+  no map point, the loop is preloaded at `setpointDuty`. That only touches
+  scenarios — with real coils and no map point the loop still starts at 0
+  and has the same slow start, which is what `control.map` is for.
   **The signal is in *levels* relative to the run's ranges, never absolute
   values** (user requirement): 0 = centre of normal, ±1 = normal edge, ±2 =
   critical edge, linear in between and beyond (a flush critical/normal pair
@@ -976,9 +999,19 @@ and `StateListener` (own app state, from `SystemData`).
     fit when sent can exceed `ConfigLoader`'s 8 KB once credentials are added
     back (`ConfigLoader::addCredentials()` restores wifi/broker exactly as the
     file had them; they never travel over MQTT).
-  - Rejected while `Running`/`Starting`/`Stopping`; applied only on reboot,
-    whatever causes it — **no on-screen confirmation and no "restart now"**
-    (they need SquareLine; card 26). The EMQX ACL restricting who may publish
+  - Rejected while `Running`/`Starting`/`Stopping`; applied by reboot, and
+    **the board reboots itself** (`MySystem::_rebootForConfigIfIdle()`, option
+    A of 2026-11-19) once the receiver calls `Output::onConfigAccepted()` —
+    but only with the screen on **Principal** and no run, after ≥2 s and the
+    `aceptada` ack out (publish queue idle, or 10 s). On Resultado or
+    Configuraciones it waits for the operator to go back to Principal: a
+    reboot would wipe the result being read or the edits in progress. While
+    pending (`SystemData::configRebootPending`) **REPETIR is hidden and
+    ignored** — it would run the *old* config, not the one the monitor shows
+    as accepted. Re-checks `experimentInProgress()` right before restarting,
+    in case Iniciar was pressed in between. Partial hot-apply (sources only,
+    no reboot) was rejected: `configId` would no longer describe what runs.
+    Still no on-screen confirmation (needs SquareLine; card 26). The EMQX ACL restricting who may publish
     to `config/set` is a manual console step (`docs/despliegue-monitor-web.md`).
   - Its ack *is* the confirmation the operator sees: `aceptada` = written to
     the SD. The monitor tells that apart from **vigente** (the board rebooted

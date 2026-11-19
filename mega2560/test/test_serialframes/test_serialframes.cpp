@@ -4,6 +4,7 @@
 #include "../support/arduino_fakes.hpp"
 #include "../../src/seriallink.hpp"
 #include "../../src/commands.hpp"
+#include "../../src/scenario.hpp"
 
 using namespace fakeit;
 
@@ -143,23 +144,55 @@ void test_config_detector_fits(void) {
     TEST_ASSERT_TRUE(survivesTransport(Commands::ConfigDetector, doc));
 }
 
-// config_scenario: la senal sintetica de una fuente, con las 9 claves y
-// valores de 7 cifras significativas. Si se truncara, la fuente se quedaria
-// con parte del escenario anterior -- un "temperatura alta" sin su salto.
+// config_scenario: los parametros de la senal sintetica de una fuente, con
+// las 5 claves y valores de 7 cifras significativas. Si se truncara, la
+// fuente se quedaria con parte del escenario anterior.
 void test_config_scenario_fits_with_every_key(void) {
     JsonDocument doc;
     doc["name"] = "123456789012345";
-    doc["b"] = -1.234567f;
     doc["n"] = 1.234567f;
-    doc["r"] = -1.234567f;
-    doc["sa"] = 12345.67f;
-    doc["s"] = -1.234567f;
     doc["oa"] = 1.234567f;
     doc["op"] = 12345.67f;
     doc["da"] = 12345.67f;
     doc["d"] = 0.1234567f;
 
     TEST_ASSERT_TRUE(survivesTransport(Commands::ConfigScenario, doc));
+}
+
+// config_scenario_pts: los 8 puntos de control con los valores mas anchos
+// que admite el esquema (segundo 65535, nivel -9.99). Un frame truncado
+// perderia los ultimos puntos y la senal se quedaria plana en el ultimo que
+// llego, sin que nadie lo note.
+void test_config_scenario_points_fit_with_eight_points(void) {
+    JsonDocument doc;
+    doc["name"] = "123456789012345";
+    JsonArray p = doc["p"].to<JsonArray>();
+    for (int i = 0; i < 8; i++) {
+        p.add(65535);
+        p.add(-9.99f);
+    }
+
+    TEST_ASSERT_TRUE(survivesTransport(Commands::ConfigScenarioPoints, doc));
+}
+
+// Y lo que llega se vuelve a aplicar entero: 8 numeros, en orden.
+void test_config_scenario_points_round_trip_through_applyPoints(void) {
+    JsonDocument doc;
+    JsonArray p = doc["p"].to<JsonArray>();
+    const float flat[] = { 0, 0, 60, 0, 60, 2.5f, 3600, -1.25f };
+    for (float v : flat) p.add(v);
+    char json[MAX_JSON_SIZE];
+    serializeJson(doc, json, sizeof(json));
+
+    JsonDocument parsed;
+    TEST_ASSERT_FALSE(deserializeJson(parsed, json));
+    float back[16];
+    uint8_t length = 0;
+    for (JsonVariantConst v : parsed["p"].as<JsonArrayConst>()) back[length++] = v.as<float>();
+    ScenarioSignal s;
+    TEST_ASSERT_TRUE(Scenario::PointsRefusal::None == Scenario::applyPoints(s, back, length));
+    TEST_ASSERT_EQUAL_UINT8(4, s.pointCount);
+    TEST_ASSERT_EQUAL_INT16(-125, s.points[3].level100);
 }
 
 // =====================================================================
@@ -325,6 +358,7 @@ void test_every_command_name_fits_in_the_command_field(void) {
     TEST_ASSERT_LESS_THAN(MAX_COMMAND_SIZE, strlen(Commands::ConfigCurrent) + 1);
     TEST_ASSERT_LESS_THAN(MAX_COMMAND_SIZE, strlen(Commands::ConfigDetector) + 1);
     TEST_ASSERT_LESS_THAN(MAX_COMMAND_SIZE, strlen(Commands::ConfigScenario) + 1);
+    TEST_ASSERT_LESS_THAN(MAX_COMMAND_SIZE, strlen(Commands::ConfigScenarioPoints) + 1);
 }
 
 // config_map: un punto del mapa de calibracion (k, n, intensidad,
@@ -365,6 +399,8 @@ int main(int argc, char** argv) {
     RUN_TEST(test_config_coil_fits_with_max_length_name);
     RUN_TEST(test_config_detector_fits);
     RUN_TEST(test_config_scenario_fits_with_every_key);
+    RUN_TEST(test_config_scenario_points_fit_with_eight_points);
+    RUN_TEST(test_config_scenario_points_round_trip_through_applyPoints);
 
     RUN_TEST(test_config_current_fits);
 

@@ -170,13 +170,13 @@ const DEFAULTS = {
      rules:{critical:{threshold:3,cooldown:1,maxEvents:2},
             streak:{threshold:5,cooldown:4,maxEvents:5},
             frequency:{threshold:16,cooldown:16,maxEvents:3}},
-     scenario:{base:0,noise:0.1,ramp:0,stepAt:0,step:0,oscAmp:0,oscPeriod:0,dropAt:0,setpointDuty:0.5}},
+     scenario:{points:[],noise:0.1,oscAmp:0,oscPeriod:0,dropAt:0,setpointDuty:0.5}},
     {name:"TEMP1",enabled:true,sensor:"ds18b20",bufferSize:32,maxMissedSamples:3,
      range:{mode:"operator"},
      rules:{critical:{threshold:3,cooldown:1,maxEvents:2},
             streak:{threshold:5,cooldown:4,maxEvents:5},
             frequency:{threshold:16,cooldown:16,maxEvents:3}},
-     scenario:{base:0,noise:0.1,ramp:0,stepAt:0,step:0,oscAmp:0,oscPeriod:0,dropAt:0}}
+     scenario:{points:[],noise:0.1,oscAmp:0,oscPeriod:0,dropAt:0}}
   ]},
   currentSensors: [
     {name:"SCT013-1",enabled:true, address:72,channel:0,ratedCurrent:5.0,ratedVoltage:1.0,calibration:0.775,sampleRate:860,integrationTimeMs:200},
@@ -305,44 +305,219 @@ const formatRomCode = bytes => bytes.map(b => b.toString(16).toUpperCase().padSt
 //   0 = centro del rango normal, +-1 = borde del normal, +-2 = borde del
 //   critico, mas alla de 2 = adentro de la zona critica.
 // Asi un perfil significa lo mismo con cualquier rango elegido en pantalla.
+// La forma son hasta 8 PUNTOS de control [segundo, nivel] unidos por rectas
+// (dos en el mismo segundo = salto); encima se suman oscilacion y ruido.
 const SCENARIO_KEYS = [
-  ["base", FLT, "Nivel base"],
   ["noise", FLT, "Ruido (niveles, >= 0)"],
-  ["ramp", FLT, "Rampa (niveles/min)"],
-  ["stepAt", FLT, "Salto a los (s)"],
-  ["step", FLT, "Salto (niveles)"],
   ["oscAmp", FLT, "Oscilacion (niveles)"],
   ["oscPeriod", FLT, "Periodo de oscilacion (s)"],
   ["dropAt", FLT, "Sensor caido a los (s, 0 = nunca)"]
 ];
-const QUIET = {base:0,noise:0.1,ramp:0,stepAt:0,step:0,oscAmp:0,oscPeriod:0,dropAt:0};
-// Cada perfil fija las DOS fuentes en "scenario" y define su senal. Los que
-// prueban el campo prenden CEM1 en el Detector: viene apagada de fabrica, y
-// sin eso un "campo inestable" no levantaria ningun flag.
-const SCENARIO_PROFILES = [
-  ["normal", "Todo normal", "Las dos fuentes en el centro del rango normal, con ruido leve. Debe terminar completed.",
-   {cem: {}, temp: {}}],
-  ["tempAlta", "Temperatura alta", "TEMP1 salta a la zona critica (+2,5) a los 60 s. Debe cortar por critical.",
-   {cem: {}, temp: {stepAt: 60, step: 2.5}}],
-  ["tempSube", "Temperatura que sube", "TEMP1 sube 1 nivel por minuto: sale del normal al minuto y pasa el critico a los 2. Ejercita streak y frequency antes del corte.",
-   {cem: {}, temp: {ramp: 1}}],
-  ["campoInestable", "Campo inestable", "CEM1 oscila +-1,6 niveles cada 4 s, mas rapido de lo que el lazo puede seguir: entra y sale del normal sin llegar al critico.",
-   {cem: {oscAmp: 1.6, oscPeriod: 4, noise: 0.2}, temp: {}, cemEnabled: true}],
-  ["campoFuera", "Campo fuera de rango", "CEM1 sin planta (no responde al lazo) salta a +2,5 a los 60 s. Debe cortar por critical.",
-   {cem: {setpointDuty: 0, stepAt: 60, step: 2.5}, temp: {}, cemEnabled: true}],
-  ["sensorCaido", "Sensor de temperatura caido", "TEMP1 deja de dar lecturas a los 90 s. Debe cortar por silencio a los ~105 s (3 lecturas de 5 s perdidas) con TEMP1 SIN LECTURAS.",
-   {cem: {}, temp: {dropAt: 90}}]
-];
+// Limites de los puntos: los mismos que Scenario::applyPoints() en el Mega,
+// que rechaza la lista ENTERA si uno falla (y se queda con la anterior).
+const SCENARIO_MAX_POINTS = 8;
+const SCENARIO_MAX_LEVEL = 10;
+const SCENARIO_MAX_SECOND = 65535;
+// Cadencia de medicion de cada fuente, para avisar de una oscilacion mas
+// rapida de lo que el sensor puede leer (intervals.mega).
+const SCENARIO_CADENCE = { CEM1: "measureMagneticField", TEMP1: "measureTemperature" };
+
+// Perfiles: COPIA de tools/escenarios.json, que es la fuente unica. El
+// generador abre con doble clic sin servidor, asi que no puede leer el
+// archivo; tools/test-generador.js falla si esta copia y el archivo difieren,
+// y mega2560/test/test_scenario_runs comprueba que cada perfil termine como
+// dice su `expect`.
+const SCENARIO_FILE = {
+  "_comentario": [
+    "Perfiles de escenario sintetico (tarjeta 22). FUENTE UNICA: el generador",
+    "(tools/generador-config.html) embebe una copia y tools/test-generador.js",
+    "falla si difieren; mega2560/test/test_scenario_runs simula cada perfil",
+    "con el Detector y el lazo reales del Mega y verifica `expect` con varias",
+    "combinaciones de rangos de los menus. Si se cambia un perfil aca, los dos",
+    "lados lo vuelven a comprobar.",
+    "Niveles: 0 = centro del normal, +-1 = borde del normal, +-2 = borde del",
+    "critico. points = [segundo, nivel], unidos por rectas; dos puntos en el",
+    "mismo segundo son un salto. expect.at = segundo aproximado del corte."
+  ],
+  "version": 1,
+  "profiles": [
+    {
+      "key": "normal",
+      "name": "Todo normal",
+      "description": "Las dos fuentes en el centro del rango normal, con ruido leve. CEM1 vigilada y regulada por el lazo.",
+      "expect": { "reason": "completed" },
+      "minDuration": 60,
+      "sources": {
+        "CEM1": { "enabled": true, "scenario": { "points": [], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0, "setpointDuty": 0.5 } },
+        "TEMP1": { "enabled": true, "scenario": { "points": [], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0 } }
+      }
+    },
+    {
+      "key": "tempAlta",
+      "name": "Temperatura alta",
+      "description": "TEMP1 salta a la zona critica (nivel 2,5) a los 60 s.",
+      "expect": { "reason": "critical", "source": "TEMP1", "type": "critical", "at": 75 },
+      "minDuration": 120,
+      "sources": {
+        "CEM1": { "enabled": false, "scenario": { "points": [], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0, "setpointDuty": 0.5 } },
+        "TEMP1": { "enabled": true, "scenario": { "points": [[0, 0], [60, 0], [60, 2.5]], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0 } }
+      }
+    },
+    {
+      "key": "tempSube",
+      "name": "Temperatura que sube",
+      "description": "TEMP1 sube despacio: sale del normal a los ~70 s (alertas de racha) y pasa el critico a los ~110 s.",
+      "expect": { "reason": "critical", "source": "TEMP1", "type": "critical", "at": 125 },
+      "minDuration": 180,
+      "sources": {
+        "CEM1": { "enabled": false, "scenario": { "points": [], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0, "setpointDuty": 0.5 } },
+        "TEMP1": { "enabled": true, "scenario": { "points": [[30, 0], [150, 3]], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0 } }
+      }
+    },
+    {
+      "key": "tempRecupera",
+      "name": "Temperatura que se recupera",
+      "description": "TEMP1 entra en advertencia (nivel 1,5) por un minuto y vuelve al centro: alertas de racha, sin corte.",
+      "expect": { "reason": "completed", "alerts": ["streak"] },
+      "minDuration": 180,
+      "sources": {
+        "CEM1": { "enabled": false, "scenario": { "points": [], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0, "setpointDuty": 0.5 } },
+        "TEMP1": { "enabled": true, "scenario": { "points": [[30, 0], [60, 1.5], [100, 1.5], [130, 0]], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0 } }
+      }
+    },
+    {
+      "key": "tempAdvertencia",
+      "name": "Temperatura en advertencia sostenida",
+      "description": "TEMP1 queda en la franja de advertencia (nivel 1,5) sin llegar al critico: corta por acumular alertas de racha.",
+      "expect": { "reason": "critical", "source": "TEMP1", "type": "streak", "at": 145 },
+      "minDuration": 240,
+      "sources": {
+        "CEM1": { "enabled": false, "scenario": { "points": [], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0, "setpointDuty": 0.5 } },
+        "TEMP1": { "enabled": true, "scenario": { "points": [[30, 0], [40, 1.5]], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0 } }
+      }
+    },
+    {
+      "key": "campoCompensado",
+      "name": "Perturbacion compensada por el lazo",
+      "description": "CEM1 recibe una perturbacion lenta (3 niveles en un minuto) y el lazo la compensa bajando el duty: el campo medido queda en el normal.",
+      "expect": { "reason": "completed" },
+      "minDuration": 180,
+      "sources": {
+        "CEM1": { "enabled": true, "scenario": { "points": [[60, 0], [120, 3]], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0, "setpointDuty": 0.5 } },
+        "TEMP1": { "enabled": true, "scenario": { "points": [], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0 } }
+      }
+    },
+    {
+      "key": "campoInestable",
+      "name": "Campo inestable",
+      "description": "CEM1 sin planta oscila +-1,8 niveles cada 20 s: entra y sale del normal sin rachas largas ni critico, y corta por frecuencia de alertas.",
+      "expect": { "reason": "critical", "source": "CEM1", "type": "frequency", "at": 130 },
+      "minDuration": 240,
+      "sources": {
+        "CEM1": { "enabled": true, "scenario": { "points": [], "noise": 0.1, "oscAmp": 1.8, "oscPeriod": 20, "dropAt": 0, "setpointDuty": 0 } },
+        "TEMP1": { "enabled": true, "scenario": { "points": [], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0 } }
+      }
+    },
+    {
+      "key": "campoFuera",
+      "name": "Campo fuera de rango",
+      "description": "CEM1 sin planta (no responde al lazo) salta a la zona critica (nivel 2,5) a los 60 s.",
+      "expect": { "reason": "critical", "source": "CEM1", "type": "critical", "at": 68 },
+      "minDuration": 120,
+      "sources": {
+        "CEM1": { "enabled": true, "scenario": { "points": [[0, 0], [60, 0], [60, 2.5]], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0, "setpointDuty": 0 } },
+        "TEMP1": { "enabled": true, "scenario": { "points": [], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0 } }
+      }
+    },
+    {
+      "key": "sensorCaido",
+      "name": "Sensor de temperatura caido",
+      "description": "TEMP1 deja de dar lecturas a los 90 s: corta por silencio (3 lecturas de 5 s perdidas) con TEMP1 SIN LECTURAS.",
+      "expect": { "reason": "critical", "source": "TEMP1", "type": "silence", "at": 101 },
+      "minDuration": 180,
+      "sources": {
+        "CEM1": { "enabled": false, "scenario": { "points": [], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0, "setpointDuty": 0.5 } },
+        "TEMP1": { "enabled": true, "scenario": { "points": [], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 90 } }
+      }
+    }
+  ]
+};
+const SCENARIO_PROFILES = SCENARIO_FILE.profiles;
+
+// Que se espera de un perfil, en palabras (para el boton y la lista).
+function expectText(prof){
+  const e = prof.expect || {};
+  if (e.reason === "completed")
+    return "termina completed" + (e.alerts && e.alerts.length ? ", con alertas de " + e.alerts.join(" y ") : "");
+  const tipo = {critical: "critico", streak: "racha", frequency: "frecuencia", silence: "silencio"}[e.type] || e.type;
+  return "corta por " + tipo + " de " + e.source + " a los ~" + e.at + " s";
+}
+
+// Formato de la tarjeta 22 (base/ramp/stepAt/step) -> puntos. Es la misma
+// senal: rampa = recta, salto = dos puntos en el mismo segundo. Una rampa
+// sin fin se corta donde llega al tope de nivel (o a las 2 h, la corrida
+// mas larga del menu de fabrica). Lo usan la carga de archivos y la
+// deteccion de perfil, para que una tarjeta vieja se lea como lo que era.
+function legacyToPoints(sc){
+  const n = k => (typeof sc[k] === "number" && isFinite(sc[k])) ? sc[k] : 0;
+  const base = n("base"), ramp = n("ramp"), stepAt = n("stepAt"), step = n("step");
+  const lim = SCENARIO_MAX_LEVEL;
+  const clampL = v => Math.max(-lim, Math.min(lim, Math.round(v * 100) / 100));
+  const at = t => base + ramp * t / 60;
+  const pts = [];
+  if (base !== 0 || ramp !== 0 || (stepAt > 0 && step !== 0)) pts.push([0, clampL(base)]);
+  if (stepAt > 0 && step !== 0) {
+    const t = Math.round(stepAt);
+    pts.push([t, clampL(at(t))], [t, clampL(at(t) + step)]);
+  }
+  if (ramp !== 0) {
+    const off = (stepAt > 0) ? step : 0;
+    let end = 7200;
+    const tLim = (Math.sign(ramp) * lim - base - off) * 60 / ramp;
+    if (tLim > 0 && tLim < end) end = Math.floor(tLim);
+    if (end > (pts.length ? pts[pts.length - 1][0] : 0)) pts.push([end, clampL(at(end) + off)]);
+  }
+  return pts;
+}
+
+// Deja un escenario en el formato actual: convierte las claves viejas y
+// quita las que el firmware ya no lee. No toca uno que ya tiene `points`.
+function normalizeScenario(sc){
+  if (!sc || typeof sc !== "object") return sc;
+  const legacy = ["base", "ramp", "stepAt", "step"].some(k => k in sc);
+  const out = Object.assign({}, sc);
+  if (legacy && !Array.isArray(sc.points)) out.points = legacyToPoints(sc);
+  ["base", "ramp", "stepAt", "step"].forEach(k => delete out[k]);
+  if (!("points" in out)) out.points = [];
+  return out;
+}
+
+// Texto <-> puntos para el campo de edicion: "0:0  60:0  60:2,5". Acepta
+// coma decimal. Devuelve null si algo no se entiende.
+function pointsToText(pts){
+  if (!Array.isArray(pts)) return String(pts ?? "");
+  return pts.map(([t, l]) => t + ":" + String(l).replace(".", ",")).join("  ");
+}
+function textToPoints(text){
+  const toks = String(text).split(/[;\s]+/).filter(Boolean);
+  const pts = [];
+  for (const tok of toks) {
+    const m = tok.match(/^(-?\d+(?:[.,]\d+)?):(-?\d+(?:[.,]\d+)?)$/);
+    if (!m) return null;
+    pts.push([Number(m[1].replace(",", ".")), Number(m[2].replace(",", "."))]);
+  }
+  return pts;
+}
 
 function applyProfile(key){
-  const prof = SCENARIO_PROFILES.find(p => p[0] === key);
+  const prof = SCENARIO_PROFILES.find(p => p.key === key);
   if (!prof) return;
-  const def = prof[3];
   state.detector.sources.forEach(s => {
-    const isCem = s.name === "CEM1";
+    const def = prof.sources[s.name];
+    if (!def) return;
     s.sensor = "scenario";
-    s.scenario = Object.assign({}, QUIET, isCem ? {setpointDuty: 0.5} : {}, isCem ? def.cem : def.temp);
-    if (isCem && def.cemEnabled) s.enabled = true;
+    s.enabled = def.enabled;
+    s.scenario = clone(def.scenario);
   });
   render();
 }
@@ -358,21 +533,27 @@ function profileOf(cfg){
   const realOf = name => name === "CEM1" ? "mlx90393" : "ds18b20";
   // Sin seccion (o sin clave sensor) rigen los compilados: sensores reales.
   if (sources.every(s => s.sensor === undefined || s.sensor === realOf(s.name))) return "real";
-  const match = SCENARIO_PROFILES.find(([, , , def]) => sources.every(s => {
+  const match = SCENARIO_PROFILES.find(prof => sources.every(s => {
+    const def = prof.sources[s.name];
+    if (!def) return true;
     if (s.sensor !== "scenario" || !s.scenario) return false;
-    const isCem = s.name === "CEM1";
-    if (isCem && def.cemEnabled && s.enabled !== true) return false;
-    const want = Object.assign({}, QUIET, isCem ? {setpointDuty: 0.5} : {}, isCem ? def.cem : def.temp);
-    return Object.keys(want).every(k => Number(s.scenario[k]) === want[k]);
+    // enabled ausente = el default compilado (CEM1 apagada, TEMP1 vigilada).
+    const enabled = s.enabled === undefined ? s.name !== "CEM1" : s.enabled;
+    if (enabled !== def.enabled) return false;
+    const sc = normalizeScenario(s.scenario);
+    const want = def.scenario;
+    return Object.keys(want).every(k => k === "points"
+      ? JSON.stringify(sc.points) === JSON.stringify(want.points)
+      : Number(sc[k]) === want[k]);
   }));
-  return match ? match[0] : "custom";
+  return match ? match.key : "custom";
 }
 
 function profileName(key){
   if (key === "real") return "sensores reales";
   if (key === "custom") return "personalizado (no coincide con ningun perfil)";
-  const p = SCENARIO_PROFILES.find(x => x[0] === key);
-  return p ? p[1] : key;
+  const p = SCENARIO_PROFILES.find(x => x.key === key);
+  return p ? p.name : key;
 }
 
 // Las etapas que el monitor pasa cuando el generador esta embebido:
@@ -431,13 +612,13 @@ function updateProfileMarks(){
     else
       h += row("enviado", "Enviado", enviadoProf ? esc(profileName(enviadoProf)) : "?",
                "config " + esc(enviado.configId || "?") + " · la placa confirmo y la grabo en la SD; " +
-               "se aplica cuando reinicie");
+               "se aplica cuando la placa vuelva a Principal (se reinicia sola)");
   }
   let nota;
   if (!EMBEDDED) nota = "queda en el archivo al descargarlo";
   else if (enviado && enviadoProf === form) nota = "mismo perfil que lo enviado";
   else if (!enviado && placa && placaProf === form) nota = "mismo perfil que la placa";
-  else nota = "sin enviar: no corre en la placa hasta enviarlo y reiniciarla";
+  else nota = "sin enviar: no corre en la placa hasta enviarlo";
   h += row("form", "Editando", esc(profileName(form)), nota);
   box.innerHTML = h;
 }
@@ -697,12 +878,14 @@ function sDetector(){
     '<p class="hint">Con <code>sensor: scenario</code> el Mega no lee el sensor: calcula la lectura y la ' +
     'pasa por toda la logica real (Detector, alertas, corte, pantalla y monitor remoto). La senal se mide ' +
     'en <b>niveles</b> relativos a los rangos que se elijan en pantalla: <b>0</b> = centro del normal, ' +
-    '<b>1</b> = borde del normal, <b>2</b> = borde del critico. Las corridas salen marcadas <b>PRUEBA</b> y, ' +
-    'si CEM1 no es el sensor real, <b>las bobinas no se energizan</b>. Un perfil completa las dos fuentes; ' +
-    'despues se puede ajustar cada numero.</p>' +
+    '<b>1</b> = borde del normal, <b>2</b> = borde del critico. La forma son hasta 8 <b>puntos</b> ' +
+    '<code>segundo:nivel</code> unidos por rectas (dos en el mismo segundo = salto), mas oscilacion y ruido. ' +
+    'Las corridas salen marcadas <b>PRUEBA</b> y, si CEM1 no es el sensor real, <b>las bobinas no se ' +
+    'energizan</b>. Un perfil completa las dos fuentes; despues se puede ajustar cada numero.</p>' +
     '<div class="etapas" id="profileStatus"></div><div class="grid">' +
-    SCENARIO_PROFILES.map(p => '<button type="button" class="prof" data-profile="' + p[0] + '" title="' +
-      esc(p[2]) + '">' + esc(p[1]) + '</button>').join("") +
+    SCENARIO_PROFILES.map(p => '<button type="button" class="prof" data-profile="' + p.key + '" title="' +
+      esc(p.description + " Esperado: " + expectText(p) + ". Duracion minima: " +
+          Math.ceil(p.minDuration / 60) + " min.") + '">' + esc(p.name) + '</button>').join("") +
     '<button type="button" class="prof" data-real="1" title="CEM1 con el MLX90393 y TEMP1 con el DS18B20">' +
     'Sensores reales</button></div></div>';
   state.detector.sources.forEach((s, i) => {
@@ -717,7 +900,12 @@ function sDetector(){
       num("detector.sources." + i + ".bufferSize", INT, "bufferSize — ventana (8 a 32)") +
       num("detector.sources." + i + ".maxMissedSamples", INT, "Lecturas perdidas antes del corte (1 a 20)");
     if (s.sensor === "scenario" && s.scenario) {
+      const pp = "detector.sources." + i + ".scenario.points";
       h += '</div><div class="grid" style="margin-top:10px">' +
+        '<label class="f" style="grid-column:1/-1"><span>Puntos de control (segundo:nivel, hasta 8; ' +
+        'ej. <code>0:0  60:0  60:2,5</code> = salto a 2,5 a los 60 s)</span>' +
+        '<input type="text" data-path="' + pp + '" data-kind="pts" value="' +
+        esc(pointsToText(getPath(pp))) + '"></label>' +
         SCENARIO_KEYS.map(([k, kind, lbl]) => num("detector.sources." + i + ".scenario." + k, kind, lbl)).join("") +
         (s.name === "CEM1"
           ? num("detector.sources." + i + ".scenario.setpointDuty", FLT, "Duty que da el objetivo (0 = sin planta)")
@@ -857,6 +1045,12 @@ function onEdit(e){
   const kind = el.dataset.kind;
   let v;
   if (kind === "bool") v = el.checked;
+  // Puntos del escenario: si el texto no se entiende se guarda tal cual
+  // (string) y validate() lo marca como error, en vez de perder lo escrito.
+  else if (kind === "pts"){
+    const pts = textToPoints(el.value);
+    v = pts === null ? el.value : pts;
+  }
   else if (kind === "str"){
     v = el.value;
     // address y channel de los ADS1115 son numericos aunque su widget sea un
@@ -1156,16 +1350,35 @@ function validate(){
       SCENARIO_KEYS.forEach(([k, , lbl]) => {
         if (!isNum(sc[k])) err(tag + ": " + lbl + " tiene que ser un numero.");
       });
-      ["noise", "stepAt", "oscPeriod", "dropAt"].forEach(k => {
+      ["noise", "oscPeriod", "dropAt"].forEach(k => {
         if (isNum(sc[k]) && sc[k] < 0)
           err(tag + ": " + k + " no puede ser negativo; el Mega lo ignora y deja el valor anterior.");
       });
+      const pts = sc.points;
+      const ptsErr = m => err(tag + ": puntos -- " + m + ". El Mega rechaza la lista entera y sigue " +
+                              "con los puntos que tenia.");
+      if (!Array.isArray(pts)) ptsErr('no se entiende "' + pts + '" (formato segundo:nivel, separados por espacios)');
+      else if (pts.length > SCENARIO_MAX_POINTS) ptsErr("son " + pts.length + ", el maximo es " + SCENARIO_MAX_POINTS);
+      else pts.forEach(([t, l], j) => {
+        if (!Number.isInteger(t) || t < 0 || t > SCENARIO_MAX_SECOND)
+          ptsErr("el segundo " + t + " tiene que ser entero, de 0 a " + SCENARIO_MAX_SECOND);
+        else if (j > 0 && t < pts[j - 1][0])
+          ptsErr("el segundo " + t + " va despues de " + pts[j - 1][0] + ": tienen que ir en orden");
+        if (!isNum(l) || Math.abs(l) > SCENARIO_MAX_LEVEL)
+          ptsErr("el nivel " + l + " tiene que estar entre -" + SCENARIO_MAX_LEVEL + " y " + SCENARIO_MAX_LEVEL);
+      });
+      const cadKey = SCENARIO_CADENCE[s.name];
+      const cad = cadKey && state.intervals && state.intervals.mega ? state.intervals.mega[cadKey] / 1000 : 0;
+      if (isNum(sc.oscAmp) && sc.oscAmp !== 0 && sc.oscPeriod > 0 && cad > 0 && sc.oscPeriod < 4 * cad)
+        warn(tag + ": la oscilacion (periodo " + sc.oscPeriod + " s) es demasiado rapida para la medicion " +
+             "(cada " + cad + " s): se lee deformada o no se ve. Usar un periodo de " + (4 * cad) + " s o mas.");
+      if (s.name === "CEM1" && sc.setpointDuty > 0 && state.control && state.control.enabled === false)
+        warn(tag + ": con el lazo apagado (control.enabled false) el duty queda en 0 y la planta da campo 0: " +
+             "CEM1 se lee fuera de rango toda la corrida. Usar duty que da el objetivo 0 (sin planta).");
       if (s.name === "CEM1" && (!isNum(sc.setpointDuty) || sc.setpointDuty < 0 || sc.setpointDuty > 1))
         err(tag + ": el duty que da el objetivo tiene que estar entre 0 y 1.");
       if (isNum(sc.oscAmp) && sc.oscAmp !== 0 && !(sc.oscPeriod > 0))
         warn(tag + ": hay amplitud de oscilacion pero periodo 0, asi que no oscila.");
-      if (isNum(sc.stepAt) && sc.stepAt > 0 && sc.stepAt < 10)
-        warn(tag + ": el salto ocurre antes de los 10 s de estabilizacion; el Detector recien lo ve despues.");
     }
     if (s.name === "CEM1" && (s.sensor === "sim" || s.sensor === "scenario"))
       warn("CEM1 no es el sensor real: el lazo regula contra un campo inventado, asi que la etapa de " +
@@ -1505,9 +1718,12 @@ function loadParsed(parsed){
   delete state.control.tare;
   // Una fuente sin `scenario` toma el de fabrica, para que elegir el
   // sensor "scenario" en el formulario tenga numeros que editar.
+  // Uno con las claves de la tarjeta 22 (base/ramp/stepAt/step) se pasa a
+  // puntos: el firmware ya no las lee.
   state.detector.sources.forEach(s => {
     const def = DEFAULTS.detector.sources.find(d => d.name === s.name);
     if (!s.scenario && def) s.scenario = clone(def.scenario);
+    else if (s.scenario) s.scenario = normalizeScenario(s.scenario);
   });
   render();
 }

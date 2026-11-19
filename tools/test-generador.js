@@ -43,7 +43,7 @@ var __t = {
   get errors(){ return errors; }, get warns(){ return warns; },
   get state(){ return state; }, set state(v){ state = v; },
   DEFAULTS: DEFAULTS, validate: validate, buildJson: buildJson, loadParsed: loadParsed,
-  SCENARIO_PROFILES: SCENARIO_PROFILES
+  SCENARIO_PROFILES: SCENARIO_PROFILES, SCENARIO_FILE: SCENARIO_FILE
 };`, ctx);
 const T = ctx.__t;
 
@@ -246,28 +246,41 @@ expectError("setpointDuty fuera de 0..1 bloquea la descarga",
 expectWarn("oscilacion sin periodo avisa que no oscila",
   st => { st.detector.sources[0].sensor = "scenario"; st.detector.sources[0].scenario.oscAmp = 1; }, "no oscila");
 
-// Los perfiles: tienen que dejar las dos fuentes en escenario, con la senal
-// que dicen, y sin errores -- un perfil que no se puede descargar no sirve.
+// Los perfiles son una COPIA de tools/escenarios.json (el generador abre sin
+// servidor y no puede leerlo). Si difieren, el Mega comprueba unos perfiles y
+// el generador ofrece otros.
+const archivoPerfiles = JSON.parse(fs.readFileSync(path.join(REPO, "tools/escenarios.json"), "utf8"));
+check("los perfiles del generador son identicos a tools/escenarios.json",
+      JSON.stringify(ctx.__t.SCENARIO_FILE) === JSON.stringify(archivoPerfiles),
+      "copiar tools/escenarios.json en SCENARIO_FILE de tools/generador-config.html");
+
+// Cada perfil: las dos fuentes en escenario, con la senal y la vigilancia que
+// dice el archivo, y sin errores -- un perfil que no se puede descargar no sirve.
 const profileOf = key => {
   reset();
   ctx.applyProfile(key);
   T.validate();
   return T.state.detector.sources;
 };
+let perfilesSinError = true;
+T.SCENARIO_PROFILES.forEach(prof => {
+  const src = profileOf(prof.key);
+  if (T.errors.length) { perfilesSinError = false; console.log("       " + prof.key + ": " + T.errors.join(" | ")); }
+  src.forEach(s => {
+    const def = prof.sources[s.name];
+    if (s.sensor !== "scenario" || s.enabled !== def.enabled ||
+        JSON.stringify(s.scenario) !== JSON.stringify(def.scenario)) {
+      perfilesSinError = false; console.log("       " + prof.key + "/" + s.name + " no quedo como el archivo");
+    }
+  });
+});
+check("cada perfil deja las fuentes como dice el archivo, sin errores", perfilesSinError);
 let src = profileOf("tempAlta");
-check("perfil temperatura alta: las dos fuentes en escenario",
-      src.every(s => s.sensor === "scenario"));
 check("perfil temperatura alta: TEMP1 salta a +2,5 a los 60 s",
-      src[1].scenario.stepAt === 60 && src[1].scenario.step === 2.5);
-check("perfil temperatura alta: sin errores", T.errors.length === 0, T.errors.join(" | "));
-src = profileOf("campoInestable");
-check("perfil campo inestable: prende CEM1 en el Detector (viene apagada)", src[0].enabled === true);
-check("perfil campo inestable: CEM1 conserva la planta", src[0].scenario.setpointDuty === 0.5);
+      JSON.stringify(src[1].scenario.points) === "[[0,0],[60,0],[60,2.5]]");
 src = profileOf("campoFuera");
-check("perfil campo fuera de rango: CEM1 sin planta", src[0].scenario.setpointDuty === 0);
-src = profileOf("normal");
-check("perfil todo normal: sin errores", T.errors.length === 0, T.errors.join(" | "));
-check("perfil todo normal: CEM1 sigue apagada en el Detector", src[0].enabled === false);
+check("perfil campo fuera de rango: CEM1 sin planta y vigilada",
+      src[0].scenario.setpointDuty === 0 && src[0].enabled === true);
 reset();
 ctx.applyProfile("tempAlta");
 ctx.realSensors();
@@ -279,12 +292,12 @@ check("volver a sensores reales restaura mlx90393 / ds18b20",
 // reconocer los sensores reales (incluida una config sin seccion detector,
 // que es como corre una placa sin tarjeta).
 let perfilesOk = true;
-T.SCENARIO_PROFILES.forEach(([key]) => {
-  reset(); ctx.applyProfile(key);
-  if (ctx.profileOf(T.state) !== key) { perfilesOk = false; console.log("       no reconoce " + key); }
+T.SCENARIO_PROFILES.forEach(prof => {
+  reset(); ctx.applyProfile(prof.key);
+  if (ctx.profileOf(T.state) !== prof.key) { perfilesOk = false; console.log("       no reconoce " + prof.key); }
 });
 check("cada perfil aplicado se reconoce como tal", perfilesOk);
-reset(); ctx.applyProfile("tempAlta"); T.state.detector.sources[1].scenario.step = 3;
+reset(); ctx.applyProfile("tempAlta"); T.state.detector.sources[1].scenario.points[2][1] = 3;
 check("un perfil editado a mano pasa a personalizado", ctx.profileOf(T.state) === "custom");
 reset();
 check("los defaults son sensores reales", ctx.profileOf(T.state) === "real");
@@ -294,8 +307,54 @@ check("TEMP1 en none no es ningun perfil", ctx.profileOf(T.state) === "custom");
 reset(); ctx.applyProfile("campoInestable"); T.state.detector.sources[0].enabled = false;
 check("campo inestable con CEM1 sin vigilar no se marca como ese perfil",
       ctx.profileOf(T.state) !== "campoInestable");
-reset(); ctx.applyProfile("normal");
-check("perfil todo normal no se confunde con otro", ctx.profileOf(T.state) === "normal");
+
+console.log("\n== Escenarios: puntos de control ==");
+expectError("mas de 8 puntos bloquea la descarga",
+  st => { st.detector.sources[1].sensor = "scenario";
+          st.detector.sources[1].scenario.points = Array.from({length: 9}, (_, k) => [k * 10, 0]); }, "maximo es 8");
+expectError("segundos fuera de orden bloquean la descarga",
+  st => { st.detector.sources[1].sensor = "scenario";
+          st.detector.sources[1].scenario.points = [[60, 1], [30, 2]]; }, "en orden");
+expectError("un segundo con decimales bloquea la descarga",
+  st => { st.detector.sources[1].sensor = "scenario";
+          st.detector.sources[1].scenario.points = [[30.5, 1]]; }, "entero");
+expectError("un nivel mayor a 10 bloquea la descarga",
+  st => { st.detector.sources[1].sensor = "scenario";
+          st.detector.sources[1].scenario.points = [[0, 0], [60, 12]]; }, "entre -10 y 10");
+expectError("un texto de puntos que no se entiende bloquea la descarga",
+  st => { st.detector.sources[1].sensor = "scenario";
+          st.detector.sources[1].scenario.points = "0:0 sesenta:2"; }, "no se entiende");
+check("el texto de puntos acepta coma decimal y salto en el mismo segundo",
+      JSON.stringify(ctx.textToPoints("0:0  60:0 60:2,5")) === "[[0,0],[60,0],[60,2.5]]");
+check("puntos -> texto -> puntos no cambia nada",
+      JSON.stringify(ctx.textToPoints(ctx.pointsToText([[0, 0], [60, -1.25]]))) === "[[0,0],[60,-1.25]]");
+expectWarn("una oscilacion de 4 s en CEM1 (medida cada 2 s) avisa que no se ve",
+  st => { st.detector.sources[0].sensor = "scenario";
+          st.detector.sources[0].scenario.oscAmp = 1.6; st.detector.sources[0].scenario.oscPeriod = 4; },
+  "demasiado rapida");
+expectWarn("planta de CEM1 con el lazo apagado avisa que el campo queda en 0",
+  st => { st.detector.sources[0].sensor = "scenario"; st.control.enabled = false; }, "lazo apagado");
+
+// Una tarjeta escrita con el formato de la tarjeta 22 se lee como la misma
+// senal en puntos, y no vuelve a escribir las claves viejas (el firmware ya
+// no las lee).
+const viejo = sc => ctx.normalizeScenario(Object.assign({noise: 0.1, oscAmp: 0, oscPeriod: 0, dropAt: 0}, sc));
+check("formato viejo: salto -> dos puntos en el mismo segundo",
+      JSON.stringify(viejo({base: 0, ramp: 0, stepAt: 60, step: 2.5}).points) === "[[0,0],[60,0],[60,2.5]]");
+check("formato viejo: rampa -> recta hasta el tope de nivel",
+      JSON.stringify(viejo({base: 0, ramp: 1, stepAt: 0, step: 0}).points) === "[[0,0],[600,10]]");
+check("formato viejo: todo en 0 -> sin puntos",
+      JSON.stringify(viejo({base: 0, ramp: 0, stepAt: 0, step: 0}).points) === "[]");
+const conv = viejo({base: 0, ramp: 0, stepAt: 60, step: 2.5});
+check("formato viejo: no quedan base/ramp/stepAt/step",
+      !["base", "ramp", "stepAt", "step"].some(k => k in conv));
+reset();
+const cargado = JSON.parse(JSON.stringify(T.DEFAULTS));
+cargado.detector.sources[1].sensor = "scenario";
+cargado.detector.sources[1].scenario = {base: 0, noise: 0.1, ramp: 0, stepAt: 60, step: 2.5, oscAmp: 0, oscPeriod: 0, dropAt: 0};
+T.loadParsed(cargado);
+check("cargar un archivo con el formato viejo lo convierte a puntos",
+      JSON.stringify(T.state.detector.sources[1].scenario.points) === "[[0,0],[60,0],[60,2.5]]");
 
 console.log("\n== Direccion del DS18B20 (TEMP1) ==");
 // La del sensor original: real, su CRC tiene que dar.

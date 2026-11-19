@@ -551,8 +551,8 @@ Se aplica en el proximo start, como el resto de la fuente.
 
 ```json
 "scenario": {
-  "base": 0, "noise": 0.1, "ramp": 0,
-  "stepAt": 60, "step": 2.5,
+  "points": [[0, 0], [60, 0], [60, 2.5]],
+  "noise": 0.1,
   "oscAmp": 0, "oscPeriod": 0,
   "dropAt": 0,
   "setpointDuty": 0.5
@@ -579,13 +579,37 @@ igual a medio rango normal.
 
 | Clave | Que es |
 |---|---|
-| `base` | nivel de partida |
+| `points` | hasta **8** puntos de control `[segundo, nivel]`, unidos por rectas (ver abajo) |
 | `noise` | amplitud de un ruido uniforme, en niveles (>= 0) |
-| `ramp` | niveles por minuto |
-| `stepAt`, `step` | a los `stepAt` segundos del start se suman `step` niveles (0 = sin salto) |
-| `oscAmp`, `oscPeriod` | oscilacion senoidal; sin periodo (0) no oscila |
+| `oscAmp`, `oscPeriod` | oscilacion senoidal sumada a los puntos; sin periodo (0) no oscila |
 | `dropAt` | a partir de ese segundo el sensor deja de dar lecturas (0 = nunca) |
 | `setpointDuty` | **solo CEM1**: el duty comun con el que las bobinas alcanzan el objetivo (0..1) |
+
+**Los puntos de control** dibujan la forma de la senal:
+
+- Entre dos puntos, el nivel va en linea recta. Antes del primero vale el
+  primero; despues del ultimo, el ultimo. Sin puntos (`[]`), nivel 0.
+- **Dos puntos en el mismo segundo son un salto**: `[[60, 0], [60, 2.5]]`
+  vale 0 hasta el segundo 60 y 2,5 desde ahi.
+- Segundos **enteros**, 0..65535, **sin bajar** de un punto al siguiente.
+  Niveles entre **-10 y 10**, guardados con dos decimales.
+- El Mega valida la lista **entera**: si un punto falla se descarta toda y
+  quedan los puntos anteriores (mismo contrato que las reglas: media senal
+  corre una prueba que nadie dibujo).
+
+Reemplazan a `base`/`ramp`/`stepAt`/`step` (tarjeta 22), que eran casos
+particulares: una rampa son dos puntos, un salto dos puntos en el mismo
+segundo, y con puntos entran formas que antes no (subir, mantener y
+recuperarse). Un archivo con las claves viejas **las ignora** (la ESP32 lo
+avisa en el log); el generador las convierte a puntos al abrirlo. Se eligio
+puntos y no un arreglo de muestras por la RAM del Mega: 8 puntos son 32
+bytes por senal, una hora de TEMP1 muestreada cada 5 s serian 2,9 KB.
+
+**La oscilacion tiene que ser lenta respecto de la medicion.** CEM1 se mide
+cada 2 s y TEMP1 cada 5 s (`intervals.mega`): un periodo menor a ~4 veces la
+cadencia se ve deformado o directamente desaparece. El "campo inestable" de
+la tarjeta 22 oscilaba cada 4 s, medido cada 2 s: se leia siempre en la misma
+fase y no alertaba nunca.
 
 `setpointDuty` es la *planta* de CEM1: el campo es lo que producen las bobinas
 (`objetivo x duty / setpointDuty`) mas la perturbacion del nivel. El lazo
@@ -594,19 +618,39 @@ perturbacion lenta, como haria con bobinas reales. Con `setpointDuty: 0` no hay
 planta y el campo es el nivel tal cual: es lo que se usa para forzar un campo
 fuera de rango.
 
+**Con planta y sin punto en el mapa (`control.map`), el lazo arranca en
+`setpointDuty`**, no en 0 (`Engine::_scenarioStartDuty`). Desde 0, con
+`maxStep` 0,05 cada 2 s, el lazo tardaba ~20 s en llegar al objetivo -- mas que
+los 10 s de estabilizacion -- y todo escenario que vigilara CEM1 cortaba por
+`critical` a los ~16 s, por el arranque y no por el escenario. Esto **no**
+cambia nada con bobinas reales: ahi, sin punto mapeado, el lazo sigue
+arrancando de 0 y tiene ese mismo problema, que es para lo que existe el mapa.
+
+En **campo nulo** la planta no interviene (el objetivo es 0, asi que
+`objetivo x duty / setpointDuty` es 0) y como el magnetometro mide modulo, los
+niveles negativos se leen como 0. Un escenario de CEM1 en campo nulo solo
+prueba niveles >= 0 contra la banda centrada en 0.
+
 Los tiempos cuentan desde el start, e incluyen los 10 s de estabilizacion
 (`settlingTime`) en los que el Detector no evalua: un salto antes de eso se ve
 recien al terminar la ventana.
 
-El generador trae perfiles listos (todo normal, temperatura alta, temperatura
-que sube, campo inestable, campo fuera de rango, sensor de temperatura caido)
-que completan los numeros de las dos fuentes. "Sensor caido" es la prueba de
-banco del corte por silencio (`maxMissedSamples`, arriba): TEMP1 deja de medir
-a los 90 s y la corrida corta a los ~105 s.
+Los perfiles listos viven en **`tools/escenarios.json`**, que es su fuente
+unica: cada uno declara que debe pasar (`expect`: termina, o corta por tal
+regla de tal fuente a los ~N s) y la duracion minima de corrida que necesita.
+`mega2560/test/test_scenario_runs` corre cada perfil contra el Detector, el
+lazo y los sensores de escenario reales, con cinco combinaciones de rangos de
+los menus y tres fases de muestreo, y falla si el final no es el prometido. El
+generador embebe una copia. "Sensor caido" es la prueba de banco del corte por
+silencio (`maxMissedSamples`, arriba): TEMP1 deja de medir a los 90 s y la
+corrida corta a los ~101 s.
 
-Por serie viaja en `config_scenario` (seccion 10.1) con claves cortas
-(`b n r sa s oa op da d`) porque una fuente con las 9 apenas entra en 256
-bytes.
+Por serie viaja en dos frames (seccion 10.1): `config_scenario` con los
+parametros en claves cortas (`n oa op da d`) y `config_scenario_pts` con los
+puntos como lista **plana** `[t0, n0, t1, n1, ...]` (cada sublista le costaria
+al Mega un slot mas de ArduinoJson al parsear). El de puntos se manda siempre
+que la fuente traiga `scenario`, vacio si no trae `points`, para borrar los
+de una tarjeta anterior.
 
 ### `address` — direccion del DS18B20 (solo TEMP1)
 
@@ -956,8 +1000,9 @@ trajo. Por eso la configuracion se envia **fragmentada** y
 | 9..14 | `config_rule` | una regla de una fuente (`source`, `rule`, threshold, cooldown, maxEvents) |
 | 15..18 | `config_current` | un canal de `currentSensors` cada uno, identificado por (`address`, `channel`) |
 | 19 | `config_detector` | `enabled` (el interruptor general del Detector), solo si el archivo lo trae |
-| 20..21 | `config_scenario` | la senal sintetica de una fuente, con claves cortas, solo si el archivo la trae |
-| 22..30 | `config_map` | un punto de `control.map`: `k` (indice), `n` (cuantos trae la tarjeta), `i` intensidad, `f` frecuencia, `d` duty, `b` balance |
+| 20..21 | `config_scenario` | los parametros de la senal sintetica de una fuente (`n oa op da d`), solo si el archivo trae `scenario` |
+| 22..23 | `config_scenario_pts` | los puntos de control de esa senal, lista plana `[t0, n0, ...]` (vacia = borrar), siempre que haya `scenario` |
+| 24..32 | `config_map` | un punto de `control.map`: `k` (indice), `n` (cuantos trae la tarjeta), `i` intensidad, `f` frecuencia, `d` duty, `b` balance |
 
 Una fuente entera en un solo frame ronda los 290 caracteres con el envelope
 y **no entra**: de ahi la division cabecera + 3 reglas. Hay un test que lo
@@ -992,6 +1037,7 @@ constexpr const char* ConfigRule      = "config_rule";
 constexpr const char* ConfigCurrent   = "config_current";
 constexpr const char* ConfigDetector  = "config_detector";
 constexpr const char* ConfigScenario  = "config_scenario";
+constexpr const char* ConfigScenarioPoints = "config_scenario_pts";
 constexpr const char* ConfigMap       = "config_map";
 ```
 

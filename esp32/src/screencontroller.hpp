@@ -1180,8 +1180,10 @@ inline void ResultadoController::_applyResult() {
   // con la misma configuracion que acaba de disparar un limite lo mas
   // probable es que vuelva a cortar igual. Hay que revisar la causa (o la
   // configuracion) antes, y para eso hay que salir de esta pantalla. Con
-  // motivo desconocido tampoco: no se sabe si fue un limite.
-  bool hideRepeat = isCritical || isRefused || isUnknown;
+  // motivo desconocido tampoco: no se sabe si fue un limite. Y tampoco con
+  // una configuracion remota esperando el reinicio: correria con la vieja
+  // (ver MySystem::_rebootForConfigIfIdle).
+  bool hideRepeat = isCritical || isRefused || isUnknown || _data.configRebootPending;
   if (hideRepeat) lv_obj_add_flag(ui_ButtonResultadoRepetir, LV_OBJ_FLAG_HIDDEN);
   else            lv_obj_remove_flag(ui_ButtonResultadoRepetir, LV_OBJ_FLAG_HIDDEN);
 
@@ -1210,6 +1212,10 @@ inline void ResultadoController::_applyResult() {
 
 inline void ResultadoController::update() {
   _updateStatusIcons();
+  // La configuracion puede llegar con esta pantalla ya abierta.
+  if (_data.configRebootPending && !lv_obj_has_flag(ui_ButtonResultadoRepetir, LV_OBJ_FLAG_HIDDEN)) {
+    lv_obj_add_flag(ui_ButtonResultadoRepetir, LV_OBJ_FLAG_HIDDEN);
+  }
 }
 
 static void btnResultadoVolverClick(lv_event_t * e) {

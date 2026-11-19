@@ -178,11 +178,8 @@
           }
         },
         "scenario": {
-          "base": 0,
+          "points": [],
           "noise": 0.1,
-          "ramp": 0,
-          "stepAt": 0,
-          "step": 0,
           "oscAmp": 0,
           "oscPeriod": 0,
           "dropAt": 0,
@@ -216,11 +213,8 @@
           }
         },
         "scenario": {
-          "base": 0,
+          "points": [],
           "noise": 0.1,
-          "ramp": 0,
-          "stepAt": 0,
-          "step": 0,
           "oscAmp": 0,
           "oscPeriod": 0,
           "dropAt": 0

@@ -190,8 +190,13 @@
         <span class="det">Si dice "valores de fábrica", el texto dice por qué: sin tarjeta, sin archivo, JSON
           inválido, schemaVersion vieja.</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f1-remota">
-        <span class="que">Configuración remota: enviar un cambio → "La placa confirmó" → reiniciar → "Vigente"</span>
-        <span class="det">En el bloque de etapas del generador: Enviado pasa a En la placa.</span></label></li>
+        <span class="que">Configuración remota: con la placa en Principal, enviar un cambio → "La placa confirmó" → se reinicia sola → "Vigente"</span>
+        <span class="det">En el bloque de etapas del generador: Enviado pasa a En la placa. Log de la ESP32:
+          <code>[CONFIG] reiniciando para aplicar la configuracion nueva</code>.</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f1-remota-resultado">
+        <span class="que">Enviar con la placa en Resultado: no se reinicia, REPETIR desaparece; al tocar Volver se reinicia</span>
+        <span class="det">Lo mismo en Configuraciones (al volver a Principal). Con un experimento en curso
+          el envío se rechaza: "Rechazada: hay un experimento en curso".</span></label></li>
     </ul>
     <label class="notas"><span>Notas</span><textarea data-nota="1"></textarea></label>
   </section>
@@ -217,21 +222,31 @@
     <div class="fase-cab"><h2>Fase 3 · Corridas completas sin sensores</h2><span class="cuenta"></span></div>
     <p class="intro">CEM1 y TEMP1 en <code>scenario</code>: el Mega inventa las lecturas pero todo lo demás es
       real (Detector, cortes, pantallas, monitor). <b>No se energiza nada.</b> Cargar cada perfil desde el
-      generador y elegir <b>5 minutos</b> de duración (1 minuto para "Todo normal").</p>
+      generador y elegir <b>5 minutos</b> de duración (1 minuto alcanza para "Todo normal"). Los tiempos
+      son los que fija <code>tools/escenarios.json</code> y comprueba <code>test_scenario_runs</code>
+      en native; en la placa pueden correrse unos segundos.</p>
     <div class="tabla"><table>
       <tr><th>Perfil</th><th>Resultado esperado</th></tr>
-      <tr><td>Todo normal</td><td>Termina <b>completed</b></td></tr>
-      <tr><td>Temperatura alta</td><td>Corte <b>critical</b> de TEMP1 poco después de los 60 s</td></tr>
-      <tr><td>Sensor de temperatura caído</td><td>Corte a los ~105 s, <b>TEMP1 SIN LECTURAS</b></td></tr>
-      <tr><td>Campo fuera de rango</td><td>Corte <b>critical</b> de CEM1</td></tr>
-      <tr><td>Campo inestable</td><td>Alertas amarillas, sin corte</td></tr>
+      <tr><td>Todo normal</td><td>Termina <b>completed</b>, sin alertas</td></tr>
+      <tr><td>Temperatura alta</td><td>Corte <b>critical</b> de TEMP1 a los ~75 s</td></tr>
+      <tr><td>Temperatura que sube</td><td>Alertas de racha desde ~90 s, corte <b>critical</b> de TEMP1 a los ~125 s</td></tr>
+      <tr><td>Temperatura que se recupera</td><td>Alertas de racha (amarillas) y termina <b>completed</b></td></tr>
+      <tr><td>Temperatura en advertencia sostenida</td><td>Corte por <b>racha</b> de TEMP1 a los ~145 s, sin alertas rojas</td></tr>
+      <tr><td>Perturbación compensada por el lazo</td><td>Termina <b>completed</b>; en En curso el duty baja de ~50 % a partir de los 60 s</td></tr>
+      <tr><td>Campo inestable</td><td>Alertas amarillas de CEM1, corte por <b>frecuencia</b> a los ~130 s</td></tr>
+      <tr><td>Campo fuera de rango</td><td>Corte <b>critical</b> de CEM1 a los ~68 s</td></tr>
+      <tr><td>Sensor de temperatura caído</td><td>Corte a los ~101 s, <b>TEMP1 SIN LECTURAS</b></td></tr>
     </table></div>
     <ul class="items">
       <li><label class="item"><input type="checkbox" data-id="f3-normal"><span class="que">Todo normal → completed</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f3-tempalta"><span class="que">Temperatura alta → critical TEMP1</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f3-tempsube"><span class="que">Temperatura que sube → rachas, después critical TEMP1</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f3-temprecupera"><span class="que">Temperatura que se recupera → rachas, completed</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f3-tempadvertencia"><span class="que">Advertencia sostenida → corte por racha de TEMP1</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f3-compensado"><span class="que">Perturbación compensada → completed, el duty baja</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f3-caido"><span class="que">Sensor caído → TEMP1 SIN LECTURAS</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f3-campofuera"><span class="que">Campo fuera de rango → critical CEM1</span></label></li>
-      <li><label class="item"><input type="checkbox" data-id="f3-inestable"><span class="que">Campo inestable → alertas sin corte</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f3-inestable"><span class="que">Campo inestable → corte por frecuencia de CEM1</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f3-pantallas">
         <span class="que">En cada corrida: En curso, Resultado y monitor coherentes</span>
         <span class="det">En curso muestra el duty que se aplicaría. Resultado con el motivo correcto
@@ -273,7 +288,7 @@
         <span class="det">Ya sale en el formato del archivo: <code>28:3F:E5:57:04:E1:3D:ED</code>. Con 0 sensores:
           cableado o resistencia de pull-up del bus.</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f4-ds-carga">
-        <span class="que">Cargarla en el generador (TEMP1 → sensor <code>ds18b20</code> → Dirección), enviar y reiniciar</span>
+        <span class="que">Cargarla en el generador (TEMP1 → sensor <code>ds18b20</code> → Dirección) y enviar (la placa se reinicia sola en Principal)</span>
         <span class="det">En el log del Mega: <code>[CONFIG_SOURCE] TEMP1 DS18B20 en …</code>. Si dice
           "rechazada", el motivo indica si es el largo, la familia o un dígito mal copiado (CRC).</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f4-ds-lee">

@@ -80,9 +80,10 @@ class MySystem :
     // y reenviados por Tasks::ReSendConfig hasta que cada uno tenga su ack
     // (docs/config-schema.md seccion 10). Tope: 1 (intervals) + 1 (control)
     // + 1 (detector) + 4 (coils) + 2 (sources) + 6 (3 reglas x 2 fuentes)
-    // + 2 (escenarios) + 4 (canales de corriente) + 9 (puntos del mapa) = 30.
+    // + 2 (escenarios) + 2 (puntos de escenario) + 4 (canales de corriente)
+    // + 9 (puntos del mapa) = 32.
     static constexpr uint8_t MaxPendingConfigFrames =
-      3 + ConfigLoader::MaxCoils + ConfigLoader::MaxDetectorSources * 5
+      3 + ConfigLoader::MaxCoils + ConfigLoader::MaxDetectorSources * 6
       + ConfigLoader::MaxCurrentSensors + ConfigLoader::MaxMapPoints;
     struct PendingConfigFrame {
       bool active = false;
@@ -131,6 +132,7 @@ class MySystem :
     void _buildConfigCoilDoc(JsonDocument& doc, const ConfigLoader::CoilConfig& coil);
     void _buildConfigSourceDoc(JsonDocument& doc, const ConfigLoader::SourceConfigEntry& source);
     void _buildConfigScenarioDoc(JsonDocument& doc, const ConfigLoader::SourceConfigEntry& source);
+    void _buildConfigScenarioPointsDoc(JsonDocument& doc, const ConfigLoader::SourceConfigEntry& source);
     void _buildConfigRuleDoc(JsonDocument& doc, const char* sourceName, const char* ruleName, const ConfigLoader::RuleConfig& rule);
     void _buildConfigCurrentDoc(JsonDocument& doc, const ConfigLoader::CurrentSensorConfigEntry& sensor);
     const ConfigLoader::RuleConfig* _findRuleConfig(const ConfigLoader::SourceConfigEntry& source, const char* ruleName);
@@ -164,6 +166,11 @@ class MySystem :
     bool publishConfigMessage(const char* topic, const char* payload, bool retain) override;
     bool publishQueueIdle() override;
     bool experimentInProgress() override;
+    void onConfigAccepted() override;
+    void _rebootForConfigIfIdle();
+    static constexpr unsigned long ConfigRebootMinDelayMs = 2000;
+    static constexpr unsigned long ConfigRebootMaxWaitMs = 10000;
+    unsigned long _configAcceptedAt = 0;
     void onScreenChanged(ScreenType from, ScreenType to) override;
     void onScreenEvent(ScreenEvent e) override;
     void onStateChanged(const char* oldState, const char* newState) override;
@@ -260,6 +267,41 @@ inline void MySystem::update() {
   _timer.tick();
   _updateRemoteConfig();
   _answerPings();
+  _rebootForConfigIfIdle();
+}
+
+// Configuracion remota aceptada (grabada en la SD): se aplica reiniciando,
+// sin que nadie tenga que apretar nada (opcion A del 2026-11-19), pero SOLO
+// con la pantalla en Principal y sin corrida:
+//   - Durante una corrida no puede pasar: el receptor rechaza la config
+//     ("ocupada") mientras haya un experimento en curso, y aca se vuelve a
+//     mirar por si alguien apreto Iniciar entre la aceptacion y el reinicio.
+//   - En Resultado, reiniciar le borraria al operador el resultado que esta
+//     leyendo (queda en el historial del monitor, pero no en la pantalla);
+//     en Configuraciones perderia lo que esta editando. Se espera a que
+//     vuelva a Principal. Mientras tanto REPETIR se oculta: correria con la
+//     configuracion vieja, distinta de la que el monitor dio por aceptada.
+// Antes de reiniciar se espera a que salga el "aceptada" (cola de
+// publicacion vacia, o 10 s si el broker no la vacia) y un minimo de 2 s.
+// El Mega no se entera: esta en reposo, y al volver el enlace serie se le
+// reenvia toda la configuracion (onSerialConnected).
+inline void MySystem::onConfigAccepted() {
+  _configAcceptedAt = millis();
+  _data.configRebootPending = true;
+  DEBUG_PRINTLN(DEBUG_MYSYSTEM, "[CONFIG] grabada: la placa se reinicia en la pantalla principal");
+}
+
+inline void MySystem::_rebootForConfigIfIdle() {
+  if (!_data.configRebootPending) return;
+  unsigned long waited = millis() - _configAcceptedAt;
+  if (waited < ConfigRebootMinDelayMs) return;
+  if (!publishQueueIdle() && waited < ConfigRebootMaxWaitMs) return;
+  if (experimentInProgress()) return;
+  IScreen* current = _screenManager.getCurrent();
+  if (current == nullptr || current->getType() != ScreenType::PRINCIPAL) return;
+  DEBUG_PRINTLN(DEBUG_MYSYSTEM, "[CONFIG] reiniciando para aplicar la configuracion nueva");
+  delay(100);   // que el log salga por USB
+  ESP.restart();
 }
 
 // Contesta los pings del monitor con lo minimo para saber que la placa esta
@@ -606,20 +648,32 @@ inline void MySystem::_buildConfigCoilDoc(JsonDocument& doc, const ConfigLoader:
 // Solo la cabecera de la fuente: las 3 reglas van en frames config_rule
 // aparte porque una fuente entera NO entra en un frame (ver
 // test_serialframes en el Mega, que fija ese limite).
-// Claves cortas: el frame tiene 256 bytes y una fuente puede traer las 9
+// Claves cortas: el frame tiene 256 bytes
 // (test_config_scenario_fits_with_every_key, en el Mega, fija el presupuesto).
+// La forma de la senal (puntos de control) va aparte, en config_scenario_pts.
 inline void MySystem::_buildConfigScenarioDoc(JsonDocument& doc, const ConfigLoader::SourceConfigEntry& source) {
   const ConfigLoader::ScenarioConfig& s = source.scenario;
   doc["name"] = source.name;
-  if (s.base.has)         doc["b"]  = s.base.value;
   if (s.noise.has)        doc["n"]  = s.noise.value;
-  if (s.ramp.has)         doc["r"]  = s.ramp.value;
-  if (s.stepAt.has)       doc["sa"] = s.stepAt.value;
-  if (s.step.has)         doc["s"]  = s.step.value;
   if (s.oscAmp.has)       doc["oa"] = s.oscAmp.value;
   if (s.oscPeriod.has)    doc["op"] = s.oscPeriod.value;
   if (s.dropAt.has)       doc["da"] = s.dropAt.value;
   if (s.setpointDuty.has) doc["d"]  = s.setpointDuty.value;
+}
+
+// Lista PLANA [t0, n0, t1, n1, ...]: en el Mega cada subarreglo costaria un
+// slot mas de ArduinoJson al parsear. Vacia si el archivo no trae puntos:
+// asi el Mega borra los de una tarjeta anterior (nivel 0). El nivel se
+// redondea a centesimas, que es lo que el Mega guarda
+// (test_config_scenario_points_fit_with_eight_points fija el presupuesto).
+inline void MySystem::_buildConfigScenarioPointsDoc(JsonDocument& doc, const ConfigLoader::SourceConfigEntry& source) {
+  const ConfigLoader::ScenarioConfig& s = source.scenario;
+  doc["name"] = source.name;
+  JsonArray list = doc["p"].to<JsonArray>();
+  for (uint8_t i = 0; i < s.pointCount; i++) {
+    list.add(s.pointTime[i]);
+    list.add(roundf(s.pointLevel[i] * 100.0f) / 100.0f);
+  }
 }
 
 inline void MySystem::_buildConfigSourceDoc(JsonDocument& doc, const ConfigLoader::SourceConfigEntry& source) {
@@ -718,6 +772,9 @@ inline void MySystem::_sendMegaConfig() {
     // tarjeta que lo trae es porque se piensa usar.
     if (sources[i].scenario.present) {
       _registerPendingConfig(Commands::ConfigScenario, sources[i].name);
+      if (sources[i].scenario.pointsValid) {
+        _registerPendingConfig(Commands::ConfigScenarioPoints, sources[i].name);
+      }
     }
 
     for (uint8_t r = 0; r < 3; r++) {
@@ -806,6 +863,14 @@ inline void MySystem::_resendPendingConfig() {
       }
       if (source == nullptr) continue;
       _buildConfigScenarioDoc(doc, *source);
+    }
+    else if (strcmp(command, Commands::ConfigScenarioPoints) == 0) {
+      const ConfigLoader::SourceConfigEntry* source = nullptr;
+      for (uint8_t s = 0; s < sourceCount; s++) {
+        if (strcmp(sources[s].name, key) == 0) source = &sources[s];
+      }
+      if (source == nullptr) continue;
+      _buildConfigScenarioPointsDoc(doc, *source);
     }
     else if (strcmp(command, Commands::ConfigRule) == 0) {
       // key es "<fuente>/<regla>"
@@ -1193,7 +1258,8 @@ inline void MySystem::onCommand(const char* command, JsonVariantConst params) {
         _cancelPendingConfig(ack, nullptr);
       }
       else if(strcmp(ack, Commands::ConfigCoil) == 0 || strcmp(ack, Commands::ConfigSource) == 0
-              || strcmp(ack, Commands::ConfigScenario) == 0) {
+              || strcmp(ack, Commands::ConfigScenario) == 0
+              || strcmp(ack, Commands::ConfigScenarioPoints) == 0) {
         _cancelPendingConfig(ack, params["name"] | "");
       }
       else if(strcmp(ack, Commands::ConfigMap) == 0) {
@@ -1586,6 +1652,13 @@ inline void MySystem::onScreenEvent(ScreenEvent e) {
   // pantalla Configuraciones no es alcanzable desde aca.
   else if(e.type == ScreenType::RESULT && e.name == EventName::Repeat) {
     DEBUG_PRINTLN(DEBUG_MYSYSTEM, "Procesando repetir!");
+    // Con una configuracion nueva esperando el reinicio, repetir correria
+    // con la vieja. El boton ya esta oculto; esto cubre el toque que llega
+    // en el mismo instante que la configuracion.
+    if(_data.configRebootPending) {
+      DEBUG_PRINTLN(DEBUG_MYSYSTEM, "Repetir ignorado: hay una configuracion nueva esperando el reinicio");
+      return;
+    }
     _data.result = ResultData();
 
     if(_benchWithoutMega()) {

@@ -70,6 +70,9 @@ namespace RemoteConfig {
       // del medio (el monitor descarta la config entera por CRC).
       virtual bool publishQueueIdle() = 0;
       virtual bool experimentInProgress() = 0;
+      // La configuracion nueva quedo grabada en la SD. MySystem programa el
+      // reinicio que la aplica (ver MySystem::_rebootForConfigIfIdle).
+      virtual void onConfigAccepted() {}
       virtual ~Output() {}
   };
 
@@ -283,7 +286,8 @@ namespace RemoteConfig {
           return;
         }
 
-        _status(out, _requestId, "aceptada", -1, "se aplica en el proximo reinicio", newId);
+        _status(out, _requestId, "aceptada", -1, "la placa se reinicia sola en la pantalla principal", newId);
+        out.onConfigAccepted();
         strncpy(_doneRequestId, _requestId, MaxRequestIdLength);
         _doneRequestId[MaxRequestIdLength] = '\0';
         strncpy(_doneNewId, newId, sizeof(_doneNewId) - 1);
@@ -314,7 +318,7 @@ namespace RemoteConfig {
         const char* data = doc["d"];
 
         if (_doneRequestId[0] != '\0' && strcmp(request, _doneRequestId) == 0) {
-          _status(out, request, "aceptada", -1, "se aplica en el proximo reinicio", _doneNewId);
+          _status(out, request, "aceptada", -1, "la placa se reinicia sola en la pantalla principal", _doneNewId);
           return;
         }
 

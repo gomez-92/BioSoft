@@ -225,6 +225,10 @@ class SystemData {
   AlertsHistoryData alertsHistory;
     ProgressData progress;
     ResultData result;
+    // Hay una configuracion remota grabada en la SD esperando el reinicio
+    // que la aplica (MySystem::_rebootForConfigIfIdle). Resultado la lee
+    // para ocultar REPETIR: repetir correria con la configuracion vieja.
+    bool configRebootPending = false;
     BusyData busy;
     CommunicationData communication;
   private:

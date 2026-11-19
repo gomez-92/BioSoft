@@ -65,7 +65,7 @@ export function estadoEnvio(pedido: Pedido | undefined, vigenteId: string | null
     return {
       kind: 'ok',
       text: `La placa confirmo la recepcion: configuracion grabada en la SD${pedido.newConfigId ? ` (${pedido.newConfigId})` : ''}`,
-      detail: `Enviada ${hora}. Se aplica en el proximo reinicio de la placa; hasta entonces sigue con la anterior.`,
+      detail: `Enviada ${hora}. La placa se reinicia sola para aplicarla en cuanto su pantalla este en Principal sin experimento (si esta en Resultado o Configuracion, al volver a Principal); hasta entonces sigue con la anterior.`,
     };
   }
   return {
@@ -179,8 +179,10 @@ export function Configuracion() {
   async function enviar(config: unknown) {
     setError(null);
     const ok = window.confirm(
-      'La configuracion se graba en la tarjeta SD de la placa y se aplica en el PROXIMO REINICIO, ' +
-      'cualquiera sea su causa. No hay confirmacion en la pantalla de la placa.\n\n¿Enviar?',
+      'La configuracion se graba en la tarjeta SD de la placa y la placa SE REINICIA SOLA para ' +
+      'aplicarla en cuanto su pantalla este en Principal y sin experimento (si alguien esta en ' +
+      'Resultado o Configuracion, al volver a Principal). No hay confirmacion en la pantalla de la ' +
+      'placa.\n\n¿Enviar?',
     );
     if (!ok) return;
     const respuesta = await authFetch('/api/config/requests', {
@@ -215,8 +217,10 @@ export function Configuracion() {
           <details className="letra-chica">
             <summary>Como se aplica lo que se envia</summary>
             <p>
-              Lo que se envie desde aca se graba en la tarjeta SD y se aplica en el proximo reinicio de la
-              placa, cualquiera sea su causa. Se rechaza si hay un experimento en curso. La configuracion
+              Lo que se envie desde aca se graba en la tarjeta SD y la placa se reinicia sola para
+              aplicarlo en cuanto su pantalla este en Principal y sin experimento; si esta en Resultado o
+              Configuracion, espera a que vuelvan a Principal (y mientras tanto oculta REPETIR, que correria
+              con la configuracion anterior). Se rechaza si hay un experimento en curso. La configuracion
               anterior queda respaldada en la tarjeta como config.prev.json. WiFi y broker no se editan desde
               aca y se conservan.
             </p>

@@ -221,6 +221,9 @@ class Engine :
     void _checkSilence();
     void _checkControlSilence(unsigned long nowMs);
     static ScenarioRanges _scenarioRangesOf(const SourceConfig& config);
+    // Duty de partida del lazo en campo X: el del mapa, salvo con la planta
+    // del escenario y sin punto mapeado. Ver su implementacion.
+    float _scenarioStartDuty(float mappedDuty);
     // Registra los sensores de corriente habilitados, salteando los de un
     // modulo que no conteste en el bus. Ver su implementacion.
     void _applyCurrentSensorSettings();
@@ -507,7 +510,7 @@ inline void Engine::_start() {
       _coilChannels.writeAll(plan.initialDuty);
     } else {
       _fieldController.setSetpoint(target.cemTarget);
-      _fieldController.preload(plan.initialDuty);
+      _fieldController.preload(_scenarioStartDuty(plan.initialDuty));
       DEBUG_PRINT(DEBUG_ENGINE, F("[START] duty inicial del mapa = "));
       DEBUG_PRINTLN(DEBUG_ENGINE, plan.initialDuty, 4);
       _coilChannels.writeAll(_fieldController.getOutput());
@@ -549,6 +552,27 @@ inline void Engine::_reset() {
 inline void Engine::registerThermometers(IThermometer* real, IThermometer* sim) {
   _realThermometer = real;
   _simThermometer = sim;
+}
+
+// Con CEM1 en escenario y planta (setpointDuty > 0) pero sin punto del mapa,
+// el lazo arrancaria en duty 0: campo 0, muy por debajo del critico, y con
+// maxStep 0.05 cada 2 s tarda ~20 s en llegar -- mas que la estabilizacion
+// (10 s). Todo escenario que vigila CEM1 terminaba cortando por "critical" a
+// los ~16 s, que es lo que probaba el arranque y no el escenario. Se parte
+// del duty de equilibrio de la planta, que es lo que el mapa daria si el
+// punto estuviera medido.
+//
+// OJO, esto NO arregla nada del equipo real: con bobinas reales y sin punto
+// mapeado el lazo arranca igual de 0 y tiene el mismo problema. Por eso el
+// mapa (controlmap.hpp) existe y por eso aca solo se toca el escenario.
+inline float Engine::_scenarioStartDuty(float mappedDuty) {
+  if (mappedDuty > 0.0f) return mappedDuty;
+  SourceSettings* cem = _findSourceSettings("CEM1");
+  if (cem == nullptr || cem->sensor != SensorChoice::Scenario) return mappedDuty;
+  if (cem->scenario.setpointDuty <= 0.0f) return mappedDuty;
+  DEBUG_PRINT(DEBUG_ENGINE, F("[START] escenario sin punto mapeado: el lazo parte del duty de equilibrio de la planta = "));
+  DEBUG_PRINTLN(DEBUG_ENGINE, cem->scenario.setpointDuty, 4);
+  return cem->scenario.setpointDuty;
 }
 
 inline ScenarioRanges Engine::_scenarioRangesOf(const SourceConfig& config) {
@@ -1787,8 +1811,9 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
 
   // Senal de escenario de una fuente (scenario.hpp), en niveles relativos a
   // los rangos de la corrida. Claves cortas porque el frame tiene 256 bytes:
-  // b=base n=noise r=ramp sa=stepAt s=step oa=oscAmp op=oscPeriod da=dropAt
-  // d=setpointDuty. Se aplica clave por clave sobre la
+  // n=noise oa=oscAmp op=oscPeriod da=dropAt d=setpointDuty. La forma
+  // (puntos de control) viene aparte, en config_scenario_pts. Se aplica
+  // clave por clave sobre la
   // plantilla y vale desde el proximo start, como el resto de la fuente. Un
   // valor fuera de rango deja esa clave como estaba.
   else if (strcmp(command, Commands::ConfigScenario) == 0) {
@@ -1801,14 +1826,10 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
     }
 
     ScenarioSignal& signal = settings->scenario;
-    if (params["b"].is<float>())  signal.base = params["b"].as<float>();
-    if (params["r"].is<float>())  signal.ramp = params["r"].as<float>();
-    if (params["s"].is<float>())  signal.step = params["s"].as<float>();
     if (params["oa"].is<float>()) signal.oscAmp = params["oa"].as<float>();
     // Los que no pueden ser negativos: el ruido es una amplitud y los otros
-    // tres son tiempos o periodos.
+    // dos son tiempos.
     _applyNonNegative(params["n"], signal.noise, "noise");
-    _applyNonNegative(params["sa"], signal.stepAt, "stepAt");
     _applyNonNegative(params["op"], signal.oscPeriod, "oscPeriod");
     _applyNonNegative(params["da"], signal.dropAt, "dropAt");
     // Es un duty, asi que ademas no puede pasar de 1.0.
@@ -1830,6 +1851,61 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
       Commands::Ack,
       doc
     );
+  }
+
+  // Puntos de control del escenario de una fuente: {name, p: [t0, n0, t1,
+  // n1, ...]} -- lista PLANA, no de pares, porque cada subarreglo le cuesta
+  // al parseo un slot mas de ArduinoJson en un Mega con poca RAM. Reemplaza
+  // TODOS los puntos o ninguno (Scenario::applyPoints); `p: []` los borra
+  // (nivel 0). Siempre se acusa recibo una vez parseado el frame: un
+  // rechazo queda en el log y no se reintenta, como en el resto de config_*.
+  else if (strcmp(command, Commands::ConfigScenarioPoints) == 0) {
+    const char* sourceName = params["name"];
+    SourceSettings* settings = _findSourceSettings(sourceName);
+    if (settings == nullptr) {
+      DEBUG_PRINT(DEBUG_ENGINE, F("[CONFIG_SCENARIO_PTS][ERROR] Fuente desconocida o sin 'name': "));
+      DEBUG_PRINTLN(DEBUG_ENGINE, sourceName == nullptr ? "(ausente)" : sourceName);
+      return;
+    }
+
+    using Scenario::PointsRefusal;
+    JsonArrayConst list = params["p"];
+    PointsRefusal refusal = PointsRefusal::None;
+    if (list.isNull()) refusal = PointsRefusal::Missing;
+    else if (list.size() > 2 * Scenario::MaxPoints) refusal = PointsRefusal::TooMany;
+    else {
+      float flat[2 * Scenario::MaxPoints];
+      uint8_t length = 0;
+      for (JsonVariantConst v : list) {
+        if (!v.is<float>()) { refusal = PointsRefusal::NotNumeric; break; }
+        flat[length++] = v.as<float>();
+      }
+      if (refusal == PointsRefusal::None) refusal = Scenario::applyPoints(settings->scenario, flat, length);
+    }
+
+    DEBUG_PRINT(DEBUG_ENGINE, F("[CONFIG_SCENARIO_PTS] "));
+    DEBUG_PRINT(DEBUG_ENGINE, settings->name);
+    if (refusal != PointsRefusal::None) {
+      DEBUG_PRINT(DEBUG_ENGINE, F(" RECHAZADO, sigue con los puntos anteriores: "));
+      switch (refusal) {
+        case PointsRefusal::OddLength:  DEBUG_PRINTLN(DEBUG_ENGINE, F("cantidad impar de valores")); break;
+        case PointsRefusal::TooMany:    DEBUG_PRINTLN(DEBUG_ENGINE, F("mas de 8 puntos")); break;
+        case PointsRefusal::BadTime:    DEBUG_PRINTLN(DEBUG_ENGINE, F("segundo no entero o fuera de 0..65535")); break;
+        case PointsRefusal::BadLevel:   DEBUG_PRINTLN(DEBUG_ENGINE, F("nivel fuera de -10..10")); break;
+        case PointsRefusal::Unordered:  DEBUG_PRINTLN(DEBUG_ENGINE, F("segundos no ordenados")); break;
+        case PointsRefusal::NotNumeric: DEBUG_PRINTLN(DEBUG_ENGINE, F("valor no numerico")); break;
+        default:                        DEBUG_PRINTLN(DEBUG_ENGINE, F("falta 'p'")); break;
+      }
+    } else {
+      DEBUG_PRINT(DEBUG_ENGINE, F(": "));
+      DEBUG_PRINT(DEBUG_ENGINE, settings->scenario.pointCount);
+      DEBUG_PRINTLN(DEBUG_ENGINE, F(" puntos (valen desde el proximo start)"));
+    }
+
+    JsonDocument doc;
+    doc["command"] = Commands::ConfigScenarioPoints;
+    doc["name"] = settings->name;
+    _serial.sendCommand(Commands::Ack, doc);
   }
 
   // Interruptor general del Detector. Se guarda y se aplica en el proximo

@@ -27,4 +27,7 @@ namespace Commands {
   constexpr const char* ConfigCurrent         = "config_current";
   constexpr const char* ConfigDetector        = "config_detector";
   constexpr const char* ConfigScenario        = "config_scenario";
+  // Los puntos de control del escenario (scenario.hpp), aparte de
+  // config_scenario para que ninguno de los dos frames quede al limite.
+  constexpr const char* ConfigScenarioPoints  = "config_scenario_pts";
 };

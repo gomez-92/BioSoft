@@ -1,0 +1,115 @@
+{
+  "_comentario": [
+    "Perfiles de escenario sintetico (tarjeta 22). FUENTE UNICA: el generador",
+    "(tools/generador-config.html) embebe una copia y tools/test-generador.js",
+    "falla si difieren; mega2560/test/test_scenario_runs simula cada perfil",
+    "con el Detector y el lazo reales del Mega y verifica `expect` con varias",
+    "combinaciones de rangos de los menus. Si se cambia un perfil aca, los dos",
+    "lados lo vuelven a comprobar.",
+    "Niveles: 0 = centro del normal, +-1 = borde del normal, +-2 = borde del",
+    "critico. points = [segundo, nivel], unidos por rectas; dos puntos en el",
+    "mismo segundo son un salto. expect.at = segundo aproximado del corte."
+  ],
+  "version": 1,
+  "profiles": [
+    {
+      "key": "normal",
+      "name": "Todo normal",
+      "description": "Las dos fuentes en el centro del rango normal, con ruido leve. CEM1 vigilada y regulada por el lazo.",
+      "expect": { "reason": "completed" },
+      "minDuration": 60,
+      "sources": {
+        "CEM1": { "enabled": true, "scenario": { "points": [], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0, "setpointDuty": 0.5 } },
+        "TEMP1": { "enabled": true, "scenario": { "points": [], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0 } }
+      }
+    },
+    {
+      "key": "tempAlta",
+      "name": "Temperatura alta",
+      "description": "TEMP1 salta a la zona critica (nivel 2,5) a los 60 s.",
+      "expect": { "reason": "critical", "source": "TEMP1", "type": "critical", "at": 75 },
+      "minDuration": 120,
+      "sources": {
+        "CEM1": { "enabled": false, "scenario": { "points": [], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0, "setpointDuty": 0.5 } },
+        "TEMP1": { "enabled": true, "scenario": { "points": [[0, 0], [60, 0], [60, 2.5]], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0 } }
+      }
+    },
+    {
+      "key": "tempSube",
+      "name": "Temperatura que sube",
+      "description": "TEMP1 sube despacio: sale del normal a los ~70 s (alertas de racha) y pasa el critico a los ~110 s.",
+      "expect": { "reason": "critical", "source": "TEMP1", "type": "critical", "at": 125 },
+      "minDuration": 180,
+      "sources": {
+        "CEM1": { "enabled": false, "scenario": { "points": [], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0, "setpointDuty": 0.5 } },
+        "TEMP1": { "enabled": true, "scenario": { "points": [[30, 0], [150, 3]], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0 } }
+      }
+    },
+    {
+      "key": "tempRecupera",
+      "name": "Temperatura que se recupera",
+      "description": "TEMP1 entra en advertencia (nivel 1,5) por un minuto y vuelve al centro: alertas de racha, sin corte.",
+      "expect": { "reason": "completed", "alerts": ["streak"] },
+      "minDuration": 180,
+      "sources": {
+        "CEM1": { "enabled": false, "scenario": { "points": [], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0, "setpointDuty": 0.5 } },
+        "TEMP1": { "enabled": true, "scenario": { "points": [[30, 0], [60, 1.5], [100, 1.5], [130, 0]], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0 } }
+      }
+    },
+    {
+      "key": "tempAdvertencia",
+      "name": "Temperatura en advertencia sostenida",
+      "description": "TEMP1 queda en la franja de advertencia (nivel 1,5) sin llegar al critico: corta por acumular alertas de racha.",
+      "expect": { "reason": "critical", "source": "TEMP1", "type": "streak", "at": 145 },
+      "minDuration": 240,
+      "sources": {
+        "CEM1": { "enabled": false, "scenario": { "points": [], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0, "setpointDuty": 0.5 } },
+        "TEMP1": { "enabled": true, "scenario": { "points": [[30, 0], [40, 1.5]], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0 } }
+      }
+    },
+    {
+      "key": "campoCompensado",
+      "name": "Perturbacion compensada por el lazo",
+      "description": "CEM1 recibe una perturbacion lenta (3 niveles en un minuto) y el lazo la compensa bajando el duty: el campo medido queda en el normal.",
+      "expect": { "reason": "completed" },
+      "minDuration": 180,
+      "sources": {
+        "CEM1": { "enabled": true, "scenario": { "points": [[60, 0], [120, 3]], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0, "setpointDuty": 0.5 } },
+        "TEMP1": { "enabled": true, "scenario": { "points": [], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0 } }
+      }
+    },
+    {
+      "key": "campoInestable",
+      "name": "Campo inestable",
+      "description": "CEM1 sin planta oscila +-1,8 niveles cada 20 s: entra y sale del normal sin rachas largas ni critico, y corta por frecuencia de alertas.",
+      "expect": { "reason": "critical", "source": "CEM1", "type": "frequency", "at": 130 },
+      "minDuration": 240,
+      "sources": {
+        "CEM1": { "enabled": true, "scenario": { "points": [], "noise": 0.1, "oscAmp": 1.8, "oscPeriod": 20, "dropAt": 0, "setpointDuty": 0 } },
+        "TEMP1": { "enabled": true, "scenario": { "points": [], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0 } }
+      }
+    },
+    {
+      "key": "campoFuera",
+      "name": "Campo fuera de rango",
+      "description": "CEM1 sin planta (no responde al lazo) salta a la zona critica (nivel 2,5) a los 60 s.",
+      "expect": { "reason": "critical", "source": "CEM1", "type": "critical", "at": 68 },
+      "minDuration": 120,
+      "sources": {
+        "CEM1": { "enabled": true, "scenario": { "points": [[0, 0], [60, 0], [60, 2.5]], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0, "setpointDuty": 0 } },
+        "TEMP1": { "enabled": true, "scenario": { "points": [], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0 } }
+      }
+    },
+    {
+      "key": "sensorCaido",
+      "name": "Sensor de temperatura caido",
+      "description": "TEMP1 deja de dar lecturas a los 90 s: corta por silencio (3 lecturas de 5 s perdidas) con TEMP1 SIN LECTURAS.",
+      "expect": { "reason": "critical", "source": "TEMP1", "type": "silence", "at": 101 },
+      "minDuration": 180,
+      "sources": {
+        "CEM1": { "enabled": false, "scenario": { "points": [], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0, "setpointDuty": 0.5 } },
+        "TEMP1": { "enabled": true, "scenario": { "points": [], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 90 } }
+      }
+    }
+  ]
+}

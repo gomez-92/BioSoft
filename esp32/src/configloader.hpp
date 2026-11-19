@@ -157,13 +157,23 @@ namespace ConfigLoader {
     float value = 0.0f;
   };
 
+  // Puntos de control de la senal (mega2560/src/scenario.hpp): hasta 8
+  // pares (segundo, nivel) unidos por rectas. Viajan en un frame propio,
+  // config_scenario_pts, SIEMPRE que la fuente traiga `scenario` -- vacios
+  // si el archivo no trae `points`, para que el Mega borre lo que le haya
+  // quedado de una tarjeta anterior.
+  constexpr uint8_t MaxScenarioPoints = 8;
+
   struct ScenarioConfig {
     bool present = false;
-    ScenarioValue base;
+    // false si `points` vino pero no se pudo leer (mas de 8, o un par que no
+    // es [numero, numero]): no se manda el frame de puntos y el Mega sigue
+    // con los que tenia. Lo dice el log; el generador no deja llegar aca.
+    bool pointsValid = true;
+    uint8_t pointCount = 0;
+    float pointTime[MaxScenarioPoints] = {0};
+    float pointLevel[MaxScenarioPoints] = {0};
     ScenarioValue noise;
-    ScenarioValue ramp;
-    ScenarioValue stepAt;
-    ScenarioValue step;
     ScenarioValue oscAmp;
     ScenarioValue oscPeriod;
     ScenarioValue dropAt;
@@ -646,16 +656,43 @@ namespace ConfigLoader {
       target.value = scenario[key].as<float>();
     }
 
-    // Solo tipo: los rangos (no negativos, duty en 0..1) los valida el Mega,
-    // que es quien aplica la senal.
+    // Solo tipo: los rangos (no negativos, duty en 0..1, puntos ordenados y
+    // con nivel en -10..10) los valida el Mega, que es quien aplica la senal.
     inline void loadScenario(JsonObjectConst scenario, ScenarioConfig& target) {
       if (scenario.isNull()) return;
       target.present = true;
-      loadScenarioValue(scenario, "base", target.base);
+
+      // Las claves de la tarjeta 22 (base/ramp/stepAt/step) se reemplazaron
+      // por puntos de control. Un archivo viejo las trae y se ignoran: la
+      // senal queda en lo que digan los puntos (nivel 0 sin ellos). Se
+      // regenera con el generador, que convierte el formato viejo al abrirlo.
+      if (!scenario["base"].isNull() || !scenario["ramp"].isNull()
+          || !scenario["stepAt"].isNull() || !scenario["step"].isNull()) {
+        DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG][AVISO] escenario con claves viejas (base/ramp/stepAt/step): se ignoran, regenerar el archivo con el generador"));
+      }
+
+      JsonArrayConst points = scenario["points"];
+      if (!points.isNull()) {
+        if (points.size() > MaxScenarioPoints) {
+          target.pointsValid = false;
+        } else {
+          for (JsonArrayConst pair : points) {
+            if (pair.size() != 2 || !pair[0].is<float>() || !pair[1].is<float>()) {
+              target.pointsValid = false;
+              break;
+            }
+            target.pointTime[target.pointCount] = pair[0].as<float>();
+            target.pointLevel[target.pointCount] = pair[1].as<float>();
+            target.pointCount++;
+          }
+        }
+        if (!target.pointsValid) {
+          target.pointCount = 0;
+          DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG][ERROR] escenario: 'points' tiene que ser hasta 8 pares [segundo, nivel] -- no se manda"));
+        }
+      }
+
       loadScenarioValue(scenario, "noise", target.noise);
-      loadScenarioValue(scenario, "ramp", target.ramp);
-      loadScenarioValue(scenario, "stepAt", target.stepAt);
-      loadScenarioValue(scenario, "step", target.step);
       loadScenarioValue(scenario, "oscAmp", target.oscAmp);
       loadScenarioValue(scenario, "oscPeriod", target.oscPeriod);
       loadScenarioValue(scenario, "dropAt", target.dropAt);

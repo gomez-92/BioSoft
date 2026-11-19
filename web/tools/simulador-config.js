@@ -109,7 +109,7 @@ client.on('message', (topic, raw) => {
     const cfg = JSON.parse(nuevo);
     if (cfg.schemaVersion !== 1) throw new Error('schemaVersion no soportada');
     const nuevoId = crc32(JSON.stringify(cfg));
-    estado({ r, st: 'aceptada', id: nuevoId, msg: 'se aplica en el proximo reinicio' });
+    estado({ r, st: 'aceptada', id: nuevoId, msg: 'la placa se reinicia sola en la pantalla principal' });
     console.log(`  ${r}: aceptada (${nuevoId})`);
   } catch (e) {
     estado({ r, st: 'invalida', msg: e.message });

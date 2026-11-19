@@ -16,7 +16,7 @@ describe('estadoEnvio', () => {
     const e = estadoEnvio(base, '00000000')!;
     expect(e.kind).toBe('ok');
     expect(e.text).toContain('confirmo');
-    expect(e.detail).toContain('proximo reinicio');
+    expect(e.detail).toContain('se reinicia sola');
   });
 
   it('aceptada y ya informada como vigente: vigente', () => {

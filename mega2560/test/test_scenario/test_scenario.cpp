@@ -74,17 +74,108 @@ void test_level_still_crosses_when_critical_equals_normal(void) {
 // Nivel en el tiempo
 // =====================================================================
 
-void test_levelAt_combines_base_ramp_and_step(void) {
+// Arma una senal desde una lista plana [t0, n0, t1, n1, ...], por el mismo
+// camino que config_scenario_pts.
+static ScenarioSignal withPoints(const float* flat, uint8_t length) {
     ScenarioSignal s;
-    s.base = 0.5f;
-    s.ramp = 1.0f;      // un nivel por minuto
-    s.stepAt = 30.0f;
-    s.step = 2.0f;
+    TEST_ASSERT_TRUE(Scenario::PointsRefusal::None == Scenario::applyPoints(s, flat, length));
+    return s;
+}
 
+void test_without_points_the_level_is_zero(void) {
+    ScenarioSignal s;
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, Scenario::levelAt(s, 0.0f, 0.0f));
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, Scenario::levelAt(s, 5000.0f, 0.0f));
+}
+
+// Una rampa de 0,5 a 1,5 entre 10 y 70 s: antes del primer punto y despues
+// del ultimo se mantiene el extremo.
+void test_points_interpolate_linearly_and_hold_the_ends(void) {
+    const float flat[] = { 10, 0.5f, 70, 1.5f };
+    ScenarioSignal s = withPoints(flat, 4);
     TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.5f, Scenario::levelAt(s, 0.0f, 0.0f));
-    // Justo antes del salto: base + medio minuto de rampa.
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, 1.0f, Scenario::levelAt(s, 29.99f, 0.0f));
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, 3.0f, Scenario::levelAt(s, 30.0f, 0.0f));
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.5f, Scenario::levelAt(s, 10.0f, 0.0f));
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 1.0f, Scenario::levelAt(s, 40.0f, 0.0f));
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 1.5f, Scenario::levelAt(s, 70.0f, 0.0f));
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 1.5f, Scenario::levelAt(s, 9999.0f, 0.0f));
+}
+
+// Dos puntos en el mismo segundo son un salto: antes vale el primero, desde
+// ese segundo el segundo. Es como se dibuja "temperatura alta".
+void test_two_points_on_the_same_second_are_a_step(void) {
+    const float flat[] = { 0, 0, 60, 0, 60, 2.5f };
+    ScenarioSignal s = withPoints(flat, 6);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, Scenario::levelAt(s, 59.99f, 0.0f));
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 2.5f, Scenario::levelAt(s, 60.0f, 0.0f));
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 2.5f, Scenario::levelAt(s, 300.0f, 0.0f));
+}
+
+// Sube, se mantiene y se recupera: la forma que salto+rampa no podia dar.
+void test_points_can_go_up_and_come_back(void) {
+    const float flat[] = { 0, 0, 60, 1.5f, 120, 1.5f, 180, 0 };
+    ScenarioSignal s = withPoints(flat, 8);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.75f, Scenario::levelAt(s, 30.0f, 0.0f));
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 1.5f, Scenario::levelAt(s, 90.0f, 0.0f));
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.75f, Scenario::levelAt(s, 150.0f, 0.0f));
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, Scenario::levelAt(s, 200.0f, 0.0f));
+}
+
+// =====================================================================
+// Validacion de los puntos: rechazar entero, nunca a medias
+// =====================================================================
+
+static void assertRejectedKeepsPrevious(const float* flat, uint8_t length) {
+    const float previous[] = { 0, 1.0f };
+    ScenarioSignal s = withPoints(previous, 2);
+    TEST_ASSERT_TRUE(Scenario::PointsRefusal::None != Scenario::applyPoints(s, flat, length));
+    TEST_ASSERT_EQUAL_UINT8(1, s.pointCount);
+    TEST_ASSERT_EQUAL_INT16(100, s.points[0].level100);
+}
+
+void test_points_odd_length_is_rejected(void) {
+    const float flat[] = { 0, 1.0f, 60 };
+    assertRejectedKeepsPrevious(flat, 3);
+}
+
+void test_points_out_of_order_are_rejected(void) {
+    const float flat[] = { 60, 1.0f, 30, 2.0f };
+    assertRejectedKeepsPrevious(flat, 4);
+}
+
+void test_points_fractional_or_negative_second_is_rejected(void) {
+    const float half[] = { 0, 0, 30.5f, 2.0f };
+    assertRejectedKeepsPrevious(half, 4);
+    const float negative[] = { -1, 0 };
+    assertRejectedKeepsPrevious(negative, 2);
+}
+
+void test_points_level_beyond_ten_is_rejected(void) {
+    const float flat[] = { 0, 0, 60, 10.5f };
+    assertRejectedKeepsPrevious(flat, 4);
+}
+
+void test_more_than_eight_points_are_rejected(void) {
+    float flat[18];
+    for (int i = 0; i < 9; i++) { flat[2 * i] = (float)(i * 10); flat[2 * i + 1] = 0.0f; }
+    assertRejectedKeepsPrevious(flat, 18);
+}
+
+// Lista vacia: borra los puntos (nivel 0). Es lo que manda una tarjeta con
+// `points: []`, y tiene que pisar lo que quedo de una conexion anterior.
+void test_empty_points_clear_the_signal(void) {
+    const float previous[] = { 0, 1.0f };
+    ScenarioSignal s = withPoints(previous, 2);
+    TEST_ASSERT_TRUE(Scenario::PointsRefusal::None == Scenario::applyPoints(s, previous, 0));
+    TEST_ASSERT_EQUAL_UINT8(0, s.pointCount);
+}
+
+// Los niveles se guardan en centesimas: -2.35 no tiene que volverse -2.34
+// por truncar en vez de redondear.
+void test_point_levels_round_to_hundredths(void) {
+    const float flat[] = { 0, -2.35f, 1, 1.25f };
+    ScenarioSignal s = withPoints(flat, 4);
+    TEST_ASSERT_EQUAL_INT16(-235, s.points[0].level100);
+    TEST_ASSERT_EQUAL_INT16(125, s.points[1].level100);
 }
 
 void test_levelAt_oscillation_peaks_at_a_quarter_period(void) {
@@ -156,9 +247,8 @@ void test_thermometer_scenario_reports_the_mapped_value(void) {
     When(Method(ArduinoFake(), millis)).AlwaysReturn(10000);
     Scenario::restart(0);   // t = 10 s
 
-    ScenarioSignal s;
-    s.stepAt = 5.0f;
-    s.step = 2.5f;
+    const float flat[] = { 5, 0, 5, 2.5f };
+    ScenarioSignal s = withPoints(flat, 4);
     ThermometerScenario sensor("TEMP1");
     sensor.setSignal(s);
     sensor.setRanges(Temp);
@@ -206,9 +296,9 @@ void test_magnetometer_scenario_never_reports_negative_field(void) {
     When(Method(ArduinoFake(), millis)).AlwaysReturn(1000);
     Scenario::restart(0);
 
-    ScenarioSignal s;
+    const float flat[] = { 0, -10.0f };   // perturbacion enorme hacia abajo
+    ScenarioSignal s = withPoints(flat, 2);
     s.setpointDuty = 0.5f;
-    s.base = -20.0f;    // perturbacion enorme hacia abajo
     MagnetometerScenario sensor("CEM1", nullptr);   // sin fuente: duty 0
     sensor.setSignal(s);
     sensor.setRanges(Cem);
@@ -227,7 +317,18 @@ int main(int argc, char** argv) {
     RUN_TEST(test_same_level_lands_in_the_same_zone_with_any_range);
     RUN_TEST(test_level_still_crosses_when_critical_equals_normal);
 
-    RUN_TEST(test_levelAt_combines_base_ramp_and_step);
+    RUN_TEST(test_without_points_the_level_is_zero);
+    RUN_TEST(test_points_interpolate_linearly_and_hold_the_ends);
+    RUN_TEST(test_two_points_on_the_same_second_are_a_step);
+    RUN_TEST(test_points_can_go_up_and_come_back);
+
+    RUN_TEST(test_points_odd_length_is_rejected);
+    RUN_TEST(test_points_out_of_order_are_rejected);
+    RUN_TEST(test_points_fractional_or_negative_second_is_rejected);
+    RUN_TEST(test_points_level_beyond_ten_is_rejected);
+    RUN_TEST(test_more_than_eight_points_are_rejected);
+    RUN_TEST(test_empty_points_clear_the_signal);
+    RUN_TEST(test_point_levels_round_to_hundredths);
     RUN_TEST(test_levelAt_oscillation_peaks_at_a_quarter_period);
     RUN_TEST(test_oscillation_needs_a_period);
     RUN_TEST(test_noise_stays_within_its_amplitude);
