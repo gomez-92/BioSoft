@@ -44,7 +44,8 @@ var __t = {
   get state(){ return state; }, set state(v){ state = v; },
   DEFAULTS: DEFAULTS, validate: validate, buildJson: buildJson, loadParsed: loadParsed,
   SCENARIO_PROFILES: SCENARIO_PROFILES, SCENARIO_FILE: SCENARIO_FILE, SIM: SIM
-};`, ctx);
+};
+var secCountFor = k => secCount[k];`, ctx);
 const T = ctx.__t;
 
 let fails = 0;
@@ -216,8 +217,9 @@ expectWarn("TEMP1 en sim avisa que no mide el gabinete",
 // en cada corrida.
 expectError("TEMP1 none vigilada bloquea la descarga (cortaria por silencio)",
   st => { st.detector.sources[1].sensor = "none"; }, "sin termometro");
-reset(); T.state.detector.sources[1].sensor = "none"; T.state.detector.sources[1].enabled = false; T.validate();
-check("TEMP1 none sin vigilar es valido", T.errors.length === 0, T.errors.join(" | "));
+reset(); T.state.runType = "test";
+T.state.detector.sources[1].sensor = "none"; T.state.detector.sources[1].enabled = false; T.validate();
+check("TEMP1 none sin vigilar es valido (en una prueba)", T.errors.length === 0, T.errors.join(" | "));
 expectError("maxMissedSamples fuera de 1..20 bloquea la descarga",
   st => { st.detector.sources[1].maxMissedSamples = 0; }, "lecturas perdidas");
 expectError("maxMissedSamples con decimales bloquea la descarga",
@@ -397,6 +399,86 @@ T.loadParsed(cargado);
 check("cargar un archivo con el formato viejo lo convierte a puntos",
       JSON.stringify(T.state.detector.sources[1].scenario.points) === "[[0,0],[60,0],[60,2.5]]");
 
+console.log("\n== Coherencia entre pasos (fase 3) ==");
+// Experimento = sensores reales + Detector, sin excepcion.
+reset();
+T.state.runType = "test"; T.state.detector.sources[0].sensor = "scenario"; T.state.detector.sources[1].sensor = "none";
+T.state.detector.enabled = false;
+T.state.runType = "normal"; ctx.enforceExperiment(); T.validate();
+check("pasar a experimento vuelve las fuentes a sus sensores reales y enciende el Detector",
+      T.state.detector.sources[0].sensor === "mlx90393" && T.state.detector.sources[1].sensor === "ds18b20" &&
+      T.state.detector.enabled === true && T.errors.length === 0, T.errors.join(" | "));
+ctx.undoExperiment();
+check("deshacer devuelve lo que habia y la deja como prueba",
+      T.state.runType === "test" && T.state.detector.sources[0].sensor === "scenario" &&
+      T.state.detector.sources[1].sensor === "none" && T.state.detector.enabled === false);
+expectError("un archivo de experimento con un sensor simulado no se puede enviar",
+  st => { st.runType = "normal"; st.detector.sources[1].sensor = "sim"; }, "solo con sensores reales");
+expectError("un archivo de experimento con el Detector apagado no se puede enviar",
+  st => { st.runType = "normal"; st.detector.enabled = false; }, "Detector apagado");
+reset(); ctx.applyProfile("tempAlta");
+check("elegir un escenario pasa la corrida a prueba", T.state.runType === "test");
+reset(); T.state.runType = "normal";
+check("en experimento el paso Escenarios no existe", ctx.sScenarios() === "");
+// Cada error/aviso queda asociado a su paso (la pestaña se marca).
+reset(); T.state.detector.sources[1].bufferSize = 99; T.validate();
+check("un error de Fuentes marca el paso 5", (ctx.secCountFor("5") || {}).e > 0);
+reset(); T.state.runType = "test"; T.state.detector.sources[1].sensor = "scenario";
+T.state.detector.sources[1].scenario.noise = -1; T.validate();
+check("un error de un escenario marca el paso 5b, no el 5",
+      (ctx.secCountFor("5b") || {}).e > 0 && !((ctx.secCountFor("5") || {}).e > 0));
+
+console.log("\n== Limites por campo (fase 3) ==");
+// Los limites del campo y validate() tienen que decir lo mismo: un valor en el
+// borde es valido y uno apenas afuera es error. Si alguien cambia uno solo,
+// el campo dejaria escribir lo que despues bloquea la descarga (o al reves).
+const BORDES = [
+  // [campo, texto EXACTO de su error en validate()]: con una clave suelta
+  // aparecen errores legitimos de otras reglas (bufferSize 8 deja afuera al
+  // threshold 16 de frecuencia, que es justo la dependencia que se busca).
+  ["detector.sources.1.bufferSize", "bufferSize tiene que ser un entero"],
+  ["detector.sources.1.maxMissedSamples", "lecturas perdidas antes del corte tienen que ser"],
+  ["detector.sources.0.range.criticalMultiplier", "criticalMultiplier fuera del rango"],
+  ["coils.0.calibrationFactor", "calibrationFactor fuera del rango"],
+  ["detector.sources.1.rules.critical.cooldown", "cooldown tiene que ser"],
+  ["detector.sources.1.rules.critical.maxEvents", "maxEvents tiene que ser"],
+  ["control.balanceMax", "balanceMax tiene que estar"],
+];
+const setP = (p, v) => { const parts = p.split("."); const last = parts.pop(); parts.reduce((o, k) => o[k], T.state)[last] = v; };
+let bordesOk = true;
+BORDES.forEach(([p, clave]) => {
+  const lim = ctx.limitsFor(p);
+  const paso = lim.int ? 1 : 0.01;
+  [[lim.min, true], [lim.max, true], [lim.min - paso, false], [lim.max + paso, false]].forEach(([v, valido]) => {
+    reset(); setP(p, v); T.validate();
+    const hay = T.errors.some(e => e.includes(clave));
+    if (hay === valido) { bordesOk = false; console.log("       " + p + " = " + v + (valido ? " deberia ser valido" : " deberia ser error")); }
+  });
+});
+check("los limites de cada campo coinciden con los de validate()", bordesOk);
+reset(); setP("detector.sources.1.bufferSize", 16);
+check("el tope de threshold sigue al bufferSize de su fuente",
+      ctx.limitsFor("detector.sources.1.rules.streak.threshold").max === 16);
+
+// Al salir del campo, un valor fuera de rango vuelve al ultimo valido.
+const campo = (path, value) => ({ dataset: {path, kind: "int"}, value: String(value),
+  classList: {toggle(){}, remove(){}}, closest: () => null });
+reset();
+ctx.onEdit({type: "input", target: campo("detector.sources.1.bufferSize", 20)});
+ctx.onEdit({type: "input", target: campo("detector.sources.1.bufferSize", 99)});
+check("mientras se escribe, el valor fuera de rango queda (y validate lo marca)",
+      T.state.detector.sources[1].bufferSize === 99 && T.errors.some(e => e.includes("bufferSize")));
+const el = campo("detector.sources.1.bufferSize", 99);
+ctx.onEdit({type: "change", target: el});
+check("al salir del campo vuelve al ultimo valido (20)",
+      T.state.detector.sources[1].bufferSize === 20 && el.value == 20 && !T.errors.some(e => e.includes("bufferSize")));
+reset();
+const vacio = campo("detector.sources.1.maxMissedSamples", "");
+ctx.onEdit({type: "change", target: vacio});
+check("un campo vaciado tampoco queda: vuelve a un valor valido", ctx.limitsFor("detector.sources.1.maxMissedSamples") &&
+      Number.isInteger(T.state.detector.sources[1].maxMissedSamples) &&
+      T.state.detector.sources[1].maxMissedSamples >= 1);
+
 console.log("\n== Direccion del DS18B20 (TEMP1) ==");
 // La del sensor original: real, su CRC tiene que dar.
 const ROM = "28:3F:E5:57:04:E1:3D:ED";
@@ -473,7 +555,9 @@ expectError("dos puntos para la misma combinacion",
   s => { completo(s); s.control.map[1] = punto(1, 10, 0.4, 0.0); }, "Un punto por combinacion");
 expectWarn("combinaciones del menu sin punto: campo nulo no disponible",
   s => { completo(s); s.control.map.pop(); }, "Campo nulo no disponible para 2 mT / 50 Hz");
-expectWarn("punto del mapa que no coincide con ningun menu",
+// Desde la fase 3 es error: el punto se elige de los menus y uno que no esta
+// en ellos no se usaria nunca.
+expectError("punto del mapa que no coincide con ningun menu",
   s => { completo(s); s.control.map[0].intensity = 1.5; }, "no coinciden con ninguna combinacion");
 check("la frecuencia del mapa puede escribirse entera o con decimales (el firmware la lee como float)", (() => {
   reset(); completo(T.state); T.state.control.map[0].frequency = 10.0; T.validate();
@@ -483,7 +567,7 @@ check("el mapa sigue indexado por valor si se cambia el menu de frecuencias", ((
   reset(); completo(T.state);
   T.state.menus.frequency = [{label:"20 Hz", value:20}, {label:"50 Hz", value:50}];
   T.validate();
-  return T.warns.some(w => w.includes("1 mT / 20 Hz")) && T.warns.some(w => w.includes("no coinciden"));
+  return T.warns.some(w => w.includes("1 mT / 20 Hz")) && T.errors.some(w => w.includes("no coinciden"));
 })());
 check("'agregar las combinaciones que faltan' deja los puntos sin medir (duty 0) y no inventa valores", (() => {
   reset(); T.state.control.map = [punto(1, 10, 0.3, 0.05)];

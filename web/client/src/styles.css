@@ -1,16 +1,74 @@
 /* Mobile-first a proposito: la pantalla que mas se va a usar es un celular
    mirando un experimento en curso desde afuera del laboratorio. */
+/* Tokens (fase 3, 2026-11-19). Tres niveles de superficie (fondo, panel,
+   panel elevado) en vez de dos, para que agrupar se lea sin bordes extra; los
+   colores de estado son los mismos que usa el generador embebido en su tema
+   oscuro, asi Configuracion no parece otra aplicacion. */
 :root {
-  --bg: #0f1115;
-  --panel: #171a21;
-  --border: #262b36;
-  --text: #e6e8ee;
-  --muted: #8b93a7;
-  --ok: #3ddc97;
-  --warn: #ffb020;
-  --down: #ff5c5c;
-  --accent: #5b8cff;
+  --bg: #0d1016;
+  --panel: #151a22;
+  --panel-2: #1b212b;
+  --border: #252c38;
+  --text: #e8ebf1;
+  --muted: #8e97a9;
+  --ok: #34d399;
+  --warn: #fbbf24;
+  --down: #f87171;
+  --accent: #6b9bff;
+  --input-bg: #10131a;
+  --tooltip-bg: #10131a;
+  --chip-bg: #2a3140;
+  --on-accent: #0b1020;
+  --grid: #2a2f39;
+  --tick: #898781;
+  --radio: 14px;
   color-scheme: dark;
+}
+
+/* Tema claro: elegido a mano (data-theme="light") o por el sistema con el
+   selector en "Automatico" (sin data-theme). Los colores de estado son mas
+   oscuros que en el tema oscuro para mantener el contraste sobre blanco. Los
+   graficos leen --grid, --tick y --panel en vez de tener colores fijos
+   (components/Graficos.tsx, useColores). */
+:root[data-theme="light"] {
+  --bg: #f3f5f9;
+  --panel: #ffffff;
+  --panel-2: #eef1f6;
+  --border: #dbe1ea;
+  --text: #18202c;
+  --muted: #5b6577;
+  --ok: #0e8f63;
+  --warn: #a8650a;
+  --down: #cf3a3a;
+  --accent: #2f62d8;
+  --input-bg: #f7f9fc;
+  --tooltip-bg: #ffffff;
+  --chip-bg: #e6eaf1;
+  --on-accent: #ffffff;
+  --grid: #e3e7ee;
+  --tick: #6b7383;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --bg: #f3f5f9;
+    --panel: #ffffff;
+    --panel-2: #eef1f6;
+    --border: #dbe1ea;
+    --text: #18202c;
+    --muted: #5b6577;
+    --ok: #0e8f63;
+    --warn: #a8650a;
+    --down: #cf3a3a;
+    --accent: #2f62d8;
+    --input-bg: #f7f9fc;
+    --tooltip-bg: #ffffff;
+    --chip-bg: #e6eaf1;
+    --on-accent: #ffffff;
+    --grid: #e3e7ee;
+    --tick: #6b7383;
+    color-scheme: light;
+  }
 }
 
 * { box-sizing: border-box; }
@@ -19,9 +77,13 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
 }
+
+/* Foco visible para quien navega con teclado; el mouse no lo ve. */
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
 
 /* Ancho: hasta 1440 px. Antes 900, y en un monitor de escritorio la mitad de
    la pantalla quedaba vacia mientras los graficos se apilaban de a uno. En
@@ -30,21 +92,38 @@ body {
 main { max-width: 1440px; margin: 0 auto; padding: 16px 16px 48px; }
 @media (min-width: 1100px) { main { padding: 20px 28px 56px; } }
 
-h1 { font-size: 1.35rem; margin: 0; }
-h2 { font-size: 1.05rem; margin: 0 0 8px; }
-h3 { font-size: 0.78rem; margin: 0 0 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+h1 { font-size: 1.35rem; margin: 0; letter-spacing: -0.01em; }
+h2 { font-size: 1.15rem; margin: 0 0 8px; letter-spacing: -0.01em; }
+/* Titulo de panel: legible, no en mayusculas apretadas (se leia como ruido). */
+h3 { font-size: 0.9rem; font-weight: 600; margin: 0 0 12px; color: var(--text); }
+h3 .h3-nota { font-weight: 400; color: var(--muted); font-size: 0.8rem; margin-left: 6px; }
 .subtitle { color: var(--muted); margin: 2px 0 0; font-size: 0.85rem; }
 .tenue { color: var(--muted); font-size: 0.75rem; margin: 6px 0 0; }
 .empty { color: var(--muted); margin: 0; }
 
 .cabecera {
   display: flex;
-  align-items: flex-start;
+  flex-wrap: wrap;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding-bottom: 14px;
-  border-bottom: 1px solid var(--border);
+  padding-bottom: 4px;
 }
+/* Estado de las conexiones, cada una con su SUJETO ("Monitor", "Placa"):
+   antes decia "En linea" a secas y no se sabia que estaba en linea. */
+.conexiones {
+  display: inline-flex; align-items: center; gap: 2px; padding: 3px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 999px;
+}
+.conexion {
+  display: inline-flex; align-items: center; gap: 7px; padding: 4px 10px; border-radius: 999px;
+  font-size: 0.78rem; color: var(--text); white-space: nowrap; cursor: help;
+}
+.conexion b { font-weight: 500; color: var(--muted); }
+.punto { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+.punto-ok { background: var(--ok); box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.18); }
+.punto-aviso { background: var(--warn); box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.18); }
+.punto-caido { background: var(--down); box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.18); }
 
 .enlace { font-size: 0.72rem; padding: 4px 10px; border-radius: 999px; white-space: nowrap; }
 .enlace-ok { background: rgba(61, 220, 151, 0.12); color: var(--ok); }
@@ -75,8 +154,8 @@ h3 { font-size: 0.78rem; margin: 0 0 10px; text-transform: uppercase; letter-spa
 .panel {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 16px;
+  border-radius: var(--radio);
+  padding: 18px;
   margin-top: 16px;
 }
 .panel.vacio { text-align: center; padding: 32px 16px; }
@@ -93,7 +172,7 @@ h3 { font-size: 0.78rem; margin: 0 0 10px; text-transform: uppercase; letter-spa
   letter-spacing: 0.05em;
   padding: 4px 12px;
   border-radius: 999px;
-  background: #2a3140;
+  background: var(--chip-bg);
   color: var(--text);
 }
 .chip-normal { background: rgba(61, 220, 151, 0.15); color: var(--ok); }
@@ -103,27 +182,65 @@ h3 { font-size: 0.78rem; margin: 0 0 10px; text-transform: uppercase; letter-spa
 .chip-nulo { background: rgba(139, 147, 167, 0.18); color: var(--muted); }
 /* PRUEBA tiene que saltar a la vista: es lo que dice que esos datos no son un
    experimento. Fondo lleno, no el tinte suave de los demas chips. */
-.chip-prueba { background: var(--warn); color: #1a1d24; }
+.chip-prueba { background: var(--warn); color: var(--panel); }
 .chip-relajada { background: transparent; color: var(--warn); border: 1px solid var(--warn); }
 .chip-sin-marca { background: transparent; color: var(--muted); border: 1px dashed var(--muted); }
 
-.progreso { display: flex; flex-direction: column; gap: 10px; }
-.barra { height: 8px; background: #232833; border-radius: 999px; overflow: hidden; }
-.barra-relleno { height: 100%; background: var(--accent); transition: width 0.4s ease; }
-.progreso-datos {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 18px;
-  font-size: 0.82rem;
-  color: var(--muted);
+.progreso { display: flex; flex-direction: column; gap: 14px; }
+.barra { height: 10px; background: var(--panel-2); border-radius: 999px; overflow: hidden; }
+.barra-relleno {
+  height: 100%; border-radius: 999px; transition: width 0.4s ease;
+  background: linear-gradient(90deg, #3d6fe0, var(--accent));
 }
-.progreso-datos strong { color: var(--text); font-variant-numeric: tabular-nums; }
+/* Cuatro datos con su rotulo arriba, en grilla: se comparan de un vistazo. */
+.progreso-datos {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; margin: 0;
+}
+@media (min-width: 560px) { .progreso-datos { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.progreso-datos dt { font-size: 0.75rem; color: var(--muted); }
+.progreso-datos dd { margin: 0; font-size: 1.15rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* Encabezado de la corrida en curso. */
+.cabecera-run-titulo { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 10px; }
+.cabecera-run-titulo h2 { margin: 0; font-size: 1.3rem; }
+.latido { width: 12px; height: 12px; border-radius: 50%; background: var(--muted); flex: none; }
+.latido-normal { background: var(--ok); animation: latido 2s ease-in-out infinite; }
+.latido-warning { background: var(--warn); animation: latido 1.4s ease-in-out infinite; }
+.latido-critical { background: var(--down); animation: latido 0.9s ease-in-out infinite; }
+@keyframes latido { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.18); } 50% { box-shadow: 0 0 0 7px rgba(255, 255, 255, 0); } }
+@media (prefers-reduced-motion: reduce) { .latido { animation: none !important; } }
+.rotulo { display: inline-flex; align-items: center; gap: 8px; font-size: 0.8rem; color: var(--muted); }
+
+/* Medicion: el borde izquierdo dice la zona antes de leer el numero. */
+.medicion { border-left-width: 4px; }
+.medicion-normal { border-left-color: var(--ok); }
+.medicion-advertencia { border-left-color: var(--warn); }
+.medicion-critico { border-left-color: var(--down); }
+.medicion-zona { margin: 6px 0 0; font-size: 0.85rem; font-weight: 600; }
+.zona-normal { color: var(--ok); }
+.zona-advertencia { color: var(--warn); }
+.zona-critico { color: var(--down); }
+.escala { margin: 14px 0 4px; }
+.escala-pista { position: relative; height: 8px; border-radius: 999px; overflow: visible; background: var(--panel-2); }
+.escala-tramo { position: absolute; top: 0; bottom: 0; }
+.tramo-normal { background: rgba(52, 211, 153, 0.55); }
+.tramo-advertencia { background: rgba(251, 191, 36, 0.45); }
+.tramo-critico { background: rgba(248, 113, 113, 0.4); }
+.escala-tramo:first-child { border-radius: 999px 0 0 999px; }
+.escala-tramo:nth-child(5) { border-radius: 0 999px 999px 0; }
+.escala-marca {
+  position: absolute; top: -5px; width: 4px; height: 18px; margin-left: -2px; border-radius: 2px;
+  background: var(--text); box-shadow: 0 0 0 2px var(--panel); transition: left 0.4s ease;
+}
+.escala-etiquetas { position: relative; height: 16px; margin-top: 4px; font-size: 0.7rem; color: var(--muted); }
+.escala-etiquetas span { position: absolute; transform: translateX(-50%); font-variant-numeric: tabular-nums; }
 
 .grilla-mediciones { display: grid; grid-template-columns: 1fr; gap: 0 16px; }
 @media (min-width: 560px) { .grilla-mediciones { grid-template-columns: 1fr 1fr; } }
 
 .medicion-valor {
   margin: 0;
+  letter-spacing: -0.02em;
   font-size: 2.2rem;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
@@ -163,7 +280,7 @@ h3 { font-size: 0.78rem; margin: 0 0 10px; text-transform: uppercase; letter-spa
   padding: 8px 12px;
   border-radius: 8px;
   border-left: 3px solid var(--warn);
-  background: #1c2029;
+  background: var(--panel-2);
   font-size: 0.85rem;
 }
 /* Cada alerta se colorea por SU tipo: una critica corta el experimento, una
@@ -182,17 +299,31 @@ h3 { font-size: 0.78rem; margin: 0 0 10px; text-transform: uppercase; letter-spa
 
 /* ---------------- navegacion ---------------- */
 
-.marca { text-decoration: none; color: inherit; }
-.navegacion { display: flex; gap: 4px; margin-top: 14px; }
+.marca { text-decoration: none; color: inherit; display: inline-flex; align-items: center; gap: 10px; }
+.marca-logo {
+  width: 34px; height: 34px; border-radius: 10px; display: inline-grid; place-items: center;
+  background: linear-gradient(135deg, #3d6fe0, #6b9bff); color: #fff; flex: none;
+}
+/* Pestañas con icono y subrayado: la seccion activa se ve sin leer. En el
+   celular se desplazan de costado en vez de partirse en dos lineas. */
+.navegacion {
+  display: flex; gap: 2px; margin-top: 10px; border-bottom: 1px solid var(--border);
+  overflow-x: auto; scrollbar-width: none;
+}
 .navegacion a {
+  display: inline-flex; align-items: center; gap: 7px;
   color: var(--muted);
   text-decoration: none;
-  font-size: 0.85rem;
-  padding: 6px 12px;
-  border-radius: 8px;
+  font-size: 0.9rem;
+  padding: 10px 14px;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  white-space: nowrap;
 }
+.navegacion a svg { opacity: 0.8; }
 .navegacion a:hover { color: var(--text); }
-.navegacion a.active { color: var(--text); background: var(--panel); }
+.navegacion a.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+.navegacion a.active svg { opacity: 1; color: var(--accent); }
 
 /* ---------------- historial ---------------- */
 
@@ -247,17 +378,17 @@ h3 { font-size: 0.78rem; margin: 0 0 10px; text-transform: uppercase; letter-spa
 .figura { margin: 0 0 22px; }
 .figura:last-child { margin-bottom: 0; }
 .figura figcaption {
-  font-size: 0.78rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text);
   margin-bottom: 10px;
 }
+.figura .unidad { font-weight: 400; color: var(--muted); }
 .figura .unidad { text-transform: none; letter-spacing: 0; }
 .figura .nota { text-transform: none; letter-spacing: 0; opacity: 0.8; }
 
 .tooltip {
-  background: #10131a;
+  background: var(--tooltip-bg);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 8px 10px;
@@ -288,6 +419,8 @@ h3 { font-size: 0.78rem; margin: 0 0 10px; text-transform: uppercase; letter-spa
 .login { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 16px; }
 .login-caja { width: 100%; max-width: 360px; margin: 0; display: flex; flex-direction: column; }
 .login-caja h1 { margin: 0; }
+.login-logo { width: 44px; height: 44px; border-radius: 12px; margin-bottom: 14px; }
+.login-caja { padding: 28px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35); }
 .login-caja .subtitle { margin: 2px 0 20px; }
 .login-caja label {
   font-size: 0.75rem;
@@ -297,7 +430,7 @@ h3 { font-size: 0.78rem; margin: 0 0 10px; text-transform: uppercase; letter-spa
   margin-bottom: 6px;
 }
 .login-caja input {
-  background: #10131a;
+  background: var(--tooltip-bg);
   border: 1px solid var(--border);
   border-radius: 8px;
   color: var(--text);
@@ -310,7 +443,7 @@ h3 { font-size: 0.78rem; margin: 0 0 10px; text-transform: uppercase; letter-spa
 .boton-primario {
   background: var(--accent);
   border-color: var(--accent);
-  color: #0b1020;
+  color: var(--on-accent);
   font-weight: 600;
   margin-top: 4px;
   text-align: center;
@@ -333,6 +466,45 @@ h3 { font-size: 0.78rem; margin: 0 0 10px; text-transform: uppercase; letter-spa
    propio estilo; el marco solo le da lugar. */
 .panel-generador { padding: 0; overflow: hidden; }
 .generador { width: 100%; height: calc(100vh - 110px); min-height: 640px; border: 0; display: block; }
+
+/* Configuracion con UNA sola barra de desplazamiento: la pagina queda fija al
+   alto de la ventana y el generador llena lo que sobra con su propio scroll
+   (que es el que mantiene fija su barra de Enviar y su indice). 100dvh y no
+   100vh: en el celular 100vh incluye la barra del navegador y cortaba abajo. */
+body.pagina-config { overflow: hidden; }
+body.pagina-config main { height: 100vh; height: 100dvh; display: flex; flex-direction: column; padding-bottom: 12px; }
+.config-pagina { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.config-pagina .panel-generador { flex: 1; min-height: 0; display: flex; margin-top: 12px; }
+.config-pagina .generador { height: auto; min-height: 0; flex: 1; }
+
+.config-franja {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 10px 14px; margin-top: 12px;
+  font-size: 0.85rem;
+}
+.franja-dato { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; min-width: 0; }
+.franja-rotulo { color: var(--muted); font-size: 0.78rem; }
+.franja-envio { padding: 3px 10px; border-radius: 999px; border: 1px solid; font-size: 0.8rem; cursor: help; }
+.franja-error { margin: 0; }
+.franja-acciones { display: flex; gap: 8px; margin-left: auto; }
+
+/* Desplegable que se abre POR ENCIMA del generador: abrirlo no achica ni
+   empuja el formulario. */
+.desplegable { position: relative; }
+.desplegable summary {
+  list-style: none; cursor: pointer; padding: 5px 12px; border-radius: 999px;
+  border: 1px solid var(--border); color: var(--muted); font-size: 0.8rem; white-space: nowrap;
+}
+.desplegable summary::-webkit-details-marker { display: none; }
+.desplegable summary::after { content: " ▾"; }
+.desplegable[open] summary { color: var(--text); border-color: var(--accent); }
+.desplegable-panel {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; width: min(560px, 90vw);
+  max-height: 60vh; overflow: auto; padding: 14px; border-radius: 12px;
+  background: var(--panel-2); border: 1px solid var(--border); box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+  font-size: 0.85rem; color: var(--text);
+}
+.desplegable-panel p { margin: 0 0 8px; color: var(--muted); }
+.desplegable-panel p strong { color: var(--text); }
 .lista-pedidos { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .pedido { display: flex; flex-wrap: wrap; gap: 12px; padding: 8px 12px; border-left: 3px solid var(--muted); }
 .pedido-aceptada { border-left-color: var(--ok); }
@@ -380,7 +552,7 @@ h3 { font-size: 0.78rem; margin: 0 0 10px; text-transform: uppercase; letter-spa
   position: absolute;
   z-index: 5;
   max-width: min(340px, 85%);
-  background: #10131a;
+  background: var(--tooltip-bg);
   border: 1px solid var(--warn);
   border-radius: 8px;
   padding: 8px 10px;
@@ -418,13 +590,43 @@ h3 { font-size: 0.78rem; margin: 0 0 10px; text-transform: uppercase; letter-spa
 .pestañas button.activa { color: var(--text); background: var(--panel); border-color: var(--accent); }
 .pestaña-cuenta {
   margin-left: 8px; font-size: 0.72rem; padding: 1px 7px; border-radius: 999px;
-  background: #232833; color: var(--muted); font-variant-numeric: tabular-nums;
+  background: var(--panel-2); color: var(--muted); font-variant-numeric: tabular-nums;
 }
 .chk-todas { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 0.8rem; }
 .fila-con-seleccion { display: flex; align-items: stretch; gap: 8px; }
 .fila-con-seleccion .fila-corrida { flex: 1; min-width: 0; }
 .fila-check { align-self: center; width: 18px; height: 18px; flex: none; }
 .fila-con-seleccion.seleccionada .fila-corrida { border-color: var(--down); }
+
+/* Historial como tabla (fase 3): en pantallas anchas, columnas alineadas con
+   titulos; en el celular cada fila vuelve a ser una tarjeta, con rotulos en
+   los numeros para que no queden sueltos. */
+.tabla-corridas { gap: 6px; }
+.col-check { width: 22px; flex: none; display: inline-flex; align-items: center; }
+.fila-titulos { display: none; }
+.tabla-corridas .fila-corrida {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 12px 14px;
+}
+.tabla-corridas .col-num { font-variant-numeric: tabular-nums; font-size: 0.82rem; color: var(--muted); }
+.tabla-corridas .col-num::before { content: attr(data-rotulo) ": "; }
+.tabla-corridas .col-num.fila-alertas { color: var(--warn); }
+.col-tipo { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.tipo-texto { font-size: 0.82rem; color: var(--text); }
+@media (min-width: 900px) {
+  .fila-titulos, .tabla-corridas .fila-corrida {
+    display: grid;
+    grid-template-columns: 170px minmax(150px, 1.3fr) 120px minmax(150px, 1fr) 90px 100px 100px;
+    gap: 12px; align-items: center;
+  }
+  .fila-titulos {
+    font-size: 0.75rem; color: var(--muted); padding: 0 15px; margin-left: 30px;
+  }
+  .tabla-corridas .col-num { text-align: right; color: var(--text); font-size: 0.88rem; }
+  .tabla-corridas .col-num::before { content: none; }
+  .fila-titulos .col-check { display: none; }
+  .fila-titulos .col-num { color: var(--muted); font-size: 0.75rem; }
+}
+.tabla-corridas .fila-corrida:hover { border-color: var(--accent); background: var(--panel-2); }
 
 /* ---------------- botones y formularios ---------------- */
 
@@ -450,7 +652,7 @@ td .enlace-texto, .enlace-en-linea { margin-top: 0; text-align: left; }
   font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 6px;
 }
 .formulario input, .formulario select, .tabla select, .enlace-fila input {
-  background: #10131a; border: 1px solid var(--border); border-radius: 8px; color: var(--text);
+  background: var(--input-bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text);
   padding: 8px 10px; font-size: 0.9rem; margin-bottom: 12px;
 }
 .tabla select { margin: 0; padding: 4px 8px; font-size: 0.82rem; }
@@ -486,3 +688,15 @@ td .enlace-texto, .enlace-en-linea { margin-top: 0; text-align: left; }
 }
 .ventana-selector button:hover { color: var(--text); }
 .ventana-selector button.activa { color: var(--text); border-color: var(--accent); background: rgba(91, 140, 255, 0.12); }
+
+/* ---------------- selector de tema ---------------- */
+.selector-tema {
+  display: inline-flex; padding: 2px; gap: 2px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--panel);
+}
+.selector-tema button {
+  display: inline-grid; place-items: center; width: 28px; height: 24px; border-radius: 999px;
+  border: 0; background: none; color: var(--muted); cursor: pointer; padding: 0;
+}
+.selector-tema button:hover { color: var(--text); }
+.selector-tema button[aria-pressed="true"] { background: var(--panel-2); color: var(--text); box-shadow: inset 0 0 0 1px var(--border); }

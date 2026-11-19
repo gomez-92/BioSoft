@@ -8,6 +8,8 @@ import { useConfigDeCorrida } from '../lib/useConfig.js';
 import type { LiveState } from '../lib/useLive.js';
 import { ListaAlertas } from '../components/ListaAlertas.js';
 import { TipoCorrida } from '../components/TipoCorrida.js';
+import { multiplicadorDe, rangosCampo, rangosTemperatura, type Rangos } from '../lib/rangos.js';
+import { TEXTO_ZONA, escalaDe, zonaDe } from '../lib/zonas.js';
 
 // Los graficos traen recharts: se cargan aparte, y los numeros de arriba se
 // ven sin esperarlos.
@@ -42,11 +44,17 @@ export function Live({ estado, onVerCorrida }: {
 
       {enCurso && (
         <>
-          <section className="panel">
-            <div className="encabezado-run">
-              <Salud health={status?.health} />
-              <Modo mode={targets?.mode} />
+          <section className="panel cabecera-run">
+            <div className="cabecera-run-titulo">
+              <span className={`latido latido-${status?.health ?? 'desconocido'}`} aria-hidden="true" />
+              <h2>{run.runType === 'test' ? 'Prueba en curso' : 'Experimento en curso'}</h2>
               <TipoCorrida runType={run.runType} />
+            </div>
+            {/* Cada chip con su rotulo: "Normal" suelto no decia que era la
+                salud, ni "CAMPO X" que era el modo de exposicion. */}
+            <div className="encabezado-run">
+              <span className="rotulo">Salud <Salud health={status?.health} /></span>
+              {targets?.mode && <span className="rotulo">Modo <Modo mode={targets.mode} /></span>}
             </div>
             <Progreso status={status} startedAt={run.startedAt} />
           </section>
@@ -57,6 +65,10 @@ export function Live({ estado, onVerCorrida }: {
                 <Medicion
                   titulo="Campo magnetico"
                   valor={numero(measures?.magneticField, 3)}
+                  crudo={measures?.magneticField}
+                  rangos={rangosCampo(targets, multiplicadorDe(config))}
+                  piso={0}
+                  decimales={3}
                   unidad="mT"
                   objetivo={targets?.cem !== undefined
                     ? (esCampoNulo(targets.mode)
@@ -69,6 +81,9 @@ export function Live({ estado, onVerCorrida }: {
                 <Medicion
                   titulo="Temperatura"
                   valor={numero(measures?.temperature, 1)}
+                  crudo={measures?.temperature}
+                  rangos={rangosTemperatura(targets)}
+                  decimales={0}
                   unidad="°C"
                   objetivo={targets?.tnmin !== undefined
                     ? `normal ${numero(targets.tnmin, 0)}–${numero(targets.tnmax, 0)} °C`
@@ -79,14 +94,14 @@ export function Live({ estado, onVerCorrida }: {
               </section>
 
               <section className="panel">
-                <h3>Evolucion</h3>
+                <h3>Evolucion <span className="h3-nota">banda verde: rango normal · lineas rojas: limite critico</span></h3>
                 <Suspense fallback={<p className="empty">Cargando graficos...</p>}>
                   <GraficosEnVivo runId={run.id} startedAt={run.startedAt} targets={targets} config={config}
                     measures={measures} coils={coils} alerts={alerts} habilitadas={habilitadas} ahora={ahora} />
                 </Suspense>
                 <p className="tenue">
-                  Los puntos marcan las alertas, cada una en el grafico de su magnitud: pasa por encima (o
-                  tocalos) para ver el detalle. Un anillo alrededor indica la alerta que corto el experimento.
+                  Cada punto es una alerta, en el grafico de su magnitud: pasa por encima (o tocalo) para ver
+                  el detalle. Un anillo marca la que corto el experimento.
                 </p>
               </section>
             </div>
@@ -195,24 +210,49 @@ function Progreso({ status, startedAt }: { status: LiveState['status']; startedA
   const porcentaje = Math.min(100, Math.max(0, status?.progress ?? 0));
   return (
     <div className="progreso">
-      <div className="barra"><div className="barra-relleno" style={{ width: `${porcentaje}%` }} /></div>
-      <div className="progreso-datos">
-        <span><strong>{status?.progress ?? '--'}%</strong></span>
-        <span>transcurrido <strong>{duracion(status?.elapsedSeconds)}</strong></span>
-        <span>restante <strong>{duracion(status?.remainingSeconds)}</strong></span>
-        <span className="tenue">inicio {horaCorta(startedAt)}</span>
+      <div className="barra" role="progressbar" aria-valuenow={porcentaje} aria-valuemin={0} aria-valuemax={100}>
+        <div className="barra-relleno" style={{ width: `${porcentaje}%` }} />
       </div>
+      <dl className="progreso-datos">
+        <div><dt>Avance</dt><dd>{status?.progress ?? '--'}%</dd></div>
+        <div><dt>Transcurrido</dt><dd>{duracion(status?.elapsedSeconds)}</dd></div>
+        <div><dt>Restante</dt><dd>{duracion(status?.remainingSeconds)}</dd></div>
+        <div><dt>Inicio</dt><dd>{horaCorta(startedAt)}</dd></div>
+      </dl>
     </div>
   );
 }
 
-function Medicion({ titulo, valor, unidad, objetivo, ts, ahora }: {
-  titulo: string; valor: string; unidad: string; objetivo?: string; ts?: string; ahora: number;
+function Medicion({ titulo, valor, crudo, rangos, piso, decimales, unidad, objetivo, ts, ahora }: {
+  titulo: string; valor: string; crudo?: number; rangos: Rangos; piso?: number; decimales: number;
+  unidad: string; objetivo?: string; ts?: string; ahora: number;
 }) {
+  const zona = zonaDe(crudo, rangos);
+  const escala = escalaDe(rangos, piso);
+  const fmt = (v: number) => numero(v, decimales);
   return (
-    <article className={`panel medicion ${esViejo(ts, ahora) ? 'viejo' : ''}`}>
+    <article className={`panel medicion ${zona ? `medicion-${zona}` : ''} ${esViejo(ts, ahora) ? 'viejo' : ''}`}>
       <h3>{titulo}</h3>
       <p className="medicion-valor">{valor}<span className="medicion-unidad">{unidad}</span></p>
+      {zona && <p className={`medicion-zona zona-${zona}`}>{TEXTO_ZONA[zona]}</p>}
+      {escala && (
+        // La regla: zonas critica / advertencia / normal y una marca donde
+        // esta el valor. Se entiende sin saber que es un "rango derivado".
+        <div className="escala" aria-hidden="true">
+          <div className="escala-pista">
+            <span className="escala-tramo tramo-critico" style={{ left: 0, width: `${escala.pos(escala.critico[0])}%` }} />
+            <span className="escala-tramo tramo-advertencia" style={{ left: `${escala.pos(escala.critico[0])}%`, width: `${escala.pos(escala.normal[0]) - escala.pos(escala.critico[0])}%` }} />
+            <span className="escala-tramo tramo-normal" style={{ left: `${escala.pos(escala.normal[0])}%`, width: `${escala.pos(escala.normal[1]) - escala.pos(escala.normal[0])}%` }} />
+            <span className="escala-tramo tramo-advertencia" style={{ left: `${escala.pos(escala.normal[1])}%`, width: `${escala.pos(escala.critico[1]) - escala.pos(escala.normal[1])}%` }} />
+            <span className="escala-tramo tramo-critico" style={{ left: `${escala.pos(escala.critico[1])}%`, right: 0 }} />
+            {crudo !== undefined && <span className="escala-marca" style={{ left: `${escala.pos(crudo)}%` }} />}
+          </div>
+          <div className="escala-etiquetas">
+            <span style={{ left: `${escala.pos(escala.normal[0])}%` }}>{fmt(escala.normal[0])}</span>
+            <span style={{ left: `${escala.pos(escala.normal[1])}%` }}>{fmt(escala.normal[1])}</span>
+          </div>
+        </div>
+      )}
       {objetivo && <p className="medicion-objetivo">{objetivo}</p>}
       <p className="tenue">{antiguedad(ts, ahora)}</p>
     </article>

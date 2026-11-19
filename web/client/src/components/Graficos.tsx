@@ -8,6 +8,7 @@ import { esAlertaCritica, numero } from '../lib/format.js';
 import { multiplicadorDe, rangosCampo, rangosTemperatura, type Rangos } from '../lib/rangos.js';
 import { aMilisegundos, bucketEnMs, insertarHuecos } from '../lib/series.js';
 import type { AlertItem, Targets } from '../lib/types.js';
+import { useTema } from '../lib/tema.js';
 
 // Graficos de la corrida, en el detalle y en vivo.
 //
@@ -35,9 +36,31 @@ import type { AlertItem, Targets } from '../lib/types.js';
 const SERIE = ['#3987e5', '#d95926', '#199e70', '#c98500'];   // slots 1-4, validados
 const CRITICO = '#d03b3b';
 const ADVERTENCIA = '#fab219';
-const TINTA_TENUE = '#898781';
-const GRILLA = '#2c2c2a';
-const SUPERFICIE = '#171a21';
+// Grilla, rotulos y superficie salen del TEMA (styles.css: --tick, --grid,
+// --panel). SUPERFICIE ademas tapa la banda min-max por debajo del minimo:
+// tiene que ser exactamente el color del panel o se ve un rectangulo.
+// Se leen al dibujar cada grafico (useColores), asi cambian con el tema.
+let TINTA_TENUE = '#898781';
+let GRILLA = '#2a2f39';
+let SUPERFICIE = '#151a22';
+
+/** dataKey de un area de rango: [min, max] del punto, o null (hueco). */
+function rangoDe(min: keyof PuntoMedicion, max: keyof PuntoMedicion) {
+  return (p: PuntoMedicion) => {
+    const a = p[min], b = p[max];
+    return typeof a === 'number' && typeof b === 'number' ? [a, b] : null;
+  };
+}
+
+function useColores() {
+  useTema();   // re-dibuja al cambiar el tema
+  if (typeof document === 'undefined') return;
+  const css = getComputedStyle(document.documentElement);
+  const leer = (v: string, def: string) => css.getPropertyValue(v).trim() || def;
+  TINTA_TENUE = leer('--tick', TINTA_TENUE);
+  GRILLA = leer('--grid', GRILLA);
+  SUPERFICIE = leer('--panel', SUPERFICIE);
+}
 
 const ALTO = 240;
 
@@ -86,7 +109,8 @@ function Tip({ active, payload, label, unidad, decimales }: {
       <p className="tooltip-hora">
         {new Date(label ?? 0).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
       </p>
-      {payload.filter((fila) => fila.value !== undefined && fila.value !== null).map((fila) => (
+      {/* Solo valores sueltos: el area min-max entrega un par [min, max]. */}
+      {payload.filter((fila) => typeof fila.value === 'number').map((fila) => (
         <p key={fila.name} className="tooltip-fila">
           <span className="tooltip-marca" style={{ background: fila.color }} />
           {fila.name}: <strong>{numero(fila.value, decimales)} {unidad}</strong>
@@ -190,7 +214,7 @@ function bandas(rangos: Rangos, color: string, decimales: number) {
   return (
     <>
       {rangos.normal && (
-        <ReferenceArea y1={rangos.normal[0]} y2={rangos.normal[1]} fill={color} fillOpacity={0.08}
+        <ReferenceArea y1={rangos.normal[0]} y2={rangos.normal[1]} fill={color} fillOpacity={0.12}
           stroke="none" ifOverflow="extendDomain" />
       )}
       {/* Los limites criticos son los que cortan el experimento: van en rojo
@@ -208,6 +232,30 @@ function bandas(rangos: Rangos, color: string, decimales: number) {
   );
 }
 
+/**
+ * Dominio del eje Y centrado en lo que se vigila: el rango critico con un
+ * margen del 30 % de su ancho, ampliado solo si los datos se salen. Antes el
+ * eje arrancaba en 0 y 1.5 mT ±10 % quedaba como una linea pegada arriba, sin
+ * banda visible (fase 3). `piso` recorta abajo: el campo es un modulo.
+ */
+function dominioY(rangos: Rangos, piso?: number): [(min: number) => number, (max: number) => number] | undefined {
+  if (!rangos.critico) return undefined;
+  const [cmin, cmax] = rangos.critico;
+  const margen = (cmax - cmin) * 0.3 || 1;
+  const abajo = piso === undefined ? cmin - margen : Math.max(piso, cmin - margen);
+  return [
+    (min: number) => (Number.isFinite(min) ? Math.min(min, abajo) : abajo),
+    (max: number) => (Number.isFinite(max) ? Math.max(max, cmax + margen) : cmax + margen),
+  ];
+}
+
+/** Decimales del eje segun el ancho del rango (0.1 mT necesita 3). */
+function decimalesEje(rangos: Rangos, porDefecto: number): number {
+  if (!rangos.critico) return porDefecto;
+  const ancho = rangos.critico[1] - rangos.critico[0];
+  return ancho < 0.05 ? 4 : ancho < 0.5 ? 3 : ancho < 5 ? 2 : porDefecto;
+}
+
 function filtrarPorGrafico(alertas: AlertItem[], grafico: 'campo' | 'temperatura'): AlertItem[] {
   return alertas.filter((alerta) => graficoDeFuente(alerta.source) === grafico);
 }
@@ -219,6 +267,7 @@ export function GraficoCampo({ puntos, bucket, contexto, alertas, desde, fin, al
   /** Borde izquierdo del eje (ventana deslizante); sin el, el inicio de la corrida. */
   desde?: number;
 }) {
+  useColores();
   const globo = useGlobo();
   const datos = aMilisegundos(insertarHuecos(puntos, bucketEnMs(bucket)) as PuntoMedicion[]);
   const rangos = rangosCampo(contexto.targets, multiplicadorDe(contexto.config));
@@ -228,25 +277,27 @@ export function GraficoCampo({ puntos, bucket, contexto, alertas, desde, fin, al
     <figure className="figura">
       <figcaption>
         Campo magnetico <span className="unidad">mT</span>
-        {rangos.normal && <span className="nota"> · banda: rango normal · punteado rojo: critico</span>}
+        
       </figcaption>
       <div className="grafico-area" ref={globo.area} onMouseLeave={() => globo.setActiva(null)}>
         <ResponsiveContainer width="100%" height={alto}>
           <ComposedChart data={datos} margin={{ top: 8, right: 12, bottom: 4, left: -8 }}>
             <CartesianGrid stroke={GRILLA} vertical={false} />
             <XAxis {...ejeTiempo(desde ?? contexto.inicio, fin)} />
-            <YAxis stroke={TINTA_TENUE} fontSize={11} width={56}
-              tickFormatter={(v: number) => numero(v, 2)} />
-            {bandas(rangos, SERIE[0], 3)}
+            <YAxis stroke={TINTA_TENUE} fontSize={11} width={56} domain={dominioY(rangos, 0)}
+              allowDataOverflow={false} tickFormatter={(v: number) => numero(v, decimalesEje(rangos, 2))} />
+            {bandas(rangos, '#199e70', 3)}
             {rangos.objetivo !== undefined && (
               <ReferenceLine y={rangos.objetivo} stroke="#3987e5" strokeDasharray="4 4" strokeWidth={1}
                 label={{ value: `objetivo ${numero(rangos.objetivo, 2)}`, fill: TINTA_TENUE, fontSize: 10, position: 'insideBottomLeft' }} />
             )}
             {/* La banda min-max del bucket: sin esto el promedio esconde los picos. */}
-            <Area type="monotone" dataKey="fieldMax" stroke="none" fill={SERIE[0]} fillOpacity={0.18}
-              connectNulls={false} isAnimationActive={false} name="max" />
-            <Area type="monotone" dataKey="fieldMin" stroke="none" fill={SUPERFICIE} fillOpacity={1}
-              connectNulls={false} isAnimationActive={false} name="min" />
+            {/* Area de RANGO (min a max). Antes eran dos areas y la de abajo se
+                pintaba del color del panel para "borrar" lo que quedaba bajo el
+                minimo: borraba tambien la banda normal (en tema claro, un
+                rectangulo blanco tapando el verde). */}
+            <Area type="monotone" dataKey={rangoDe('fieldMin', 'fieldMax')} stroke="none" fill={SERIE[0]}
+              fillOpacity={0.18} connectNulls={false} isAnimationActive={false} name="min-max" />
             <Line type="monotone" dataKey="field" stroke={SERIE[0]} strokeWidth={2}
               dot={bucket === 'raw' && datos.length < 120 ? { r: 2 } : false}
               connectNulls={false} isAnimationActive={false} name="campo" />
@@ -270,6 +321,7 @@ export function GraficoTemperatura({ puntos, bucket, contexto, alertas, desde, f
   /** Borde izquierdo del eje (ventana deslizante); sin el, el inicio de la corrida. */
   desde?: number;
 }) {
+  useColores();
   const globo = useGlobo();
   const datos = aMilisegundos(insertarHuecos(puntos, bucketEnMs(bucket)) as PuntoMedicion[]);
   const rangos = rangosTemperatura(contexto.targets);
@@ -280,20 +332,18 @@ export function GraficoTemperatura({ puntos, bucket, contexto, alertas, desde, f
     <figure className="figura">
       <figcaption>
         Temperatura <span className="unidad">°C</span>
-        {rangos.normal && <span className="nota"> · banda: rango normal · punteado rojo: critico</span>}
+        
       </figcaption>
       <div className="grafico-area" ref={globo.area} onMouseLeave={() => globo.setActiva(null)}>
         <ResponsiveContainer width="100%" height={alto}>
           <ComposedChart data={datos} margin={{ top: 8, right: 12, bottom: 4, left: -8 }}>
             <CartesianGrid stroke={GRILLA} vertical={false} />
             <XAxis {...ejeTiempo(desde ?? contexto.inicio, fin)} />
-            <YAxis stroke={TINTA_TENUE} fontSize={11} width={56}
-              tickFormatter={(v: number) => numero(v, 0)} />
+            <YAxis stroke={TINTA_TENUE} fontSize={11} width={56} domain={dominioY(rangos)}
+              allowDataOverflow={false} tickFormatter={(v: number) => numero(v, decimalesEje(rangos, 0) > 1 ? 1 : 0)} />
             {bandas(rangos, '#199e70', 0)}
-            <Area type="monotone" dataKey="tempMax" stroke="none" fill={SERIE[1]} fillOpacity={0.18}
-              connectNulls={false} isAnimationActive={false} name="max" />
-            <Area type="monotone" dataKey="tempMin" stroke="none" fill={SUPERFICIE} fillOpacity={1}
-              connectNulls={false} isAnimationActive={false} name="min" />
+            <Area type="monotone" dataKey={rangoDe('tempMin', 'tempMax')} stroke="none" fill={SERIE[1]}
+              fillOpacity={0.18} connectNulls={false} isAnimationActive={false} name="min-max" />
             <Line type="monotone" dataKey="temp" stroke={SERIE[1]} strokeWidth={2}
               dot={bucket === 'raw' && datos.length < 120 ? { r: 2 } : false}
               connectNulls={false} isAnimationActive={false} name="temperatura" />
@@ -319,6 +369,7 @@ export function GraficoBobinas({ puntos, bucket, bobinas, magnitud, inicio, fin,
   puntos: Array<Record<string, unknown> & { ts: string }>; bucket?: string;
   bobinas: number[]; magnitud: 'corriente' | 'duty'; inicio: number; fin: number; alto?: number;
 }) {
+  useColores();
   if (bobinas.length === 0) return null;
   const datos = aMilisegundos(insertarHuecos(puntos, bucketEnMs(bucket)));
   const prefijo = magnitud === 'corriente' ? 'c' : 'd';

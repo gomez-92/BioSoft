@@ -164,6 +164,36 @@ async function actualizar(requestId: string, cambios: Record<string, unknown>): 
 
 export class PedidoInvalido extends Error {}
 
+const SENSOR_REAL: Record<string, string> = { CEM1: 'mlx90393', TEMP1: 'ds18b20' };
+
+/**
+ * Un EXPERIMENTO (todo runType que no sea "test": ausente o mal escrito, el
+ * firmware lo toma como normal) corre si o si con los sensores reales y el Detector encendido
+ * (decision del 2026-11-19). El generador ya no deja armar otra cosa; esto es
+ * la misma regla del lado del servidor, para un archivo editado a mano o un
+ * generador viejo. Devuelve el motivo, o null si es coherente. Las claves
+ * ausentes cuentan con su default compilado, que es el sensor real y el
+ * Detector encendido.
+ */
+export function incoherenciaDeExperimento(data: Record<string, unknown>): string | null {
+  // Experimento es todo lo que no es "test", como en la placa
+  // (ConfigLoader::loadRunType): un runType mal escrito tambien.
+  if (data.runType === 'test') return null;
+  const detector = (data.detector ?? {}) as { enabled?: unknown; sources?: unknown };
+  if (detector.enabled === false) {
+    return 'un experimento (runType normal) tiene que correr con el Detector encendido; para apagarlo, declarar la corrida como test';
+  }
+  const fuentes = Array.isArray(detector.sources) ? detector.sources as Array<{ name?: unknown; sensor?: unknown }> : [];
+  for (const fuente of fuentes) {
+    const real = typeof fuente.name === 'string' ? SENSOR_REAL[fuente.name] : undefined;
+    if (real && fuente.sensor !== undefined && fuente.sensor !== real) {
+      return `un experimento (runType normal) corre solo con sensores reales: ${String(fuente.name)} esta en ` +
+        `"${String(fuente.sensor)}" y tiene que ser "${real}"; para simular, declarar la corrida como test`;
+    }
+  }
+  return null;
+}
+
 /**
  * Valida lo minimo que el monitor puede garantizar (la validacion de cada
  * regla la hizo el generador embebido, y la placa vuelve a parsear) y
@@ -179,6 +209,8 @@ export async function enviarConfiguracion(
   const data = objeto(configuracion);
   if (!data) throw new PedidoInvalido('la configuracion tiene que ser un objeto JSON');
   if (data.schemaVersion !== 1) throw new PedidoInvalido('schemaVersion tiene que ser 1');
+  const incoherencia = incoherenciaDeExperimento(data);
+  if (incoherencia) throw new PedidoInvalido(incoherencia);
 
   const texto = JSON.stringify(sinCredenciales(data));
   // Tope de la placa: ConfigLoader lee con un buffer de 8 KB, y el archivo

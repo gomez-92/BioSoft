@@ -100,9 +100,12 @@ describe('relajaciones', () => {
 describe('motivoConfig', () => {
   // Un archivo descartado esta en la tarjeta y se ignora: tiene que avisarse.
   it('avisa los archivos ignorados y la falta de tarjeta', () => {
-    for (const st of ['nosd', 'unreadable', 'invalid', 'schema']) {
+    for (const st of ['nosd', 'unreadable', 'invalid', 'schema', 'experiment']) {
       expect(motivoConfig('default', st).aviso).toBe(true);
     }
+  });
+  it('un experimento con sensores simulados descartado por la placa dice por que', () => {
+    expect(motivoConfig('default', 'experiment').texto).toContain('sensor simulado');
   });
   it('sin archivo es un arranque normal, sin aviso', () => {
     expect(motivoConfig('default', 'nofile').aviso).toBe(false);

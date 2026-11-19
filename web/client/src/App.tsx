@@ -5,6 +5,8 @@ import { useLive } from './lib/useLive.js';
 import type { Perfil } from './lib/types.js';
 import { SesionContext } from './lib/sesion.js';
 import { EstadoPlaca } from './components/EstadoPlaca.js';
+import { Icono } from './components/Icono.js';
+import { useTema, type Preferencia } from './lib/tema.js';
 import { Historial } from './pages/Historial.js';
 import { Live } from './pages/Live.js';
 import { Login } from './pages/Login.js';
@@ -79,15 +81,27 @@ function Contenido({ sesion, onSalir }: { sesion: Perfil; onSalir: () => void })
   return (
     <main>
       <header className="cabecera">
-        <div>
-          <Link to="/" className="marca"><h1>BioSoft</h1></Link>
-          <p className="subtitle">Monitor remoto{estado.deviceId ? ` · ${estado.deviceId}` : ''}</p>
-        </div>
-        <div className="cabecera-derecha">
-          <span className={`enlace ${estado.conectado && estado.brokerOk ? 'enlace-ok' : 'enlace-caido'}`}>
-            {estado.conectado ? (estado.brokerOk ? 'En linea' : 'Sin broker') : 'Sin servidor'}
+        <Link to="/" className="marca">
+          <span className="marca-logo" aria-hidden="true"><Icono nombre="campo" /></span>
+          <span>
+            <h1>BioSoft</h1>
+            <span className="subtitle">Monitor remoto{estado.deviceId ? ` · ${estado.deviceId}` : ''}</span>
           </span>
-          {estado.conectado && <EstadoPlaca placa={estado.placa} brokerOk={estado.brokerOk} />}
+        </Link>
+        <div className="cabecera-derecha">
+          {/* Cada estado dice DE QUIEN es: "Monitor" es este servidor
+              escuchando al broker; "Placa" es la ESP32 contestando el ping. */}
+          <div className="conexiones">
+            <span className="conexion" title={
+              !estado.conectado ? 'Este navegador perdio la conexion con el servidor del monitor.'
+                : estado.brokerOk ? 'El servidor del monitor esta conectado al broker y recibe la telemetria.'
+                  : 'El servidor del monitor no llega al broker: no entra telemetria.'}>
+              <span className={`punto ${estado.conectado && estado.brokerOk ? 'punto-ok' : 'punto-caido'}`} />
+              <b>Monitor</b>{estado.conectado ? (estado.brokerOk ? 'en linea' : 'sin broker') : 'sin servidor'}
+            </span>
+            {estado.conectado && <EstadoPlaca placa={estado.placa} brokerOk={estado.brokerOk} />}
+          </div>
+          <SelectorTema />
           <NavLink to="/cuenta" className="usuario-actual" title="Mi cuenta">
             {sesion.username}{sesion.role === 'admin' ? ' · admin' : ''}
           </NavLink>
@@ -96,10 +110,10 @@ function Contenido({ sesion, onSalir }: { sesion: Perfil; onSalir: () => void })
       </header>
 
       <nav className="navegacion">
-        <NavLink to="/" end>En curso</NavLink>
-        <NavLink to="/historial">Historial</NavLink>
-        <NavLink to="/configuracion">Configuracion</NavLink>
-        {sesion.role === 'admin' && <NavLink to="/usuarios">Usuarios</NavLink>}
+        <NavLink to="/" end><Icono nombre="vivo" />En curso</NavLink>
+        <NavLink to="/historial"><Icono nombre="historial" />Historial</NavLink>
+        <NavLink to="/configuracion"><Icono nombre="config" />Configuracion</NavLink>
+        {sesion.role === 'admin' && <NavLink to="/usuarios"><Icono nombre="usuarios" />Usuarios</NavLink>}
       </nav>
 
       <Suspense fallback={<p className="empty panel">Cargando...</p>}>
@@ -116,5 +130,26 @@ function Contenido({ sesion, onSalir }: { sesion: Perfil; onSalir: () => void })
         </Routes>
       </Suspense>
     </main>
+  );
+}
+
+// Automatico / claro / oscuro. Es una preferencia de este navegador.
+const OPCIONES_TEMA: Array<{ valor: Preferencia; icono: string; nombre: string }> = [
+  { valor: 'auto', icono: 'auto', nombre: 'Automatico (como el sistema)' },
+  { valor: 'claro', icono: 'sol', nombre: 'Claro' },
+  { valor: 'oscuro', icono: 'luna', nombre: 'Oscuro' },
+];
+
+function SelectorTema() {
+  const { preferencia, elegir } = useTema();
+  return (
+    <div className="selector-tema" role="group" aria-label="Tema">
+      {OPCIONES_TEMA.map((o) => (
+        <button key={o.valor} type="button" title={`Tema: ${o.nombre}`} aria-label={`Tema ${o.nombre}`}
+          aria-pressed={preferencia === o.valor} onClick={() => elegir(o.valor)}>
+          <Icono nombre={o.icono} tamaño={14} />
+        </button>
+      ))}
+    </div>
   );
 }

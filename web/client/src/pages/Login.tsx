@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { login, pedirRecuperacion } from '../lib/auth.js';
 import type { Perfil } from '../lib/types.js';
+import { Icono } from '../components/Icono.js';
 
 export function Login({ onEntrar }: { onEntrar: (perfil: Perfil) => void }) {
   const [modo, setModo] = useState<'entrar' | 'olvide'>('entrar');
@@ -48,6 +49,7 @@ export function Login({ onEntrar }: { onEntrar: (perfil: Perfil) => void }) {
   return (
     <main className="login">
       <form className="panel login-caja" onSubmit={modo === 'entrar' ? entrar : olvide}>
+        <span className="marca-logo login-logo" aria-hidden="true"><Icono nombre="campo" tamaño={20} /></span>
         <h1>BioSoft</h1>
         <p className="subtitle">{modo === 'entrar' ? 'Monitor remoto' : 'Recuperar contraseña'}</p>
 

@@ -161,7 +161,15 @@ export function Historial() {
           )}
         </p>
       ) : (
-        <ul className="lista-corridas">
+        <ul className="lista-corridas tabla-corridas">
+          {/* Encabezado de columnas (solo en pantallas anchas): cada fila
+              se compara con las demas sin abrirla. */}
+          <li className="fila-titulos" aria-hidden="true">
+            <span className="col-check" />
+            <span>Inicio</span><span>Tipo</span><span>Modo</span><span>Resultado</span>
+            <span className="col-num">Duracion</span><span className="col-num">Mediciones</span>
+            <span className="col-num">Alertas</span>
+          </li>
           {items.map((run) => (
             <Fila key={run.id} run={run}
               seleccionable={esAdmin && run.state !== 'running'}
@@ -197,27 +205,34 @@ function Fila({ run, seleccionable, seleccionada, onAlternar }: {
 
   return (
     <li className={`fila-con-seleccion ${seleccionada ? 'seleccionada' : ''}`}>
-      {seleccionable && (
-        <input type="checkbox" className="fila-check" checked={seleccionada} onChange={onAlternar}
-          aria-label={`Seleccionar corrida del ${inicio.toLocaleString('es-AR')}`} />
-      )}
+      <span className="col-check">
+        {seleccionable && (
+          <input type="checkbox" className="fila-check" checked={seleccionada} onChange={onAlternar}
+            aria-label={`Seleccionar corrida del ${inicio.toLocaleString('es-AR')}`} />
+        )}
+      </span>
       <Link to={`/corrida/${run.id}`} className="fila-corrida">
-        <div className="fila-principal">
-          <span className="fila-fecha">
-            {inicio.toLocaleDateString('es-AR')} {inicio.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
-          </span>
-          {run.mode && (
-            <span className={`chip chip-modo ${esNulo ? 'chip-nulo' : ''}`}>{nombreModo(run.mode)}</span>
-          )}
-          <TipoCorrida runType={run.runType} />
+        <span className="fila-fecha">
+          {inicio.toLocaleDateString('es-AR')} <span className="tenue-celda">
+            {inicio.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}</span>
+        </span>
+        <span className="col-tipo">
+          {/* Un experimento normal no lleva chip (TipoCorrida): en la tabla
+              se dice igual, para que la columna nunca quede vacia. */}
+          {run.runType === 'normal' ? <span className="tipo-texto">Experimento</span> : <TipoCorrida runType={run.runType} />}
           <ConRelajaciones runType={run.runType} relaxations={run.relaxations} />
-          <Motivo reason={run.reason} state={run.state} />
-        </div>
-        <div className="fila-datos">
-          <span>{duracion(segundos)}</span>
-          <span>{run.measureCount} mediciones</span>
-          {run.alertCount > 0 && <span className="fila-alertas">{run.alertCount} alertas</span>}
-        </div>
+        </span>
+        <span>
+          {run.mode
+            ? <span className={`chip chip-modo ${esNulo ? 'chip-nulo' : ''}`}>{nombreModo(run.mode)}</span>
+            : <span className="tenue-celda">--</span>}
+        </span>
+        <span><Motivo reason={run.reason} state={run.state} /></span>
+        <span className="col-num" data-rotulo="Duracion">{duracion(segundos)}</span>
+        <span className="col-num" data-rotulo="Mediciones">{run.measureCount}</span>
+        <span className={`col-num ${run.alertCount > 0 ? 'fila-alertas' : 'tenue-celda'}`} data-rotulo="Alertas">
+          {run.alertCount > 0 ? `${run.alertCount} ${run.alertCount === 1 ? 'alerta' : 'alertas'}` : 'ninguna'}
+        </span>
       </Link>
     </li>
   );

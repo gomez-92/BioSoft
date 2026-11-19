@@ -44,36 +44,38 @@ export function EstadoPlaca({ placa, brokerOk }: { placa: PlacaStatus | null; br
     }
   }
 
-  let clase = 'enlace-desconocido';
-  let texto = 'Placa sin verificar';
+  let clase = 'punto';
+  let texto = 'sin verificar';
   if (actual?.estado === 'conectada') {
-    clase = actual.mega === false ? 'enlace-aviso' : 'enlace-ok';
-    texto = `Placa conectada${actual.latenciaMs !== null ? ` · ${actual.latenciaMs} ms` : ''}`;
+    clase = actual.mega === false ? 'punto-aviso' : 'punto-ok';
+    texto = `conectada${actual.latenciaMs !== null ? ` · ${actual.latenciaMs} ms` : ''}`;
     if (actual.mega === false) texto += ' · sin Mega';
     // Una configuracion ignorada (o sin tarjeta) tambien se avisa aca: la
     // placa contesta, pero no corre lo que se le grabo.
     if (motivoConfig(actual.configId, actual.configStatus).aviso) {
-      clase = 'enlace-aviso';
+      clase = 'punto-aviso';
       texto += ' · revisar SD';
     }
   } else if (actual?.estado === 'sin_respuesta') {
-    clase = 'enlace-caido';
-    texto = 'Placa sin respuesta';
+    clase = 'punto-caido';
+    texto = 'sin respuesta';
   }
 
   return (
     <span className="estado-placa">
-      <span className={`enlace ${clase}`} title={actual ? detalle(actual) : undefined}>
-        {esperando ? 'Ping...' : texto}
+      <span className="conexion" title={actual ? detalle(actual)
+        : 'Todavia no se le pregunto a la placa si esta ahi. "Probar" le manda un ping.'}>
+        <span className={`punto ${clase}`} />
+        <b>Placa</b>{esperando ? 'probando...' : texto}
       </span>
       <button
         type="button"
         className="boton-ping"
         onClick={() => void ping()}
         disabled={esperando || !brokerOk}
-        title={brokerOk ? 'Mandar un ping a la placa ahora' : 'Sin broker no se puede llegar a la placa'}
+        title={brokerOk ? 'Preguntarle a la placa si esta ahi (ping)' : 'Sin broker no se puede llegar a la placa'}
       >
-        Ping
+        Probar
       </button>
     </span>
   );

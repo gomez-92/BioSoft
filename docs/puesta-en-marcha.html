@@ -197,6 +197,12 @@
         <span class="que">Enviar con la placa en Resultado: no se reinicia, REPETIR desaparece; al tocar Volver se reinicia</span>
         <span class="det">Lo mismo en Configuraciones (al volver a Principal). Con un experimento en curso
           el envío se rechaza: "Rechazada: hay un experimento en curso".</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f1-experimento-sd">
+        <span class="que">Tarjeta con un experimento que simula un sensor: la placa la descarta entera</span>
+        <span class="det">Copiar a mano un <code>config.json</code> con <code>"runType": "normal"</code> y TEMP1 en
+          <code>sim</code>. Al arrancar, el log de la ESP32 dice <code>[CONFIG] un experimento corre solo con
+          sensores reales ... se descarta el archivo entero</code> y el monitor muestra "declara un experimento con
+          un sensor simulado ... corre con los valores de fabrica".</span></label></li>
     </ul>
     <label class="notas"><span>Notas</span><textarea data-nota="1"></textarea></label>
   </section>

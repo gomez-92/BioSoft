@@ -1424,25 +1424,50 @@ Two things there are worth knowing before touching it:
   SD, waiting for a reboot; `GET /api/config/requests` carries `content` on
   the latest request for this) and *Editando*. A board on `"default"` shows
   *Valores de fabrica* plus **why** — `ConfigLoader::loadStatus()` (`ok`/
-  `nosd`/`nofile`/`unreadable`/`invalid`/`schema`) travels as `src` in the
+  `nosd`/`nofile`/`unreadable`/`invalid`/`schema`/`experiment`) travels as `src` in the
   current-config meta and `cfgst` in the pong. `invalid`/`schema`/`unreadable`
   are warnings, not boots-as-usual: the file *is* on the card and is being
   ignored. The wording lives once, in `web/client/src/lib/format.ts`
   (`motivoConfig`), and is passed to the generator already built. They used to share the
   buttons (board as an underline) and that read as one confusing state.
-- **`control.map` is validated here against the same limits as the Mega**
-  (`MAX_BALANCE` mirrors `CoilChannels::MaxBalance` — same drift hazard as the two
-  `seriallink.hpp`). The web copy (`client/public/`) must stay identical:
-  `npm run sync:generador` after every edit.
-- **The 128-byte telemetry payload cannot overflow**, so the generator
-  deliberately does *not* validate it. `Topics::TelemetryField::name` is a
-  `char[16]` and the topic a `char[64]`, so every key is truncated to 15
-  characters no matter how long it arrives in the file; the heaviest batch
-  (measures, 3 floats) then tops out at 4 + 3×(15+3+12) = 94 bytes. That makes
-  `_publishTelemetry()`'s "don't publish a truncated payload" guard genuinely
-  defensive — correct, but unreachable while those buffers are 16. A blocking
-  error for a condition that cannot happen would be worse than none, so the
-  generator only reports the computed size. If `MaxFieldNameLength` ever grows,
+- **An experiment (`runType: normal`, or absent) runs only with real sensors
+  and the Detector on — no exceptions** (user decision, 2026-11-19). The
+  generator enforces it when switching to normal (`enforceExperiment()`
+  flips sim/scenario/none back to mlx90393/ds18b20 and turns the Detector
+  on, with an undo that goes back to `test`), hides step 5b and the
+  non-real sensor options in normal, and `validate()` errors on a loaded
+  file that breaks it; picking a scenario sets `test`. The monitor's server
+  rejects the same thing on send (`incoherenciaDeExperimento()` in
+  `configsync.ts`) for files not made by the generator, and **so does the
+  ESP32** (`ConfigLoader::experimentIncoherence()`): at boot such a
+  `config.json` is discarded whole (`loadStatus` `experiment`, defaults run,
+  the monitor shows why), and the remote-config receiver answers `invalida`
+  before writing it to the SD. Experiment = any `runType` that is not
+  `"test"` (absent or misspelled included, like `loadRunType()`); the server
+  uses the same reading. A key that is absent counts as its compiled
+  default (real sensor, Detector on), so a file without `detector` is fine.
+- **The generator is a stepper**: one section visible at a time, numbered tabs
+  (`#indice`) and Anterior/Siguiente; every section stays in the DOM, so
+  `validate()`/`buildJson()` are unaffected. `validate()` sets `vsec` at each
+  section marker and `err`/`warn` count per step, which colours that step's
+  tab; the scenario checks inside the detector loop count for 5b. Navigation
+  has a **frontier** (user requirement): steps up to it are free to revisit;
+  beyond it only via Siguiente, one at a time, with no errors in that step or
+  earlier ones; ANY config change made on step k pulls the frontier back to k
+  (detected by comparing the whole `state` after each action in
+  `trackChanges()`, not by hooking fields, so no change path escapes). Download
+  and Send are enabled only with the frontier on the last step (Revision
+  final) and no errors, and re-check on click (`fullyReviewed()`): a config
+  half-reviewed after a back-and-forth can never go out. Loading a file, the
+  board's config or the defaults restarts the walk at step 0. Numeric fields
+  carry their limits (`FIELD_LIMITS`: same numbers as `validate()` and the
+  firmware; threshold's max follows its source's bufferSize): min/max on the
+  input, red while typing out of range, and on leaving the field an
+  out-of-range value reverts to the last valid one (`lastValid`) with a short
+  note. `test-generador.js` checks every limit against `validate()` at both
+  edges, so the two cannot drift. Map points
+  pick intensity/frequency from the menus, and a point outside them is now an
+  error (was a warning).
 - **The scenario editor (section 5b) runs a JS copy of the Mega** (`SIM` in
   the generator): `scenario.hpp` levels/points/noise/plant,
   `FieldController`, the Detector's rules/window/streaks/silence,
@@ -1456,6 +1481,19 @@ Two things there are worth knowing before touching it:
   `test_scenario_runs` and demands the same ending, so a change on one side
   fails a test. It cannot reproduce the exact noise (on the board the
   xorshift state carries over between runs) nor the Timer's real phase.
+- **`control.map` is validated here against the same limits as the Mega**
+  (`MAX_BALANCE` mirrors `CoilChannels::MaxBalance` — same drift hazard as the two
+  `seriallink.hpp`). The web copy (`client/public/`) must stay identical:
+  `npm run sync:generador` after every edit.
+- **The 128-byte telemetry payload cannot overflow**, so the generator
+  deliberately does *not* validate it. `Topics::TelemetryField::name` is a
+  `char[16]` and the topic a `char[64]`, so every key is truncated to 15
+  characters no matter how long it arrives in the file; the heaviest batch
+  (measures, 3 floats) then tops out at 4 + 3×(15+3+12) = 94 bytes. That makes
+  `_publishTelemetry()`'s "don't publish a truncated payload" guard genuinely
+  defensive — correct, but unreachable while those buffers are 16. A blocking
+  error for a condition that cannot happen would be worse than none, so the
+  generator only reports the computed size. If `MaxFieldNameLength` ever grows,
   that number is what says how much room is left.
 
 ### `web/` — remote monitor
@@ -1578,19 +1616,6 @@ Other things worth knowing before touching it:
   permission** — before a deploy: with a read-only user the monitor starts,
   logs no error and stores nothing.
 
-- **Roles: `admin` / `viewer`** (`models/user.ts`). The role only guards the
-  three write paths — `POST /api/config/requests`, run deletion
-  (`DELETE /api/runs/:id`, `POST /api/runs/delete`) and `/api/users` — via
-  `requireAdmin`, which reads the role **from the DB on every request**, not
-  from the JWT (demotion must not wait a week for the token to expire).
-  Accounts predating roles are migrated to admin at startup
-  (`cargarSesiones()`); the API keeps at least one admin and refuses
-  self-demotion/self-deletion.
-- **JWTs are revocable** without making `requireAuth` hit Mongo: an in-memory
-  `tokensValidAfter` table (`auth/sesiones.ts`), loaded on connect and updated
-  on every password change/deletion done *by this server*. `ahoraParaRevocar()`
-  floors to the second because `iat` has 1 s resolution — with the exact
-  instant, the token issued in the same second as the change is born revoked.
 - **Scenario library** (`domain/escenarios.ts`, `api/escenarios.ts`,
   collection `Scenario`): the test scenarios the embedded generator offers.
   The factory ones come from `tools/escenarios.json`, copied to
@@ -1613,6 +1638,30 @@ Other things worth knowing before touching it:
   (`biosoft-scenarios`) and the outcome (`biosoft-scenario-result`).
   `Scenario.init()` before seeding: without the unique index built, a
   create racing it duplicated a name in tests.
+- **Theme: automatic / light / dark** (`lib/tema.ts`), a per-browser
+  preference in localStorage, applied as `data-theme` on <html> before the
+  first render (`main.tsx`); automatic = no attribute, `prefers-color-scheme`
+  decides. All colours are tokens in `styles.css` (no hex outside `:root`
+  blocks). Charts read `--grid`/`--tick`/`--panel` at render
+  (`useColores()` in `Graficos.tsx`), and the min-max band is a RANGE area
+  (`rangoDe()`): the old trick of painting the area under the minimum with
+  the panel colour also erased the normal band (a white block in light
+  theme). The embedded generator gets the theme in its URL once
+  (`?tema=claro|oscuro`, never changed: reloading the iframe would lose the
+  form) and later changes by `biosoft-tema` postMessage.
+- **Roles: `admin` / `viewer`** (`models/user.ts`). The role only guards the
+  three write paths — `POST /api/config/requests`, run deletion
+  (`DELETE /api/runs/:id`, `POST /api/runs/delete`) and `/api/users` — via
+  `requireAdmin`, which reads the role **from the DB on every request**, not
+  from the JWT (demotion must not wait a week for the token to expire).
+  Accounts predating roles are migrated to admin at startup
+  (`cargarSesiones()`); the API keeps at least one admin and refuses
+  self-demotion/self-deletion.
+- **JWTs are revocable** without making `requireAuth` hit Mongo: an in-memory
+  `tokensValidAfter` table (`auth/sesiones.ts`), loaded on connect and updated
+  on every password change/deletion done *by this server*. `ahoraParaRevocar()`
+  floors to the second because `iat` has 1 s resolution — with the exact
+  instant, the token issued in the same second as the change is born revoked.
   A user missing from the table is let through (the CLI script runs in another
   process); a deleted one is marked `Infinity`. Socket.IO's handshake applies
   the same check.

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { authFetch } from '../lib/auth.js';
 import { motivoConfig } from '../lib/format.js';
 import { useEsAdmin } from '../lib/sesion.js';
+import { temaEfectivo, useTema } from '../lib/tema.js';
 
 // Configuracion de la placa (tarjeta 24): ver la vigente y mandar una nueva.
 //
@@ -257,91 +258,96 @@ export function Configuracion() {
     cargarPedidos();
   }
 
-  return (
-    <>
-      <div className="columnas-2">
-        <section className="panel">
-          <h3>Configuracion vigente de la placa</h3>
-          {!vigente?.configId ? (
-            <p className="empty">La placa todavia no informo su configuracion.</p>
-          ) : (
-            <dl className="datos">
-              <div><dt>Configuracion</dt><dd>{vigente.configId === 'default' ? 'Valores de fabrica' : vigente.configId}</dd></div>
-              <div><dt>Origen</dt><dd>{motivoConfig(vigente.configId, vigente.loadStatus).texto}</dd></div>
-              {vigente.reportedAt && (
-                <div><dt>Informada</dt><dd>{new Date(vigente.reportedAt).toLocaleString('es-AR')}</dd></div>
-              )}
-            </dl>
-          )}
-          {/* Plegado: es la letra chica de siempre, y abierto empujaba el
-              formulario fuera de la pantalla. */}
-          <details className="letra-chica">
-            <summary>Como se aplica lo que se envia</summary>
-            <p>
-              Lo que se envie desde aca se graba en la tarjeta SD y la placa se reinicia sola para
-              aplicarlo en cuanto su pantalla este en Principal y sin experimento; si esta en Resultado o
-              Configuracion, espera a que vuelvan a Principal (y mientras tanto oculta REPETIR, que correria
-              con la configuracion anterior). Se rechaza si hay un experimento en curso. La configuracion
-              anterior queda respaldada en la tarjeta como config.prev.json. WiFi y broker no se editan desde
-              aca y se conservan.
-            </p>
-          </details>
-          {!esAdmin && (
-            <p className="tenue">Tu cuenta es de solo lectura: podes revisar y descargar la configuracion, pero
-              enviarla a la placa es para administradores.</p>
-          )}
-          {error && <p className="login-error">{error}</p>}
-          {estado && (
-            <div className={`envio-estado envio-${estado.kind}`} role="status">
-              <strong>{estado.text}</strong>
-              {estado.detail && <span>{estado.detail}</span>}
-            </div>
-          )}
-        </section>
+  // El generador embebido sigue el tema del monitor. La URL lleva el tema
+  // inicial (fija, para no recargar el marco y perder lo que se edita); los
+  // cambios posteriores van por mensaje.
+  const { efectivo } = useTema();
+  const srcGenerador = useRef(`/generador-config.html?tema=${temaEfectivo()}`);
+  useEffect(() => {
+    if (!generadorListo) return;
+    marco.current?.contentWindow?.postMessage({ type: 'biosoft-tema', tema: efectivo }, window.location.origin);
+  }, [generadorListo, efectivo]);
 
-        {pedidos.length > 0 && (
-          <section className="panel">
-            <h3>Envios</h3>
-            <ul className="lista-pedidos">
-              {pedidos.slice(0, 5).map((p) => (
-                <li key={p.requestId} className={`pedido pedido-${p.state}`}>
-                  <span>{new Date(p.createdAt).toLocaleString('es-AR')}</span>
-                  <span className="pedido-estado">
-                    {NOMBRE_ESTADO[p.state] ?? p.state}
-                    {EN_CURSO.has(p.state) && p.chunks ? ` (${p.sentChunks ?? 0}/${p.chunks})` : ''}
-                  </span>
-                  {p.user && <span className="tenue-celda">{p.user}</span>}
-                  {p.newConfigId && <span>nueva: {p.newConfigId}</span>}
-                  {p.message && <span className="pedido-mensaje">{p.message}</span>}
-                </li>
-              ))}
-            </ul>
-            {pedidos.length > 5 && (
-              <details className="letra-chica">
-                <summary>{pedidos.length - 5} envios anteriores</summary>
+  // UNA sola barra de desplazamiento (fase 3): la pagina no scrollea, la
+  // franja de arriba es compacta y el generador ocupa el resto del alto con su
+  // propio scroll. Antes la pagina y el marco scrolleaban por separado y no se
+  // sabia cual movia que. Ver .pagina-config en styles.css.
+  useEffect(() => {
+    document.body.classList.add('pagina-config');
+    return () => document.body.classList.remove('pagina-config');
+  }, []);
+
+  return (
+    <div className="config-pagina">
+      <section className="panel config-franja">
+        <div className="franja-dato">
+          <span className="franja-rotulo">En la placa</span>
+          {!vigente?.configId ? (
+            <span className="tenue-celda">todavia no informo su configuracion</span>
+          ) : (
+            <span title={vigente.reportedAt ? `Informada ${new Date(vigente.reportedAt).toLocaleString('es-AR')}` : undefined}>
+              <strong>{vigente.configId === 'default' ? 'Valores de fabrica' : vigente.configId}</strong>
+              <span className="tenue-celda"> · {motivoConfig(vigente.configId, vigente.loadStatus).texto}</span>
+            </span>
+          )}
+        </div>
+
+        {estado && (
+          <div className={`franja-envio envio-${estado.kind}`} role="status" title={estado.detail}>
+            <strong>{estado.text}</strong>
+          </div>
+        )}
+        {error && <span className="login-error franja-error">{error}</span>}
+        {!esAdmin && <span className="tenue-celda">Solo lectura: enviar es para administradores.</span>}
+
+        <div className="franja-acciones">
+          {pedidos.length > 0 && (
+            <details className="desplegable">
+              <summary>Envios ({pedidos.length})</summary>
+              <div className="desplegable-panel">
                 <ul className="lista-pedidos">
-                  {pedidos.slice(5).map((p) => (
+                  {pedidos.map((p) => (
                     <li key={p.requestId} className={`pedido pedido-${p.state}`}>
                       <span>{new Date(p.createdAt).toLocaleString('es-AR')}</span>
-                      <span className="pedido-estado">{NOMBRE_ESTADO[p.state] ?? p.state}</span>
+                      <span className="pedido-estado">
+                        {NOMBRE_ESTADO[p.state] ?? p.state}
+                        {EN_CURSO.has(p.state) && p.chunks ? ` (${p.sentChunks ?? 0}/${p.chunks})` : ''}
+                      </span>
                       {p.user && <span className="tenue-celda">{p.user}</span>}
+                      {p.newConfigId && <span>nueva: {p.newConfigId}</span>}
+                      {p.message && <span className="pedido-mensaje">{p.message}</span>}
                     </li>
                   ))}
                 </ul>
-              </details>
-            )}
-          </section>
-        )}
-      </div>
+              </div>
+            </details>
+          )}
+          <details className="desplegable">
+            <summary>Como se aplica</summary>
+            <div className="desplegable-panel">
+              {estado?.detail && <p><strong>Ultimo envio:</strong> {estado.detail}</p>}
+              <p>
+                Lo que se envie desde aca se graba en la tarjeta SD y la placa se reinicia sola para
+                aplicarlo en cuanto su pantalla este en Principal y sin experimento; si esta en Resultado o
+                Configuracion, espera a que vuelvan a Principal (y mientras tanto oculta REPETIR, que correria
+                con la configuracion anterior). Se rechaza si hay un experimento en curso. La configuracion
+                anterior queda respaldada en la tarjeta como config.prev.json. WiFi y broker no se editan desde
+                aca y se conservan.
+              </p>
+            </div>
+          </details>
+        </div>
+      </section>
 
       <section className="panel panel-generador">
+        {/* El generador se pinta con los mismos tokens que el monitor, en su tema. */}
         <iframe
           ref={marco}
-          src="/generador-config.html"
+          src={srcGenerador.current}
           title="Generador de configuracion"
           className="generador"
         />
       </section>
-    </>
+    </div>
   );
 }

@@ -251,6 +251,15 @@ namespace RemoteConfig {
           _abort();
           return;
         }
+        // Un experimento con sensores simulados o sin Detector no se graba:
+        // al arrancar se descartaria entero (ConfigLoader::load). Mejor
+        // decirlo ahora, con el motivo, que dejar en la SD un archivo que la
+        // placa no va a usar.
+        if (const char* incoherence = ConfigLoader::experimentIncoherence(doc.as<JsonVariantConst>())) {
+          _status(out, _requestId, "invalida", -1, incoherence);
+          _abort();
+          return;
+        }
 
         // El id se informa sobre lo que se va a cargar, sin credenciales:
         // es exactamente el configId que la placa va a publicar al reiniciar.

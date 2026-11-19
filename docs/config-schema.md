@@ -1234,6 +1234,17 @@ el default restrictivo del resto del esquema. El generador de `tools/` no deja
 descargar un valor fuera de los dos validos, asi que esto solo pasa editando
 el archivo a mano.
 
+**Un experimento corre solo con sensores reales y el Detector encendido**
+(decision del 2026-11-19). Con `runType` distinto de `"test"` (ausente o mal
+escrito incluido), un archivo que trae una fuente en `sim`, `scenario` o
+`none`, o `detector.enabled: false`, **se descarta entero** al arrancar: la
+placa corre con los valores de fabrica e informa `loadStatus: "experiment"`,
+que el monitor muestra como aviso. El receptor de configuracion remota lo
+rechaza (`invalida`, con el motivo) antes de grabarlo en la SD, y el servidor
+del monitor ni lo envia. Las claves ausentes cuentan con su default compilado
+(sensor real, Detector encendido). Para simular sensores o apagar el
+Detector, declarar `"runType": "test"`.
+
 ### `requireMega` — exigir la placa de control
 
 ```json

@@ -326,6 +326,9 @@ namespace ConfigLoader {
   //   "unreadable" no se pudo leer (o no entra en el buffer de 8 KB)
   //   "invalid"    JSON invalido: descartado entero
   //   "schema"     schemaVersion no soportada: descartado entero
+  //   "experiment" declara un experimento con un sensor simulado o el
+  //                Detector apagado: descartado entero (ver
+  //                experimentIncoherence)
   inline const char* _loadStatus = "nosd";
   inline const char* loadStatus() { return _loadStatus; }
 
@@ -1011,6 +1014,33 @@ namespace ConfigLoader {
     // tools/ no deja descargar un valor fuera de los dos validos, asi que un
     // error de tipeo solo llega acá editando el archivo a mano, y entonces
     // queda dicho en el log.
+    // Un EXPERIMENTO corre si o si con los sensores reales y el Detector
+    // encendido (decision del 2026-11-19). El generador y el monitor ya no
+    // dejan armar otra cosa; esto es la misma regla en la placa, para un
+    // config.json editado a mano y copiado directo a la tarjeta. Experimento
+    // es todo lo que NO es runType "test" -- ausente o mal escrito incluido,
+    // igual que loadRunType(). Devuelve el motivo, o nullptr si es coherente.
+    // Lo usan load() (descarta el archivo entero) y el receptor remoto
+    // (lo rechaza antes de grabarlo en la SD).
+    inline const char* experimentIncoherence(JsonVariantConst root) {
+      const char* runType = root["runType"] | "";
+      if (strcmp(runType, "test") == 0) return nullptr;
+      JsonVariantConst detector = root["detector"];
+      if (detector["enabled"].is<bool>() && !detector["enabled"].as<bool>())
+        return "un experimento tiene que correr con el Detector encendido";
+      for (JsonVariantConst source : detector["sources"].as<JsonArrayConst>()) {
+        const char* name = source["name"] | "";
+        JsonVariantConst sensor = source["sensor"];
+        if (sensor.isNull()) continue;   // sin la clave rige el sensor real
+        const char* value = sensor | "";
+        if (strcmp(name, "CEM1") == 0 && strcmp(value, "mlx90393") != 0)
+          return "un experimento corre solo con sensores reales (CEM1 tiene que ser mlx90393)";
+        if (strcmp(name, "TEMP1") == 0 && strcmp(value, "ds18b20") != 0)
+          return "un experimento corre solo con sensores reales (TEMP1 tiene que ser ds18b20)";
+      }
+      return nullptr;
+    }
+
     inline void loadRunType(JsonVariantConst value) {
       if (value.isNull()) {
         DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] sin 'runType': corridas normales"));
@@ -1214,6 +1244,15 @@ namespace ConfigLoader {
       DEBUG_PRINT(DEBUG_CONFIGLOADER, F(" no soportada (se espera "));
       DEBUG_PRINT(DEBUG_CONFIGLOADER, SupportedSchemaVersion);
       DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("): se descarta el archivo"));
+      return false;
+    }
+
+    const char* incoherence = experimentIncoherence(doc.as<JsonVariantConst>());
+    if (incoherence != nullptr) {
+      _loadStatus = "experiment";
+      DEBUG_PRINT(DEBUG_CONFIGLOADER, F("[CONFIG] "));
+      DEBUG_PRINT(DEBUG_CONFIGLOADER, incoherence);
+      DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F(": se descarta el archivo entero, se usan los defaults"));
       return false;
     }
 

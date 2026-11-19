@@ -207,6 +207,8 @@ export function motivoConfig(
       return { texto: 'config.json esta en la tarjeta pero no se pudo leer (¿pasa de 8 KB?): se ignoro y corre con los valores de fabrica', aviso: true };
     case 'invalid':
       return { texto: 'config.json esta en la tarjeta pero tiene JSON invalido: se descarto entero y corre con los valores de fabrica', aviso: true };
+    case 'experiment':
+      return { texto: 'config.json declara un experimento con un sensor simulado o el Detector apagado (un experimento corre solo con sensores reales y Detector): se descarto entero y corre con los valores de fabrica', aviso: true };
     case 'schema':
       return { texto: 'config.json esta en la tarjeta pero su schemaVersion no es la que entiende el firmware: se descarto entero y corre con los valores de fabrica', aviso: true };
   }

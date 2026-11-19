@@ -6,16 +6,25 @@
 <title>Generador de config.json — BioSoft</title>
 <style>
   :root{
-    --bg:#f6f7f9; --panel:#ffffff; --ink:#16191d; --muted:#5f6873; --line:#dfe3e8;
-    --accent:#1f6feb; --err:#b3261e; --errbg:#fdeceb; --warn:#8a5a00; --warnbg:#fff6e0;
+    --bg:#f3f5f9; --panel:#ffffff; --ink:#18202c; --muted:#5b6577; --line:#dbe1ea;
+    --accent:#2f62d8; --err:#b3261e; --errbg:#fdeceb; --warn:#8a5a00; --warnbg:#fff6e0;
     --ok:#136a3a; --okbg:#e8f5ee; --code:#f2f4f7;
   }
+  /* Oscuro: los mismos tokens que el monitor (web/client/src/styles.css),
+     para que embebido no parezca otra aplicacion. El monitor lo pide con
+     ?tema=oscuro (data-tema); abierto suelto, sigue al sistema. */
   @media (prefers-color-scheme: dark){
-    :root{
-      --bg:#14171b; --panel:#1b1f24; --ink:#e6e9ee; --muted:#9aa4b0; --line:#2c333b;
-      --accent:#6ea8ff; --err:#ff8a80; --errbg:#3a1f1d; --warn:#ffcf70; --warnbg:#3a2f16;
-      --ok:#7ee0a8; --okbg:#17301f; --code:#12151a;
+    :root:not([data-tema="claro"]){
+      --bg:#0d1016; --panel:#151a22; --ink:#e8ebf1; --muted:#8e97a9; --line:#252c38;
+      --accent:#6b9bff; --err:#f87171; --errbg:#3a1f22; --warn:#fbbf24; --warnbg:#3a2f16;
+      --ok:#34d399; --okbg:#13301f; --code:#10141b;
     }
+  }
+  :root[data-tema="oscuro"]{
+      --bg:#0d1016; --panel:#151a22; --ink:#e8ebf1; --muted:#8e97a9; --line:#252c38;
+      --accent:#6b9bff; --err:#f87171; --errbg:#3a1f22; --warn:#fbbf24; --warnbg:#3a2f16;
+      --ok:#34d399; --okbg:#13301f; --code:#10141b;
+    color-scheme: dark;
   }
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--ink);
@@ -59,6 +68,46 @@
      apagado) son facilmente diez avisos, y fijos ocupaban media pantalla --
      embebido en el monitor, casi todo el marco --, dejando un hueco minimo
      para recorrer el formulario. */
+  /* Indice de secciones: el formulario es largo y sin esto habia que bajar
+     a ciegas buscando "Escenarios" o "Fuentes" (fase 3). */
+  .indice{display:flex;gap:4px;overflow-x:auto;max-width:1100px;margin:10px auto 0;scrollbar-width:none}
+  .indice::-webkit-scrollbar{display:none}
+  /* Embebido en un celular la cabecera fija se come media pantalla: se
+     compacta (sin subtitulo, botones chicos en una fila). */
+  @media (max-width:600px){
+    body.embebido header{padding:8px 12px}
+    body.embebido h1{min-width:0;font-size:14px}
+    body.embebido h1 small{display:none}
+    body.embebido .bar{gap:6px}
+    body.embebido .bar button{padding:5px 9px;font-size:12.5px}
+    body.embebido .indice{margin-top:6px}
+  }
+  .indice button{flex:none;font-size:12.5px;padding:5px 11px 5px 6px;border-radius:999px;color:var(--muted);
+            border:1px solid transparent;background:none;white-space:nowrap;display:inline-flex;align-items:center;gap:6px}
+  .indice button:hover{color:var(--ink);border-color:var(--line)}
+  .indice button.on{color:var(--ink);border-color:var(--accent);background:var(--bg);font-weight:600}
+  .indice .num{display:inline-grid;place-items:center;min-width:20px;height:20px;padding:0 5px;border-radius:999px;
+               background:var(--code);border:1px solid var(--line);font-size:11px;font-weight:600}
+  .indice button.on .num{background:var(--accent);border-color:var(--accent);color:#fff}
+  .indice button.has-e .num{background:var(--err);border-color:var(--err);color:#fff}
+  .indice button.has-w .num{background:var(--warn);border-color:var(--warn);color:#1a1d24}
+  /* Una seccion por vez: buildIndex() marca la activa en cada render. */
+  #app > section{display:none}
+  #app > section.activa{display:block}
+  .pasos-nav{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:22px;
+             padding-top:14px;border-top:1px solid var(--line)}
+  .pasos-cuenta{color:var(--muted);font-size:12.5px}
+  .indice button:disabled{opacity:.4;cursor:not-allowed}
+  .indice button:disabled:hover{border-color:transparent;color:var(--muted)}
+  .paso-errores:empty{display:none}
+  input.fuera{border-color:var(--err);background:var(--errbg)}
+  .limite-nota{display:block;font-size:11.5px;color:var(--warn);margin-top:3px}
+  .indice button.hecho .num{background:var(--okbg);border-color:var(--ok);color:var(--ok)}
+  .pendiente{color:var(--muted)} .pendiente:empty{display:none}
+  .mini-txt{font-size:12px;opacity:.85}
+  .paso-errores{margin:0 0 14px}
+  section{scroll-margin-top:150px}
+  body.embebido .indice{max-width:1400px}
   .resumen{display:flex;flex-wrap:wrap;gap:8px;align-items:center;max-width:1100px;margin:8px auto 0;
            font-size:12.5px}
   .resumen .pill{padding:2px 9px;border-radius:999px;border:1px solid var(--line);background:var(--bg);
@@ -98,6 +147,10 @@
   .etapas .alerta{color:var(--warn);font-weight:600}
   @media (max-width:600px){ .etapas{grid-template-columns:1fr} .etapas .nota{margin-bottom:6px} }
   .msg.i{background:var(--code);color:var(--ink);border:1px solid var(--accent)}
+  details.plegable summary{cursor:pointer;list-style:none}
+  details.plegable summary::-webkit-details-marker{display:none}
+  details.plegable summary::after{content:" — ver";text-decoration:underline;opacity:.8}
+  details.plegable[open] summary::after{content:" — ocultar"}
   /* Editor de escenarios (5b). */
   h3.paso{font-size:13.5px;margin:18px 0 8px;display:flex;align-items:center;gap:8px}
   h3.paso span{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;
@@ -152,7 +205,9 @@
     <button class="primary" id="send" hidden>Enviar a la placa</button>
     <span class="solo-lectura" id="readonlyNote" hidden>Solo lectura: enviar a la placa es para administradores.</span>
   </div>
+  <nav class="indice" id="indice" aria-label="Secciones"></nav>
   <div class="resumen">
+    <span id="pasosPendientes" class="pendiente"></span>
     <span id="msgSummary"></span>
     <span class="envio" id="sendStatus" role="status" aria-live="polite"></span>
   </div>
@@ -588,6 +643,10 @@ function scenarioList(){
 function applyProfile(key){
   const prof = scenarioList().find(p => p.key === key);
   if (!prof) return;
+  // Un escenario es una prueba de banco por definicion: un experimento no
+  // puede simular sensores (enforceExperiment).
+  state.runType = "test";
+  runTypeNotice = null;
   state.detector.sources.forEach(s => {
     const def = prof.sources[s.name];
     if (!def) return;
@@ -758,6 +817,32 @@ function realSensors(){
 // otro cae en "normal" en el firmware: una tarjeta pensada para banco
 // marcaria sus corridas como experimento.
 const RUN_TYPES = ["normal", "test"];
+const REAL_SENSOR = { CEM1: "mlx90393", TEMP1: "ds18b20" };
+// Un EXPERIMENTO corre si o si con los sensores reales y el Detector
+// encendido (decision del 2026-11-19): datos inventados o un experimento sin
+// nadie mirando los limites no pueden entrar al historico como experimento.
+// Pasar a "normal" lo impone; lo que se cambio se puede deshacer (vuelve a
+// prueba con lo que habia).
+let runTypeNotice = null;   // {changed: [...], undo: {...}}
+function enforceExperiment(){
+  const undo = {sources: clone(state.detector.sources), detectorEnabled: state.detector.enabled};
+  const changed = [];
+  state.detector.sources.forEach(s => {
+    const real = REAL_SENSOR[s.name];
+    if (real && s.sensor !== real) { changed.push(s.name + ": " + s.sensor + " -> " + real); s.sensor = real; }
+  });
+  if (state.detector.enabled !== true) { changed.push("Detector encendido"); state.detector.enabled = true; }
+  runTypeNotice = changed.length ? {changed, undo} : null;
+}
+function undoExperiment(){
+  if (!runTypeNotice) return;
+  state.detector.sources = runTypeNotice.undo.sources;
+  state.detector.enabled = runTypeNotice.undo.detectorEnabled;
+  state.runType = "test";
+  runTypeNotice = null;
+  render();
+}
+
 
 const getPath = p => p.split(".").reduce((o,k) => o[k], state);
 function setPath(p, v){
@@ -1058,11 +1143,68 @@ const SIM = (() => {
 /* ---------- helpers de render ---------- */
 const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
+/* LIMITES por campo (fase 3): los MISMOS rangos que validate() y que el
+ * firmware acepta. Con ellos el campo trae min/max (las flechas no se pasan),
+ * se pone en rojo mientras se escribe un valor fuera de rango y, al salir del
+ * campo, un valor fuera de rango vuelve al ultimo valido: un valor que el
+ * Mega descartaria no llega a quedar en la configuracion. validate() sigue
+ * siendo la red de seguridad para lo que venga de un archivo.
+ * Cada entrada: [regex del path, min, max, entero?]; min/max pueden ser
+ * funciones del path (threshold depende del bufferSize de su fuente). */
+const EPS = 0.001;   // "mayor que 0" en un campo decimal
+const FIELD_LIMITS = [
+  [/^menus\.\w+\.\d+\.value$/, EPS, 1e9, false],
+  [/^intervals\.\w+\.\w+$/, 1, 3600000, true],
+  [/^control\.kp$/, EPS, 100, false],
+  [/^control\.maxStep$/, EPS, 1, false],
+  [/^control\.deadBand$/, 0, 100, false],
+  [/^control\.balanceMax$/, 0, MAX_BALANCE, false],
+  [/^control\.map\.\d+\.duty$/, EPS, 1, false],
+  [/^control\.map\.\d+\.balance$/, -MAX_BALANCE, MAX_BALANCE, false],
+  [/^coils\.\d+\.calibrationFactor$/, 0.1, 5, false],
+  [/^detector\.sources\.\d+\.bufferSize$/, 8, 32, true],
+  [/^detector\.sources\.\d+\.maxMissedSamples$/, 1, 20, true],
+  [/^detector\.sources\.\d+\.range\.criticalMultiplier$/, 1, 3, false],
+  [/^detector\.sources\.\d+\.rules\.\w+\.threshold$/, 1, path => {
+    const bs = getPath(path.replace(/\.rules\.\w+\.threshold$/, ".bufferSize"));
+    return isInt(bs) && bs >= 8 && bs <= 32 ? bs : 32;
+  }, true],
+  [/^detector\.sources\.\d+\.rules\.\w+\.cooldown$/, 0, 64, true],
+  [/^detector\.sources\.\d+\.rules\.\w+\.maxEvents$/, 1, 10, true],
+  [/^detector\.sources\.\d+\.scenario\.noise$/, 0, SCENARIO_MAX_LEVEL, false],
+  [/^detector\.sources\.\d+\.scenario\.oscAmp$/, -SCENARIO_MAX_LEVEL, SCENARIO_MAX_LEVEL, false],
+  [/^detector\.sources\.\d+\.scenario\.(oscPeriod|dropAt)$/, 0, SCENARIO_MAX_SECOND, false],
+  [/^detector\.sources\.\d+\.scenario\.setpointDuty$/, 0, 1, false],
+  [/^currentSensors\.\d+\.(ratedCurrent|ratedVoltage|calibration)$/, EPS, 1e6, false],
+  [/^currentSensors\.\d+\.sampleRate$/, 1, 860, true],
+  [/^currentSensors\.\d+\.integrationTimeMs$/, 1, 60000, true],
+  [/^telemetry\.groups\.\w+\.interval$/, 1, 3600000, true],
+  [/^broker\.port$/, 1, 65535, true],
+];
+function limitsFor(path){
+  const f = FIELD_LIMITS.find(([re]) => re.test(path));
+  if (!f) return null;
+  const val = x => typeof x === "function" ? x(path) : x;
+  return {min: val(f[1]), max: val(f[2]), int: f[3]};
+}
+const fmtLim = n => String(n).replace(".", ",");
+function withinLimits(v, lim){
+  return isNum(v) && v >= lim.min && v <= lim.max && (!lim.int || Number.isInteger(v));
+}
+// Ultimo valor valido de cada campo, para volver a el.
+const lastValid = {};
+
 function num(path, kind, label){
   const step = kind === INT ? "1" : "any";
+  const lim = limitsFor(path);
+  const v = getPath(path);
+  if (lim && withinLimits(v, lim)) lastValid[path] = v;
   return '<label class="f"><span>' + esc(label) + '</span>' +
     '<input type="number" step="' + step + '" data-path="' + path + '" data-kind="' + kind + '"' +
-    ' value="' + getPath(path) + '"></label>';
+    (lim ? ' min="' + lim.min + '" max="' + lim.max + '" title="Permitido: ' + fmtLim(lim.min) + ' a ' +
+      fmtLim(lim.max) + (lim.int ? ' (entero)' : '') + '"' +
+      (withinLimits(v, lim) ? '' : ' class="fuera"') : '') +
+    ' value="' + v + '"></label>';
 }
 function txt(path, label, maxlen){
   return '<label class="f"><span>' + esc(label) + '</span>' +
@@ -1173,7 +1315,15 @@ function refResolved(){
   const pick = (list, i) => (list && list.length) ? list[Math.min(i, list.length - 1)] : null;
   const it = pick(m.fieldIntensity, refRun.intensity), fr = pick(m.frequency, refRun.frequency);
   const to = pick(m.fieldTolerance, refRun.tolerance), tn = pick(m.temperatureNormal, refRun.tempNormal);
-  const tc = pick(m.temperatureCritical, refRun.tempCritical), du = pick(m.duration, refRun.duration);
+  let tc = pick(m.temperatureCritical, refRun.tempCritical);
+  const du = pick(m.duration, refRun.duration);
+  // El critico tiene que CONTENER al normal (la pantalla de la placa no deja
+  // elegir otra cosa): si no, se toma el primero que lo contiene.
+  const contiene = c => tn && c && c.min <= tn.min && tn.max <= c.max;
+  if (tn && !contiene(tc)) {
+    const i = (m.temperatureCritical || []).findIndex(contiene);
+    if (i >= 0) { refRun.tempCritical = i; tc = m.temperatureCritical[i]; }
+  }
   if (!it || !fr || !to || !tn || !tc || !du) return null;
   return {intensity: it.value, frequency: fr.value, tolerance: to.value,
           tempNormal: {min: tn.min, max: tn.max}, tempCritical: {min: tc.min, max: tc.max},
@@ -1199,6 +1349,7 @@ const fmtT = s => {
 };
 
 function sScenarios(){
+  if (state.runType === "normal") return "";
   const anyScenario = state.detector.sources.some(s => s.sensor === "scenario");
   let h = '<section id="escenarios"><h2>5b · Escenarios de prueba (sensores simulados)</h2>' +
     '<p class="hint">Para probar el equipo <b>sin sensores</b>: el Mega inventa las lecturas de CEM1 y/o ' +
@@ -1208,11 +1359,17 @@ function sScenarios(){
     '<div class="etapas" id="profileStatus"></div>' + libraryBar() +
     '<div class="perfiles">' +
     scenarioList().map(p => {
-      const sub = p.expect ? expectText(p) + " · " + Math.ceil(p.minDuration / 60) + " min o mas"
+      // Un escenario que necesita mas tiempo que la duracion mas larga del
+      // menu no puede terminar como promete: se ofrece deshabilitado.
+      const maxDur = Math.max(0, ...(state.menus.duration || []).map(o => o.value / 1000).filter(isNum));
+      const corto = p.minDuration && maxDur && p.minDuration > maxDur;
+      const sub = corto ? "necesita " + Math.ceil(p.minDuration / 60) + " min y la duracion mas larga del menu es " +
+          Math.round(maxDur / 60) + " min"
+        : p.expect ? expectText(p) + " · " + Math.ceil(p.minDuration / 60) + " min o mas"
         : (p.factoryKey ? "de fabrica, modificado · " : "propio · ") + predictText(p);
-      return '<button type="button" class="prof" data-profile="' + esc(p.key) + '" title="' +
-        esc(p.description) + '"><b data-profile="' + esc(p.key) + '">' + esc(p.name) + '</b><small data-profile="' +
-        esc(p.key) + '">' + esc(sub) + '</small></button>';
+      return '<button type="button" class="prof" data-profile="' + esc(p.key) + '"' + (corto ? " disabled" : "") +
+        ' title="' + esc(p.description) + '"><b data-profile="' + esc(p.key) + '">' + esc(p.name) +
+        '</b><small data-profile="' + esc(p.key) + '">' + esc(sub) + '</small></button>';
     }).join("") +
     '<button type="button" class="prof" data-real="1"><b data-real="1">Sensores reales</b>' +
     '<small data-real="1">MLX90393 y DS18B20: nada simulado</small></button></div>';
@@ -1233,7 +1390,14 @@ function sScenarios(){
     opt(["tolerance", "Tolerancia"], m.fieldTolerance, o => o.label) +
     opt(["frequency", "Frecuencia"], m.frequency, o => o.label) +
     opt(["tempNormal", "Temperatura normal"], m.temperatureNormal, o => o.label) +
-    opt(["tempCritical", "Temperatura critica"], m.temperatureCritical, o => o.label) +
+    // Solo los criticos que contienen al normal elegido (como en la placa).
+    '<label class="f"><span>Temperatura critica</span><select data-ref="tempCritical">' +
+    (m.temperatureCritical || []).map((o, i) => {
+      const tn = (m.temperatureNormal || [])[r.tempNormal];
+      const ok = !tn || (o.min <= tn.min && tn.max <= o.max);
+      return '<option value="' + i + '"' + (i === r.tempCritical ? " selected" : "") + (ok ? "" : " disabled") +
+        '>' + esc(o.label) + (ok ? "" : " (no contiene al normal)") + '</option>';
+    }).join("") + '</select></label>' +
     opt(["duration", "Duracion"], m.duration, o => o.label) +
     '<label class="f"><span>Modo</span><select data-ref="mode">' +
     '<option value="x"' + (r.mode === "x" ? " selected" : "") + '>Campo X</option>' +
@@ -1533,6 +1697,8 @@ if (typeof document.querySelectorAll === "function") {
     if (!key) return;
     if (!refRun) refRun = refDefaults();
     refRun[key] = key === "mode" ? ev.target.value : parseInt(ev.target.value, 10);
+    // Cambiar el normal cambia que criticos se pueden elegir.
+    if (key === "tempNormal") { refResolved(); render(); return; }
     paintScenario();
   });
 }
@@ -1541,7 +1707,200 @@ function render(){
   document.getElementById("app").innerHTML =
     sRunType() + sMenus() + sIntervals() + sControl() + sCoils() + sDetector() + sScenarios() + sCurrent() + sTelemetry() +
     (EMBEDDED ? "" : sWifi() + sBroker()) + sPreview();
+  buildIndex();
   validate();
+}
+
+// Indice: un enlace por seccion, armado de sus <h2> ("5b · Escenarios ...").
+// PASOS (fase 3): el formulario se recorre de a una seccion, con pestañas
+// numeradas arriba y Anterior / Siguiente al pie, en vez de una sola pagina
+// interminable. Los errores y avisos siguen arriba de todo, visibles desde
+// cualquier paso: bloquean la descarga y el envio sin importar donde esten.
+// Todas las secciones siguen en el DOM (solo se ocultan): validate() y
+// buildJson() leen el estado, no lo que se ve.
+let currentStep = 0;
+const msgOpen = {avisos: false, info: false};
+if (typeof document.querySelectorAll === "function") {
+  // toggle no burbujea: se escucha en captura.
+  document.addEventListener("toggle", ev => {
+    const k = ev.target && ev.target.dataset && ev.target.dataset.pliegue;
+    if (k) msgOpen[k] = ev.target.open;
+  }, true);
+}
+
+function stepTitles(){
+  return [...document.querySelectorAll("#app > section")].map((sec, i) => {
+    const h = sec.querySelector("h2");
+    const full = h ? h.textContent : "Seccion " + i;
+    const m = full.match(/^\s*(\S+)\s*·\s*(.*)$/);
+    // "Escenarios de prueba (sensores simulados)" -> "Escenarios de prueba"
+    const title = (m ? m[2] : full).replace(/\s*\(.*\)\s*$/, "");
+    return {num: m ? m[1] : "", title};
+  });
+}
+
+function buildIndex(){
+  const nav = document.getElementById("indice");
+  if (!nav || typeof document.querySelectorAll !== "function") return;
+  const secs = [...document.querySelectorAll("#app > section")];
+  const titles = stepTitles();
+  if (currentStep >= secs.length) currentStep = secs.length - 1;
+  nav.innerHTML = titles.map((t, i) =>
+    '<button type="button" data-paso="' + i + '" data-num="' + esc(t.num) + '" class="' + (i === currentStep ? "on" : "") + '"' +
+    (i === currentStep ? ' aria-current="step"' : "") + '>' +
+    (t.num ? '<span class="num">' + esc(t.num) + '</span>' : "") + esc(t.title) + '</button>').join("");
+  secs.forEach((sec, i) => {
+    if (!sec.id) sec.id = "sec-" + i;
+    sec.classList.toggle("activa", i === currentStep);
+    // Lugar para los errores de ESTE paso, debajo del titulo y la ayuda.
+    if (!sec.querySelector(".paso-errores")) {
+      const box = document.createElement("div");
+      box.className = "paso-errores";
+      box.dataset.num = titles[i].num;
+      const h2 = sec.querySelector("h2");
+      const hint = h2 && h2.nextElementSibling && h2.nextElementSibling.classList.contains("hint") ? h2.nextElementSibling : h2;
+      if (hint) hint.insertAdjacentElement("afterend", box); else sec.prepend(box);
+    }
+    if (sec.querySelector(".pasos-nav")) return;
+    const prev = titles[i - 1], next = titles[i + 1];
+    const div = document.createElement("div");
+    div.className = "pasos-nav";
+    div.innerHTML =
+      (prev ? '<button type="button" data-paso="' + (i - 1) + '">← ' + esc(prev.title) + '</button>' : '<span></span>') +
+      '<span class="pasos-cuenta">Paso ' + (i + 1) + ' de ' + secs.length + '</span>' +
+      (next ? '<button type="button" class="primary" data-paso="' + (i + 1) + '">' + esc(next.title) + ' →</button>' : '<span></span>');
+    sec.appendChild(div);
+  });
+  const active = nav.querySelector("button.on");
+  if (active && active.scrollIntoView) active.scrollIntoView({block: "nearest", inline: "nearest"});
+}
+
+// Primer paso (indice) con errores, o -1. Los pasos posteriores a el quedan
+// bloqueados: no se avanza arrastrando errores (fase 3, pedido del usuario:
+// "un paso condiciona el proximo"). Volver atras siempre se puede.
+function firstErrorStep(){
+  if (typeof document.querySelectorAll !== "function") return -1;
+  const nums = stepTitles().map(t => t.num);
+  return nums.findIndex(n => (secCount[n] || {}).e > 0);
+}
+
+/* FRONTERA (fase 3, pedido del usuario). `frontier` es el paso mas lejano
+ * al que se llego AVANZANDO EN ORDEN despues del ultimo cambio:
+ *  - hasta la frontera se salta libremente (volver a mirar no cambia nada);
+ *  - mas alla, solo con "Siguiente" desde la frontera, de a un paso, y solo
+ *    si no hay errores en ese paso ni en los anteriores;
+ *  - CUALQUIER cambio en la configuracion hecho estando en el paso k lleva la
+ *    frontera a k: lo que viene despues se vuelve a recorrer y a validar
+ *    contra el cambio. Se detecta comparando el estado entero despues de
+ *    cada accion (stateMark), no enganchando cada campo: asi no se escapa un
+ *    cambio por un camino nuevo (un escenario, un punto del mapa, Deshacer).
+ *  - Descargar / Enviar solo con la frontera en el ultimo paso y sin
+ *    errores: nunca sale una configuracion a medio revisar.
+ */
+let frontier = 0;
+let stateMark = null;
+
+function lastStepIndex(){
+  return typeof document.querySelectorAll === "function"
+    ? document.querySelectorAll("#app > section").length - 1 : 0;
+}
+function errorsUpTo(i){
+  return stepTitles().slice(0, i + 1).some(t => (secCount[t.num] || {}).e > 0);
+}
+// Todos los pasos recorridos despues del ultimo cambio, y sin errores.
+function fullyReviewed(){
+  if (typeof document.querySelectorAll !== "function") return errors.length === 0;
+  return errors.length === 0 && frontier >= lastStepIndex();
+}
+// Llamada en cada paint(): si el estado cambio, la frontera vuelve al paso
+// donde se hizo el cambio.
+function trackChanges(){
+  const mark = JSON.stringify(state);
+  if (stateMark !== null && mark !== stateMark && frontier > currentStep) frontier = currentStep;
+  stateMark = mark;
+}
+// Empezar el recorrido de cero (archivo cargado, configuracion de la placa,
+// defaults restaurados).
+function restartSteps(){
+  frontier = 0;
+  currentStep = 0;
+  stateMark = null;
+}
+
+function updateStepBadges(){
+  if (typeof document.querySelectorAll !== "function") return;
+  const titles = stepTitles();
+  document.querySelectorAll("#indice button[data-num]").forEach(b => {
+    const i = parseInt(b.dataset.paso, 10);
+    const c = secCount[b.dataset.num] || {e: 0, w: 0};
+    const bloqueado = i > frontier;
+    b.classList.toggle("has-e", !bloqueado && c.e > 0);
+    b.classList.toggle("has-w", !bloqueado && !c.e && c.w > 0);
+    b.classList.toggle("hecho", i < frontier && !c.e);
+    b.disabled = bloqueado;
+    b.title = bloqueado ? "Se habilita avanzando con Siguiente desde el paso " + (frontier + 1)
+      : c.e ? c.e + " error(es) en este paso" : c.w ? c.w + " aviso(s) en este paso" : "";
+  });
+  // Errores del paso, adentro del paso; los avisos plegados debajo.
+  document.querySelectorAll(".paso-errores").forEach(box => {
+    const m = secMsgs[box.dataset.num] || {e: [], w: []};
+    const li = arr => "<ul>" + arr.map(x => "<li>" + esc(x) + "</li>").join("") + "</ul>";
+    box.innerHTML =
+      (m.e.length ? '<div class="msg e"><b>Para seguir, corregir ' + (m.e.length === 1 ? "esto" : "estos " + m.e.length +
+        " puntos") + ':</b>' + li(m.e) + '</div>' : '') +
+      (m.w.length ? '<details class="msg w plegable" data-pliegue="w-' + esc(box.dataset.num) + '"' +
+        (msgOpen['w-' + box.dataset.num] ? ' open' : '') + '><summary><b>' + m.w.length + ' aviso(s) en este paso</b>' +
+        '</summary>' + li(m.w) + '</details>' : '');
+  });
+  // Siguiente: solo sin errores en este paso ni en los anteriores.
+  document.querySelectorAll(".pasos-nav button.primary").forEach(b => {
+    const i = parseInt(b.dataset.paso, 10) - 1;
+    const bloquea = errorsUpTo(i);
+    b.disabled = bloquea;
+    b.title = bloquea ? "Corregir los errores de este paso (o de uno anterior) para seguir" : "";
+  });
+  // Descargar / Enviar: con todo recorrido despues del ultimo cambio.
+  const listo = fullyReviewed();
+  ["dl", "send"].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.disabled = !listo;
+    el.title = listo ? "" : errors.length
+      ? "Hay errores: corregirlos antes de " + (id === "dl" ? "descargar" : "enviar")
+      : "Recorrer los pasos hasta el final (Siguiente) despues del ultimo cambio";
+  });
+  const pend = document.getElementById("pasosPendientes");
+  if (pend) pend.textContent = listo ? "" : errors.length ? "" :
+    "Revisado hasta el paso " + (frontier + 1) + " de " + titles.length + ": seguir con Siguiente para habilitar " +
+    (EMBEDDED ? "el envio" : "la descarga") + ".";
+}
+
+function goToStep(i, focusSection){
+  if (i > frontier) {
+    // Solo se cruza la frontera de a un paso, desde ella y sin errores.
+    if (i !== frontier + 1 || currentStep !== frontier || errorsUpTo(frontier)) return;
+    frontier = i;
+  }
+  currentStep = i;
+  buildIndex();
+  updateStepBadges();
+  if (typeof window !== "undefined" && window.scrollTo) window.scrollTo(0, 0);
+  if (focusSection && focusSection.scrollIntoView) focusSection.scrollIntoView({block: "start"});
+}
+
+if (typeof window !== "undefined" && typeof document.querySelectorAll === "function") {
+  document.addEventListener("click", ev => {
+    const b = ev.target.closest && ev.target.closest("[data-paso]");
+    if (b) { goToStep(parseInt(b.dataset.paso, 10)); return; }
+    // Un enlace interno a otra seccion (ej. "ver 5b") cambia de paso.
+    const a = ev.target.closest && ev.target.closest('a[href^="#"]');
+    if (!a) return;
+    const target = document.getElementById(a.getAttribute("href").slice(1));
+    const sec = target && target.closest("#app > section");
+    if (!sec) return;
+    ev.preventDefault();
+    goToStep([...document.querySelectorAll("#app > section")].indexOf(sec));
+  });
 }
 
 function sRunType(){
@@ -1552,6 +1911,12 @@ function sRunType(){
     'telemetria) para que el monitor remoto no mezcle datos de banco con experimentos, y en ' +
     '<code>test</code> la pantalla muestra una franja MODO PRUEBA y un aviso al arrancar. Solo ESP32.</p>' +
     '<div class="grid">' + sel("runType", "Tipo", RUN_TYPES) + '</div>' +
+    '<p class="hint" style="margin-top:8px"><b>normal</b> = experimento: solo sensores reales y el Detector ' +
+    'encendido, sin excepcion, y el paso <b>Escenarios</b> no aparece. <b>test</b> = prueba de banco: se ' +
+    'habilitan los sensores simulados y los escenarios.</p>' +
+    (runTypeNotice ? '<div class="msg w">Para declararlo experimento se cambio: <b>' +
+      esc(runTypeNotice.changed.join(" · ")) + '</b>. <button type="button" class="mini" data-undo-runtype="1">' +
+      'Deshacer (volver a prueba)</button></div>' : '') +
     '<p class="hint" style="margin-top:12px"><b>Exigir la placa de control</b> deja iniciar un ' +
     'experimento solo con el Mega conectado, que es quien energiza las bobinas y corta por seguridad. ' +
     'Desmarcarlo es para el banco: recorrer las pantallas y probar el envio de datos con la pantalla ' +
@@ -1631,11 +1996,23 @@ function sControlMap(){
   if (map.length){
     h += '<div class="tablewrap"><table><tr><th>#</th><th>Intensidad (mT)</th><th>Frecuencia (Hz)</th>' +
          '<th>Duty (0 a 1)</th><th>Balance (&plusmn;)</th><th></th></tr>';
+    // Intensidad y frecuencia se ELIGEN de los menus (paso 1): un punto para
+    // un valor que el operador no puede elegir en la pantalla no se usa nunca.
+    // Un valor de un archivo que no esta en el menu se muestra igual,
+    // marcado, para que se vea y se corrija (y validate() lo da como error).
+    const menuSel = (path, key, unit) => {
+      const vals = [...new Set((state.menus[key] || []).map(o => o.value).filter(isNum))];
+      const v = getPath(path);
+      const opts = vals.includes(v) ? vals : [v, ...vals];
+      return '<select data-path="' + path + '" data-kind="' + FLT + '">' + opts.map(o =>
+        '<option value="' + o + '"' + (o === v ? " selected" : "") + '>' + o + ' ' + unit +
+        (vals.includes(o) ? "" : " (no esta en el menu)") + '</option>').join("") + '</select>';
+    };
     map.forEach((_, i) => {
       const b = "control.map." + i;
       h += '<tr><td>' + (i + 1) + '</td>' +
-        '<td style="width:150px">' + num(b + ".intensity", FLT, "") + '</td>' +
-        '<td style="width:150px">' + num(b + ".frequency", FLT, "") + '</td>' +
+        '<td style="width:150px">' + menuSel(b + ".intensity", "fieldIntensity", "mT") + '</td>' +
+        '<td style="width:150px">' + menuSel(b + ".frequency", "frequency", "Hz") + '</td>' +
         '<td style="width:150px">' + num(b + ".duty", FLT, "") + '</td>' +
         '<td style="width:150px">' + num(b + ".balance", FLT, "") + '</td>' +
         '<td><button class="mini" data-mapdel="' + i + '">Quitar</button></td></tr>';
@@ -1674,15 +2051,20 @@ function sDetector(){
     'los rangos y las reglas. El Mega <b>descarta la regla entera</b> si algun campo cae fuera de rango, ' +
     'en vez de recortarla: media regla corta (o no corta) un experimento con numeros que no eligio nadie. ' +
     'Se guarda al recibirse pero se aplica recien al arrancar el proximo experimento.</p>' +
-    '<p class="hint"><b>Sensor:</b> <code>sim</code> lee una entrada analogica en vez del sensor ' +
-    '(A0 para CEM1, A1 para TEMP1 con 0-5 V = 0-50 C) y sirve para provocar cortes en banco. En TEMP1, ' +
-    '<code>none</code> no registra ningun termometro: es lo que va sin DS18B20 cableado, que si no ' +
-    'bloquea ~750 ms en cada medicion.</p>' +
-    '<div class="grid">' + chk("detector.enabled", "Detector encendido (interruptor general)") + '</div>' +
-    '<p class="hint">Con <code>scenario</code> el Mega inventa las lecturas de esa fuente: la senal se ' +
-    'dibuja en la seccion <a href="#escenarios">5b · Escenarios de prueba</a>.</p>';
+    // En un experimento solo se ofrece lo que se puede elegir: nada de sim,
+    // none ni escenarios (enforceExperiment), asi que tampoco se explican.
+    (state.runType === "normal"
+      ? '<p class="hint"><b>Experimento:</b> el Detector esta encendido y cada fuente usa su sensor real. ' +
+        'Para simular sensores o apagar el Detector, declarar la corrida como <b>test</b> en el paso 0.</p>'
+      : '<p class="hint"><b>Sensor:</b> <code>sim</code> lee una entrada analogica en vez del sensor ' +
+        '(A0 para CEM1, A1 para TEMP1 con 0-5 V = 0-50 C) y sirve para provocar cortes en banco. En TEMP1, ' +
+        '<code>none</code> no registra ningun termometro: es lo que va sin DS18B20 cableado, que si no ' +
+        'bloquea ~750 ms en cada medicion. Con <code>scenario</code> el Mega inventa las lecturas de esa ' +
+        'fuente: la senal se dibuja en el paso <a href="#escenarios">5b · Escenarios de prueba</a>.</p>' +
+        '<div class="grid">' + chk("detector.enabled", "Detector encendido (interruptor general)") + '</div>');
   state.detector.sources.forEach((s, i) => {
-    const sensors = SOURCE_SENSORS[s.name] || [s.sensor];
+    const experiment = state.runType === "normal";
+    const sensors = experiment && REAL_SENSOR[s.name] ? [REAL_SENSOR[s.name]] : (SOURCE_SENSORS[s.name] || [s.sensor]);
     h += '<div class="sub"><h3>' + s.name + '</h3><div class="grid">' +
       '<div style="align-self:end;padding-bottom:6px">' +
         chk("detector.sources." + i + ".enabled", "Vigilada por el Detector") + '</div>' +
@@ -1803,9 +2185,11 @@ function sBroker(){
 }
 
 function sPreview(){
-  return '<section><h2>Archivo generado</h2>' +
-    '<p class="hint">Esto es exactamente lo que se descarga. Va en la SD como ' +
-    '<code>/biosoft/config.json</code>.</p><pre id="preview"></pre></section>';
+  return '<section><h2>Revision final</h2>' +
+    '<p class="hint">Llegar aca, sin errores, despues del ultimo cambio es lo que habilita ' +
+    (EMBEDDED ? '<b>Enviar a la placa</b>' : '<b>Descargar config.json</b>') + ' (arriba). Esto es exactamente ' +
+    'lo que se ' + (EMBEDDED ? 'envia' : 'descarga') + '; va en la SD como <code>/biosoft/config.json</code>. Si ' +
+    'se vuelve a un paso y se cambia algo, hay que recorrer de nuevo desde ese paso.</p><pre id="preview"></pre></section>';
 }
 
 /* ===========================================================================
@@ -1818,6 +2202,17 @@ function sPreview(){
  * =========================================================================== */
 document.addEventListener("input", onEdit);
 document.addEventListener("change", onEdit);
+
+// Nota corta debajo de un campo que volvio a su ultimo valor valido.
+function limitNote(el, text){
+  const lbl = el.closest && el.closest("label");
+  if (!lbl) return;
+  let n = lbl.querySelector(".limite-nota");
+  if (!n) { n = document.createElement("span"); n.className = "limite-nota"; lbl.appendChild(n); }
+  n.textContent = text;
+  clearTimeout(n._t);
+  n._t = setTimeout(() => n.remove(), 6000);
+}
 
 function onEdit(e){
   const el = e.target;
@@ -1840,8 +2235,28 @@ function onEdit(e){
     if (/^currentSensors\.\d+\.(address|channel)$/.test(path)) v = parseInt(v, 10);
   } else {
     v = el.value === "" ? NaN : Number(el.value);
+    const lim = limitsFor(path);
+    if (lim) {
+      const ok = withinLimits(v, lim);
+      if (ok) lastValid[path] = v;
+      else if (e.type === "change") {
+        // Al salir del campo, fuera de rango no queda: vuelve al ultimo
+        // valido (o al borde mas cercano si nunca hubo uno).
+        const back = path in lastValid ? lastValid[path]
+          : Math.min(lim.max, Math.max(lim.min, lim.int ? Math.round(isNum(v) ? v : lim.min) : (isNum(v) ? v : lim.min)));
+        el.value = back;
+        v = back;
+        limitNote(el, "Permitido: " + fmtLim(lim.min) + " a " + fmtLim(lim.max) + (lim.int ? ", entero" : "") +
+                      " · volvio a " + fmtLim(back));
+      }
+      if (el.classList) el.classList.toggle("fuera", !withinLimits(v, lim));
+    }
   }
   setPath(path, v);
+  if (path === "runType") {
+    if (v === "normal") enforceExperiment(); else runTypeNotice = null;
+    render(); return;
+  }
   // Cambiar el sensor de una fuente cambia que campos tiene (escenario,
   // direccion del DS18B20): es estructural, se vuelve a dibujar.
   if (/^detector\.sources\.\d+\.sensor$/.test(path)) { render(); return; }
@@ -1854,7 +2269,13 @@ document.addEventListener("click", e => {
   if (e.target.dataset && e.target.dataset.mapadd){
     if (!Array.isArray(state.control.map)) state.control.map = [];
     if (state.control.map.length < MAX_MAP_POINTS)
-      state.control.map.push({intensity:0, frequency:0, duty:0, balance:0});
+      {
+        // El punto nuevo arranca en la primera combinacion del menu que no
+        // tiene punto (o la primera, si estan todas).
+        const combos = menuCombos();
+        const libre = combos.find(cb => !state.control.map.some(p => mapMatches(p, cb))) || combos[0] || {intensity: 0, frequency: 0};
+        state.control.map.push({intensity: libre.intensity, frequency: libre.frequency, duty: 0, balance: 0});
+      }
     render();
   } else if (e.target.dataset && e.target.dataset.mapfill){
     fillMapGaps();
@@ -1869,6 +2290,8 @@ document.addEventListener("click", e => {
   } else if (del){
     state.menus[del].splice(parseInt(e.target.dataset.i, 10), 1);
     render();
+  } else if (e.target.dataset && e.target.dataset.undoRuntype){
+    undoExperiment();
   } else if (e.target.dataset && e.target.dataset.lib){
     libraryAction(e.target.dataset.lib);
   } else if (e.target.dataset && e.target.dataset.profile){
@@ -1878,7 +2301,7 @@ document.addEventListener("click", e => {
   }
 });
 
-document.getElementById("btnReset").addEventListener("click", () => { state = clone(DEFAULTS); render(); });
+document.getElementById("btnReset").addEventListener("click", () => { state = clone(DEFAULTS); restartSteps(); render(); });
 document.getElementById("btnLoad").addEventListener("click", () => document.getElementById("file").click());
 document.getElementById("dl").addEventListener("click", download);
 
@@ -1892,8 +2315,18 @@ document.getElementById("dl").addEventListener("click", download);
  *            que recien se ve en banco. No bloquea.
  * =========================================================================== */
 let errors = [], warns = [], info = "";
-const err  = m => errors.push(m);
-const warn = m => warns.push(m);
+// En que paso cae cada error/aviso (el numero del <h2>: "0".."9", "5b"):
+// validate() lo fija al empezar cada seccion, y la pestaña de ese paso se
+// marca en rojo o ambar. Asi se sabe DONDE esta el problema sin leer la lista.
+let vsec = "";
+let secCount = {};
+let secMsgs = {};
+const bumpSec = (k, m) => {
+  (secCount[vsec] = secCount[vsec] || {e: 0, w: 0})[k]++;
+  ((secMsgs[vsec] = secMsgs[vsec] || {e: [], w: []})[k]).push(m);
+};
+const err  = m => { errors.push(m); bumpSec("e", m); };
+const warn = m => { warns.push(m); bumpSec("w", m); };
 
 const isInt = v => Number.isFinite(v) && Number.isInteger(v);
 const isNum = v => Number.isFinite(v);
@@ -1967,14 +2400,25 @@ function validateControlMap(){
          "(parte de duty 0, sin mapa).");
   const sobran = c.map.filter(p => !combos.some(cb => mapMatches(p, cb)));
   if (sobran.length)
-    warn("control.map tiene " + sobran.length + " punto(s) que no coinciden con ninguna combinacion de los " +
+    err("control.map tiene " + sobran.length + " punto(s) que no coinciden con ninguna combinacion de los " +
          "menus de intensidad y frecuencia: nunca se van a usar.");
 }
 
 function validate(){
-  errors = []; warns = []; info = "";
+  errors = []; warns = []; info = ""; secCount = {}; secMsgs = {}; vsec = "";
 
   /* --- 0. runType --- */
+  vsec = "0";
+  if (state.runType === "normal") {
+    state.detector.sources.forEach(s => {
+      const real = REAL_SENSOR[s.name];
+      if (real && s.sensor !== real)
+        err("Experimento con " + s.name + " en " + s.sensor + ": un experimento corre solo con sensores reales (" +
+            real + "). Cambiarlo, o declarar la corrida como test.");
+    });
+    if (state.detector.enabled !== true)
+      err("Experimento con el Detector apagado: un experimento corre siempre con el Detector encendido.");
+  }
   if (!RUN_TYPES.includes(state.runType))
     err('Tipo de corrida "' + state.runType + '": el firmware solo entiende "normal" o "test". ' +
         'Cualquier otro valor lo lee como "normal", y las corridas de prueba entrarian al historico ' +
@@ -1989,6 +2433,7 @@ function validate(){
     err("requireMega tiene que ser true o false: con cualquier otra cosa el ESP32 lo ignora y exige el Mega.");
 
   /* --- 1. menus --- */
+  vsec = "1";
   MENUS.forEach(m => {
     const list = state.menus[m.key];
     if (list.length === 0)
@@ -2046,6 +2491,7 @@ function validate(){
   });
 
   /* --- 2. intervals --- */
+  vsec = "2";
   const chkInterval = (grp, meta) => meta.forEach(([k, lbl]) => {
     const v = state.intervals[grp][k];
     if (!isInt(v))
@@ -2085,6 +2531,7 @@ function validate(){
          "acerca el primer flag posible al arranque, cuando el lazo de control todavia no convergio.");
 
   /* --- 3. control --- */
+  vsec = "3";
   if (!isNum(state.control.kp) || state.control.kp <= 0) err("control.kp tiene que ser mayor que 0.");
   if (!isNum(state.control.maxStep) || state.control.maxStep <= 0) err("control.maxStep tiene que ser mayor que 0.");
   if (!isNum(state.control.deadBand) || state.control.deadBand < 0) err("control.deadBand no puede ser negativo.");
@@ -2094,6 +2541,7 @@ function validate(){
   validateControlMap();
 
   /* --- 4. coils --- */
+  vsec = "4";
   const usados = new Set();
   state.coils.forEach((c, i) => {
     const tag = "Bobina " + (i + 1);
@@ -2116,6 +2564,7 @@ function validate(){
          "el modo de campo nulo no cancelaria nada y no seria verificable.");
 
   /* --- 5. detector --- */
+  vsec = "5";
   if (state.detector.enabled === false)
     warn("Detector apagado: ninguna fuente puede generar flags ni cortar el experimento, aunque " +
          "la temperatura o el campo salgan de rango. Solo para banco.");
@@ -2128,6 +2577,7 @@ function validate(){
       err(s.name + ': sensor "' + s.sensor + '" no es valido (' + allowed.join(", ") + '). ' +
           "El Mega lo rechaza y sigue con el driver que tenia, sin avisar en pantalla.");
     if (s.sensor === "scenario") {
+      vsec = "5b";
       const sc = s.scenario || {};
       const tag = s.name + " / escenario";
       SCENARIO_KEYS.forEach(([k, , lbl]) => {
@@ -2158,6 +2608,7 @@ function validate(){
       if (s.name === "CEM1" && sc.setpointDuty > 0 && state.control && state.control.enabled === false)
         warn(tag + ": con el lazo apagado (control.enabled false) el duty queda en 0 y la planta da campo 0: " +
              "CEM1 se lee fuera de rango toda la corrida. Usar duty que da el objetivo 0 (sin planta).");
+      vsec = "5";
       if (s.name === "CEM1" && (!isNum(sc.setpointDuty) || sc.setpointDuty < 0 || sc.setpointDuty > 1))
         err(tag + ": el duty que da el objetivo tiene que estar entre 0 y 1.");
       if (isNum(sc.oscAmp) && sc.oscAmp !== 0 && !(sc.oscPeriod > 0))
@@ -2216,6 +2667,7 @@ function validate(){
            "cuenta dentro de esa ventana, asi que cambiar measureTemperature corre su significado.";
 
   /* --- 6. currentSensors --- */
+  vsec = "6";
   const slots = new Set();
   state.currentSensors.forEach((c, i) => {
     const tag = "Canal de corriente " + (i + 1);
@@ -2250,6 +2702,7 @@ function validate(){
   });
 
   /* --- 8. wifi --- */
+  vsec = "8";
   const redes = state.wifi.filter(n => n.ssid.trim());
   if (redes.length === 0) {
     warn("Ninguna red WiFi cargada: la seccion no se escribe y quedan las compiladas en secrets.h.");
@@ -2277,6 +2730,7 @@ function validate(){
     err("No entran mas de " + MAX_WIFI_NETWORKS + " redes (WiFiConfig::MAX_NETWORKS).");
 
   /* --- 9. broker --- */
+  vsec = "9";
   if (!state.broker.server.trim())
     warn("Broker sin host: se usa el compilado en secrets.h.");
   else if (state.broker.server.length > MAX_BROKER_HOST)
@@ -2296,6 +2750,7 @@ function validate(){
     err("El clientId no puede pasar de " + MAX_BROKER_CLIENTID + " caracteres.");
 
   /* --- 7. telemetry --- */
+  vsec = "7";
   const topicsUsados = new Map();
   TELEMETRY_GROUPS.forEach(([k, lbl, desc, periodic]) => {
     const g = state.telemetry.groups[k];
@@ -2435,13 +2890,30 @@ function paint(){
   let h = "";
   if (errors.length === 0 && warns.length === 0)
     h += '<div class="msg o">Sin errores ni avisos. El archivo se puede descargar.</div>';
-  if (errors.length)
-    h += '<div class="msg e"><b>' + errors.length + ' error(es)</b> — la descarga esta bloqueada: ' +
-         "el firmware descartaria estos valores en silencio." + li(errors) + "</div>";
+  // Los errores se muestran ADENTRO de su paso; aca solo cuantos y donde.
+  if (errors.length) {
+    const titles = typeof document.querySelectorAll === "function" ? stepTitles() : [];
+    const pasos = titles.map((t, i) => ({t, i, n: (secCount[t.num] || {}).e || 0})).filter(x => x.n);
+    h += '<div class="msg e"><b>' + errors.length + ' error(es)</b> — la descarga esta bloqueada (el firmware ' +
+         'descartaria estos valores en silencio). ' + (pasos.length
+           ? 'Estan en: ' + pasos.map(x => x.i <= frontier
+               ? '<button type="button" class="mini" data-paso="' + x.i + '">' +
+                 esc((x.t.num ? x.t.num + " · " : "") + x.t.title) + ' (' + x.n + ')</button>'
+               : '<span class="mini-txt">' + esc((x.t.num ? x.t.num + " · " : "") + x.t.title) + ' (' + x.n +
+                 ', se corrige al llegar)</span>').join(" ")
+           : li(errors)) + "</div>";
+  }
+  // Avisos y datos utiles PLEGADOS (fase 3): con el formulario por pasos se
+  // veian enteros en cada pestaña y se comian medio paso. Los errores no se
+  // pliegan: bloquean la descarga y el envio. Lo abierto o cerrado sobrevive
+  // al repintado (paint corre en cada tecla).
   if (warns.length)
-    h += '<div class="msg w"><b>' + warns.length + ' aviso(s)</b> — el archivo es valido, pero estas ' +
-         "combinaciones tienen consecuencias que recien se ven en banco." + li(warns) + "</div>";
-  if (info) h += '<div class="msg o">' + esc(info) + "</div>";
+    h += '<details class="msg w plegable" data-pliegue="avisos"' + (msgOpen.avisos ? " open" : "") + '><summary><b>' +
+         warns.length + ' aviso(s)</b> — el archivo es valido, pero estas combinaciones tienen consecuencias ' +
+         "que recien se ven en banco.</summary>" + li(warns) + "</details>";
+  if (info) h += '<details class="msg o plegable" data-pliegue="info"' + (msgOpen.info ? " open" : "") +
+         '><summary><b>Datos utiles</b> sobre esta configuracion</summary><p style="margin:6px 0 0">' +
+         esc(info) + "</p></details>";
   document.getElementById("msgs").innerHTML = h;
 
   // El resumen fijo: cuantos errores y avisos hay, y un toque lleva a la
@@ -2453,6 +2925,8 @@ function paint(){
   document.getElementById("msgSummary").innerHTML = r;
   updateProfileMarks();
   paintScenario();
+  trackChanges();
+  updateStepBadges();
 }
 
 // Un solo listener (delegado) para las pastillas del resumen, que se
@@ -2463,7 +2937,8 @@ document.getElementById("msgSummary").addEventListener("click", ev => {
 });
 
 function download(){
-  if (errors.length) return;
+  validate();
+  if (!fullyReviewed()) return;
   const blob = new Blob([JSON.stringify(buildJson(), null, 2) + "\n"], {type:"application/json"});
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
@@ -2509,6 +2984,7 @@ function loadParsed(parsed){
     if (!s.scenario && def) s.scenario = clone(def.scenario);
     else if (s.scenario) s.scenario = normalizeScenario(s.scenario);
   });
+  restartSteps();
   render();
 }
 
@@ -2539,6 +3015,9 @@ function showSendStatus(st){
     (st.detail ? '<br>' + esc(st.detail) : '') + '</div>';
 }
 
+if (typeof location !== "undefined" && /[?&]tema=(oscuro|claro)/.test(location.search))
+  document.documentElement.dataset.tema = location.search.match(/[?&]tema=(oscuro|claro)/)[1];
+
 if (EMBEDDED) {
   document.body.classList.add("embebido");
   document.getElementById("dl").hidden = true;
@@ -2546,7 +3025,7 @@ if (EMBEDDED) {
   send.hidden = false;
   send.addEventListener("click", () => {
     validate();
-    if (errors.length) return;
+    if (!fullyReviewed()) return;
     window.parent.postMessage({type: "biosoft-send", config: buildJson()}, window.location.origin);
   });
   // Solo se aceptan mensajes del monitor que lo embebe (mismo origen).
@@ -2558,6 +3037,9 @@ if (EMBEDDED) {
       updateProfileMarks();
     }
     if (ev.data.type === "biosoft-status") showSendStatus(ev.data.status);
+    // El monitor cambio de tema (claro/oscuro): se sigue sin recargar.
+    if (ev.data.type === "biosoft-tema" && (ev.data.tema === "claro" || ev.data.tema === "oscuro"))
+      document.documentElement.dataset.tema = ev.data.tema;
     if (ev.data.type === "biosoft-scenarios" && Array.isArray(ev.data.items)) {
       LIBRARY = ev.data.items;
       LIB_ADMIN = !!ev.data.admin;
