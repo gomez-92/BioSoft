@@ -18,3 +18,14 @@ const destino = path.join(__dirname, '..', 'client', 'public', 'generador-config
 fs.mkdirSync(path.dirname(destino), { recursive: true });
 fs.copyFileSync(origen, destino);
 console.log(`Generador copiado a ${path.relative(process.cwd(), destino)}`);
+
+// Los escenarios de fabrica (tools/escenarios.json) van al servidor, que los
+// siembra en la biblioteca la primera vez. Como modulo .ts y no como .json:
+// asi entra al build de tsc sin import attributes. Mismo control que el
+// generador: server/test/escenarios.test.ts falla si difieren.
+const perfiles = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'tools', 'escenarios.json'), 'utf8'));
+const destinoPerfiles = path.join(__dirname, '..', 'server', 'src', 'domain', 'escenariosfabrica.ts');
+fs.writeFileSync(destinoPerfiles,
+  '// GENERADO por `npm run sync:generador` desde tools/escenarios.json. No editar a mano.\n' +
+  'export const ESCENARIOS_FABRICA = ' + JSON.stringify(perfiles, null, 2) + ' as const;\n');
+console.log(`Escenarios de fabrica copiados a ${path.relative(process.cwd(), destinoPerfiles)}`);

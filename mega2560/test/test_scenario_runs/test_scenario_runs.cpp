@@ -189,6 +189,14 @@ static Outcome run(JsonObjectConst profile, const Ranges& r, unsigned long cemPh
     Scenario::restart(0);
     detector.resetSilence(0);
 
+    // Corte por silencio del LAZO (Engine::_checkControlSilence): con el lazo
+    // activo, CEM1 sin lecturas corta aunque no este vigilada ni haya
+    // Detector. Mismo reloj que Engine: desde el start y en cada lectura
+    // valida del magnetometro.
+    unsigned long lastMagnetometerAliveMs = 0;
+    SourceConfig cemTemplate = DetectorConfigBuilder::defaultConfig();
+    cemTemplate.sampleIntervalMs = CemIntervalMs;
+
     bool settling = true;
     unsigned long nextCem = CemIntervalMs + cemPhaseMs;
     unsigned long nextTemp = TempIntervalMs + tempPhaseMs;
@@ -203,6 +211,7 @@ static Outcome run(JsonObjectConst profile, const Ranges& r, unsigned long cemPh
             nextCem += CemIntervalMs;
             cem.update();
             if (cem.isValid()) {
+                lastMagnetometerAliveMs = nowMs;
                 detector.noteAlive("CEM1", nowMs);
                 controller.update(cem.getMagneticField());
                 commonDuty = controller.getOutput();
@@ -218,6 +227,13 @@ static Outcome run(JsonObjectConst profile, const Ranges& r, unsigned long cemPh
             }
         }
         detector.checkSilence(nowMs);
+        if (!listener.outcome.cut &&
+            controlSilenceExpired(true, settling, nowMs, lastMagnetometerAliveMs, cemTemplate)) {
+            listener.outcome.cut = true;
+            listener.outcome.at = nowMs / 1000.0f;
+            listener.outcome.source = "CEM1";
+            listener.outcome.type = "silence";
+        }
     }
     return listener.outcome;
 }
@@ -299,10 +315,13 @@ PROFILE_TEST(campoCompensado)
 PROFILE_TEST(campoInestable)
 PROFILE_TEST(campoFuera)
 PROFILE_TEST(sensorCaido)
+PROFILE_TEST(tempBaja)
+PROFILE_TEST(campoCaido)
 
 static const char* const CheckedProfiles[] = {
     "normal", "tempAlta", "tempSube", "tempRecupera", "tempAdvertencia",
     "campoCompensado", "campoInestable", "campoFuera", "sensorCaido",
+    "tempBaja", "campoCaido",
 };
 
 void test_every_profile_is_checked(void) {
@@ -364,6 +383,8 @@ int main(int argc, char** argv) {
         RUN_TEST(test_profile_campoInestable);
         RUN_TEST(test_profile_campoFuera);
         RUN_TEST(test_profile_sensorCaido);
+        RUN_TEST(test_profile_tempBaja);
+        RUN_TEST(test_profile_campoCaido);
         RUN_TEST(test_plant_starting_at_zero_duty_cuts_early);
     }
     return UNITY_END();

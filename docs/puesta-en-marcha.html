@@ -236,6 +236,8 @@
       <tr><td>Campo inestable</td><td>Alertas amarillas de CEM1, corte por <b>frecuencia</b> a los ~130 s</td></tr>
       <tr><td>Campo fuera de rango</td><td>Corte <b>critical</b> de CEM1 a los ~68 s</td></tr>
       <tr><td>Sensor de temperatura caído</td><td>Corte a los ~101 s, <b>TEMP1 SIN LECTURAS</b></td></tr>
+      <tr><td>Temperatura baja</td><td>Corte <b>critical</b> de TEMP1 a los ~75 s (por debajo del rango)</td></tr>
+      <tr><td>Sensor de campo caído</td><td>Corte a los ~95 s, <b>CEM1 SIN LECTURAS</b>, aunque CEM1 no esté vigilada</td></tr>
     </table></div>
     <ul class="items">
       <li><label class="item"><input type="checkbox" data-id="f3-normal"><span class="que">Todo normal → completed</span></label></li>
@@ -247,6 +249,10 @@
       <li><label class="item"><input type="checkbox" data-id="f3-caido"><span class="que">Sensor caído → TEMP1 SIN LECTURAS</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f3-campofuera"><span class="que">Campo fuera de rango → critical CEM1</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f3-inestable"><span class="que">Campo inestable → corte por frecuencia de CEM1</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f3-tempbaja"><span class="que">Temperatura baja → critical TEMP1</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f3-campocaido"><span class="que">Sensor de campo caído → CEM1 SIN LECTURAS (con CEM1 sin vigilar)</span>
+        <span class="det">Es la protección del lazo: sin lecturas del magnetómetro el lazo excitaría a ciegas.
+          Log del Mega: <code>[SILENCE] CEM1 sin lecturas con el lazo activo</code>.</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f3-pantallas">
         <span class="que">En cada corrida: En curso, Resultado y monitor coherentes</span>
         <span class="det">En curso muestra el duty que se aplicaría. Resultado con el motivo correcto

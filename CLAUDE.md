@@ -458,11 +458,15 @@ Key collaborators:
   list keeps the previous one. Its refusal reasons are an enum, not strings:
   as plain literals they cost ~150 bytes of RAM (measured). Sampled arrays
   were rejected for RAM (an hour of TEMP1 at 5 s is 2.9 KB).
-  **Profiles live in `tools/escenarios.json`**, each with an `expect`
+  **Profiles live in `tools/escenarios.json`** (11 factory ones; after
+  editing it run `node tools/sincronizar-escenarios.js` — the generator
+  embeds a copy — and `npm run sync:generador` in `web/`), each with an `expect`
   (completed, or cut by rule X of source Y at ~N s) and a `minDuration`;
   `test_scenario_runs` (native) runs every profile through the real
   Detector + FieldController + scenario sensors over 5 menu-range combos ×
-  3 sampling phases and fails if the ending differs. That test is what
+  3 sampling phases and fails if the ending differs; it also reproduces
+  `Engine::_checkControlSilence` (CEM1 silent with the loop on cuts even
+  unwatched — "Sensor de campo caido"). That test is what
   caught that the card-22 "campo inestable" (4 s period, sampled every 2 s)
   never alerted at all, and that any CEM1-watched scenario cut by
   `critical` at ~16 s because the loop started from duty 0. Hence
@@ -1439,6 +1443,19 @@ Two things there are worth knowing before touching it:
   defensive — correct, but unreachable while those buffers are 16. A blocking
   error for a condition that cannot happen would be worse than none, so the
   generator only reports the computed size. If `MaxFieldNameLength` ever grows,
+- **The scenario editor (section 5b) runs a JS copy of the Mega** (`SIM` in
+  the generator): `scenario.hpp` levels/points/noise/plant,
+  `FieldController`, the Detector's rules/window/streaks/silence,
+  `planStart`, and Engine's settling/cadences/cut. It draws each source's
+  signal in °C/mT against a *reference run* (the screen menus, not saved in
+  the file), the samples the Mega would read, the alerts and the cut, and
+  predicts the ending; control points are dragged on the SVG (click adds,
+  double-click removes). Same drift hazard as the two `seriallink.hpp`:
+  `test-generador.js` runs every profile of `tools/escenarios.json` through
+  `SIM` with exactly the combos/phases/50 ms step of
+  `test_scenario_runs` and demands the same ending, so a change on one side
+  fails a test. It cannot reproduce the exact noise (on the board the
+  xorshift state carries over between runs) nor the Timer's real phase.
   that number is what says how much room is left.
 
 ### `web/` — remote monitor
@@ -1574,6 +1591,28 @@ Other things worth knowing before touching it:
   on every password change/deletion done *by this server*. `ahoraParaRevocar()`
   floors to the second because `iat` has 1 s resolution — with the exact
   instant, the token issued in the same second as the change is born revoked.
+- **Scenario library** (`domain/escenarios.ts`, `api/escenarios.ts`,
+  collection `Scenario`): the test scenarios the embedded generator offers.
+  The factory ones come from `tools/escenarios.json`, copied to
+  `domain/escenariosfabrica.ts` by `npm run sync:generador` (a generated
+  `.ts`, not a `.json`, so plain `tsc` builds it; `test/escenarios.test.ts`
+  fails if the copy differs). They are **seeded once** (`Setting`
+  `escenariosSembrados` = the factory keys already seeded), then they are
+  ordinary rows: admins edit or delete them and a deleted one never comes
+  back on its own, while a factory scenario *added* to the JSON in an update
+  is seeded on the next start. "Restaurar los de fabrica"
+  resets them by `factoryKey` and recreates deleted ones, never touching
+  custom ones (a custom one holding a factory name makes the factory one
+  come back as "<name> (fabrica)"). A factory scenario keeps its `expect`
+  only while its signal is untouched — edited, it is no longer the tested
+  one (`modificado`). The server validates with the Mega's limits (8 points,
+  sorted integer seconds, |level| ≤ 10, duty 0..1). Reading is for any
+  session; writing is `requireAdmin`. The generator never calls the API: it
+  posts `biosoft-scenario-save|delete|restore` and `Configuracion.tsx` does
+  the request, confirms deletes/restores, and posts back the list
+  (`biosoft-scenarios`) and the outcome (`biosoft-scenario-result`).
+  `Scenario.init()` before seeding: without the unique index built, a
+  create racing it duplicated a name in tests.
   A user missing from the table is let through (the CLI script runs in another
   process); a deleted one is marked `Infinity`. Socket.IO's handshake applies
   the same check.

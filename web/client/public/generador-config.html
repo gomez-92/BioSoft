@@ -98,6 +98,43 @@
   .etapas .alerta{color:var(--warn);font-weight:600}
   @media (max-width:600px){ .etapas{grid-template-columns:1fr} .etapas .nota{margin-bottom:6px} }
   .msg.i{background:var(--code);color:var(--ink);border:1px solid var(--accent)}
+  /* Editor de escenarios (5b). */
+  h3.paso{font-size:13.5px;margin:18px 0 8px;display:flex;align-items:center;gap:8px}
+  h3.paso span{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;
+               background:var(--accent);color:#fff;font-size:12px}
+  .perfiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px}
+  .perfiles button.prof{text-align:left;display:flex;flex-direction:column;gap:2px;padding:9px 12px}
+  .perfiles button.prof small{font-size:11.5px;color:var(--muted);font-weight:400}
+  .perfiles button.prof.on small{color:#fff;opacity:.9}
+  .msg.outcome{font-size:14px}
+  .libbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 10px;padding:8px 10px;
+          border:1px dashed var(--line);border-radius:6px;font-size:13px}
+  .libbar span:first-child{flex:1;min-width:200px}
+  .libbar .ok{color:var(--ok);font-weight:600} .libbar .alerta{color:var(--warn);font-weight:600}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  .sub.scn h3 small{font-weight:400;color:var(--muted)}
+  .sub.scn .alerta{color:var(--warn);font-weight:600}
+  .chart{width:100%;border:1px solid var(--line);border-radius:6px;background:var(--bg);
+         touch-action:none;user-select:none;cursor:crosshair}
+  .chart svg{display:block;width:100%;height:auto}
+  .chart .z-ok{fill:var(--ok);opacity:.10}
+  .chart .z-warn{fill:var(--warn);opacity:.16}
+  .chart .z-crit{fill:var(--err);opacity:.12}
+  .chart .z-settle{fill:var(--muted);opacity:.10}
+  .chart .grid{stroke:var(--line);stroke-width:1}
+  .chart .ax,.chart .lv,.chart .lbl{fill:var(--muted);font-size:11px}
+  .chart .lv{font-size:10.5px}
+  .chart .shape{fill:none;stroke:var(--accent);stroke-width:2}
+  .chart .smp{stroke:none}
+  .chart .s-ok{fill:var(--ok)} .chart .s-warn{fill:var(--warn)} .chart .s-crit{fill:var(--err)}
+  .chart .s-set{opacity:.35}
+  .chart .drop{stroke:var(--muted);stroke-dasharray:4 3}
+  .chart .cut{stroke:var(--err);stroke-width:2}
+  .chart .cutl{fill:var(--err);font-weight:600}
+  .chart .ev-critical{fill:var(--err)} .chart .ev-streak,.chart .ev-frequency{fill:var(--warn)}
+  .chart .ev-silence{fill:var(--muted)}
+  .chart .cp{fill:var(--panel);stroke:var(--accent);stroke-width:2.5;cursor:grab}
+  .chart .cp:hover{fill:var(--accent)}
   pre{background:var(--code);border:1px solid var(--line);border-radius:6px;
       padding:12px;overflow:auto;max-height:340px;font-size:12px}
 </style>
@@ -375,6 +412,17 @@ const SCENARIO_FILE = {
       }
     },
     {
+      "key": "tempBaja",
+      "name": "Temperatura baja",
+      "description": "TEMP1 cae a la zona critica por debajo (nivel -2,5) a los 60 s: prueba el borde inferior.",
+      "expect": { "reason": "critical", "source": "TEMP1", "type": "critical", "at": 75 },
+      "minDuration": 120,
+      "sources": {
+        "CEM1": { "enabled": false, "scenario": { "points": [], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0, "setpointDuty": 0.5 } },
+        "TEMP1": { "enabled": true, "scenario": { "points": [[0, 0], [60, 0], [60, -2.5]], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0 } }
+      }
+    },
+    {
       "key": "tempRecupera",
       "name": "Temperatura que se recupera",
       "description": "TEMP1 entra en advertencia (nivel 1,5) por un minuto y vuelve al centro: alertas de racha, sin corte.",
@@ -439,6 +487,17 @@ const SCENARIO_FILE = {
         "CEM1": { "enabled": false, "scenario": { "points": [], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0, "setpointDuty": 0.5 } },
         "TEMP1": { "enabled": true, "scenario": { "points": [], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 90 } }
       }
+    },
+    {
+      "key": "campoCaido",
+      "name": "Sensor de campo caido",
+      "description": "CEM1 deja de responder a los 90 s. Aunque CEM1 NO esta vigilada, el Mega corta porque el lazo seguiria excitando las bobinas a ciegas (CEM1 SIN LECTURAS).",
+      "expect": { "reason": "critical", "source": "CEM1", "type": "silence", "at": 95 },
+      "minDuration": 180,
+      "sources": {
+        "CEM1": { "enabled": false, "scenario": { "points": [], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 90, "setpointDuty": 0.5 } },
+        "TEMP1": { "enabled": true, "scenario": { "points": [], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0 } }
+      }
     }
   ]
 };
@@ -447,9 +506,10 @@ const SCENARIO_PROFILES = SCENARIO_FILE.profiles;
 // Que se espera de un perfil, en palabras (para el boton y la lista).
 function expectText(prof){
   const e = prof.expect || {};
+  const nombre = t => ({critical: "critico", streak: "racha", frequency: "frecuencia", silence: "silencio"}[t] || t);
   if (e.reason === "completed")
-    return "termina completed" + (e.alerts && e.alerts.length ? ", con alertas de " + e.alerts.join(" y ") : "");
-  const tipo = {critical: "critico", streak: "racha", frequency: "frecuencia", silence: "silencio"}[e.type] || e.type;
+    return "termina completa" + (e.alerts && e.alerts.length ? ", con alertas de " + e.alerts.map(nombre).join(" y ") : "");
+  const tipo = nombre(e.type);
   return "corta por " + tipo + " de " + e.source + " a los ~" + e.at + " s";
 }
 
@@ -509,8 +569,24 @@ function textToPoints(text){
   return pts;
 }
 
+// Biblioteca del monitor (tarjeta de escenarios propios). Embebido, el
+// monitor manda la lista de su base (los de fabrica sembrados mas los que se
+// hayan creado, editado o borrado); abierto con doble clic no hay biblioteca y
+// se ofrecen los de fabrica de SCENARIO_FILE. Solo un admin la modifica, y
+// las operaciones las hace el monitor (postMessage), no este archivo.
+let LIBRARY = null;        // null = sin monitor
+let LIB_ADMIN = false;
+let selectedScenario = null;   // key del ultimo elegido o guardado
+let libStatus = null;          // {ok, text}
+function scenarioList(){
+  if (!LIBRARY) return SCENARIO_PROFILES;
+  return LIBRARY.map(e => ({key: e.id, name: e.name, description: e.description || "", sources: e.sources,
+    reference: e.reference, expect: e.expect, minDuration: e.minDuration, factoryKey: e.factoryKey,
+    modificado: e.modificado, updatedBy: e.updatedBy}));
+}
+
 function applyProfile(key){
-  const prof = SCENARIO_PROFILES.find(p => p.key === key);
+  const prof = scenarioList().find(p => p.key === key);
   if (!prof) return;
   state.detector.sources.forEach(s => {
     const def = prof.sources[s.name];
@@ -519,7 +595,57 @@ function applyProfile(key){
     s.enabled = def.enabled;
     s.scenario = clone(def.scenario);
   });
+  selectedScenario = key;
+  if (prof.reference) refFromValues(prof.reference);
   render();
+}
+
+// La corrida de referencia guardada con un escenario -> indices de los menus
+// actuales (si una opcion ya no existe, queda la que estaba).
+function refFromValues(v){
+  if (!refRun) refRun = refDefaults();
+  const m = state.menus;
+  const idx = (list, pred) => { const i = (list || []).findIndex(pred); return i; };
+  const set = (k, i) => { if (i >= 0) refRun[k] = i; };
+  set("intensity", idx(m.fieldIntensity, o => o.value === v.intensity));
+  set("frequency", idx(m.frequency, o => o.value === v.frequency));
+  set("tolerance", idx(m.fieldTolerance, o => o.value === v.tolerance));
+  set("tempNormal", idx(m.temperatureNormal, o => o.min === v.tempNormal.min && o.max === v.tempNormal.max));
+  set("tempCritical", idx(m.temperatureCritical, o => o.min === v.tempCritical.min && o.max === v.tempCritical.max));
+  set("duration", idx(m.duration, o => o.value === v.durationS * 1000));
+  if (v.mode === "x" || v.mode === "null") refRun.mode = v.mode;
+}
+
+// Lo que se guarda en la biblioteca: la senal de cada fuente SIMULADA (las
+// que estan en sensor real no son parte del escenario) y la corrida de
+// referencia que se esta mirando.
+function scenarioFromForm(){
+  const sources = {};
+  state.detector.sources.forEach(s => {
+    if (s.sensor === "scenario" && s.scenario)
+      sources[s.name] = {enabled: s.enabled !== false, scenario: clone(normalizeScenario(s.scenario))};
+  });
+  return {sources, reference: refResolved()};
+}
+
+// Que pasaria con un escenario de la lista, segun el simulador, contra su
+// corrida de referencia (o la que se esta mirando). Para los propios, que no
+// traen promesa comprobada.
+function predictText(prof){
+  const ref = prof.reference || refResolved();
+  if (!ref) return "";
+  const cfg = clone(state);
+  cfg.detector.sources.forEach(s => {
+    const def = prof.sources[s.name];
+    if (def) { s.sensor = "scenario"; s.enabled = def.enabled; s.scenario = clone(def.scenario); }
+  });
+  try {
+    const r = SIM.run(cfg, ref);
+    if (r.refused) return "no inicia (" + (r.refused === "nomap" ? "falta el mapa" : "balance") + ")";
+    return r.cut ? "prevision: corta por " + (TIPO_ALERTA[r.cut.type] || r.cut.type) + " de " + r.cut.source +
+                   " a los " + fmtT(r.cut.at)
+                 : "prevision: termina completa";
+  } catch (e) { return ""; }
 }
 
 // Que perfil describe una configuracion: la clave del perfil, "real" (los dos
@@ -533,7 +659,7 @@ function profileOf(cfg){
   const realOf = name => name === "CEM1" ? "mlx90393" : "ds18b20";
   // Sin seccion (o sin clave sensor) rigen los compilados: sensores reales.
   if (sources.every(s => s.sensor === undefined || s.sensor === realOf(s.name))) return "real";
-  const match = SCENARIO_PROFILES.find(prof => sources.every(s => {
+  const match = scenarioList().find(prof => sources.every(s => {
     const def = prof.sources[s.name];
     if (!def) return true;
     if (s.sensor !== "scenario" || !s.scenario) return false;
@@ -552,7 +678,7 @@ function profileOf(cfg){
 function profileName(key){
   if (key === "real") return "sensores reales";
   if (key === "custom") return "personalizado (no coincide con ningun perfil)";
-  const p = SCENARIO_PROFILES.find(x => x.key === key);
+  const p = scenarioList().find(x => x.key === key);
   return p ? p.name : key;
 }
 
@@ -639,6 +765,295 @@ function setPath(p, v){
   const last = parts.pop();
   parts.reduce((o,k) => o[k], state)[last] = v;
 }
+
+/* ===========================================================================
+ * SIMULADOR DE ESCENARIOS -- copia en JS de lo que hace el Mega con una
+ * corrida sintetica, para dibujar la senal y predecir el final ANTES de
+ * mandarla. Replica, en este orden:
+ *   mega2560/src/scenario.hpp          niveles, puntos, ruido, planta
+ *   mega2560/src/scenariosensors.hpp   lo que lee cada sensor de escenario
+ *   mega2560/src/fieldcontroller.hpp   el lazo de CEM1
+ *   mega2560/src/detector.hpp          reglas, ventana, rachas, silencio
+ *   mega2560/src/controlmap.hpp        duty de partida / rechazo en nulo
+ *   mega2560/src/engine.hpp            estabilizacion, cadencias, corte
+ * Mismo riesgo de deriva que las dos copias de seriallink.hpp: lo ataja
+ * tools/test-generador.js, que corre cada perfil de tools/escenarios.json
+ * con las mismas combinaciones que mega2560/test/test_scenario_runs y exige
+ * el mismo final. Si se cambia algo de esa logica en el Mega, este bloque
+ * tiene que cambiar igual.
+ * No reproduce: el ruido exacto (en la placa el generador pseudoaleatorio
+ * sigue de una corrida a la otra), la fase real del Timer ni el envio por
+ * serie. Por eso el corte puede correrse unos segundos en la placa.
+ * =========================================================================== */
+const SIM = (() => {
+  const f32 = Math.fround;
+
+  // ---- scenario.hpp
+  function pointsLevelAt(points, t){
+    if (!Array.isArray(points) || points.length === 0) return 0;
+    if (t < points[0][0]) return points[0][1];
+    let i = 0;
+    while (i + 1 < points.length && points[i + 1][0] <= t) i++;
+    if (i + 1 >= points.length) return points[i][1];
+    const [t0, l0] = points[i], [t1, l1] = points[i + 1];
+    return l0 + (l1 - l0) * (t - t0) / (t1 - t0);
+  }
+  // Sin ruido: la forma que se dibuja.
+  function shapeAt(sc, t){
+    let level = pointsLevelAt(sc.points, t);
+    if (sc.oscPeriod > 0) level += sc.oscAmp * Math.sin(2 * Math.PI * t / sc.oscPeriod);
+    return level;
+  }
+  function levelAt(sc, t, unitNoise){ return shapeAt(sc, t) + (sc.noise || 0) * unitNoise; }
+  // xorshift32, identico al del Mega (uint32 y float de 32 bits).
+  function makeNoise(seed){
+    let state = seed >>> 0;
+    return () => {
+      if (state === 0) state = 0x9E3779B9;
+      state = (state ^ (state << 13)) >>> 0;
+      state = (state ^ (state >>> 17)) >>> 0;
+      state = (state ^ (state << 5)) >>> 0;
+      return f32(f32(state) / f32(4294967295)) * 2 - 1;
+    };
+  }
+  const center = r => (r.normalMin + r.normalMax) / 2;
+  function levelToValue(r, level){
+    const c = center(r), half = (r.normalMax - r.normalMin) / 2;
+    if (level >= 0) {
+      if (level <= 1) return c + level * half;
+      let gap = r.criticalMax - r.normalMax; if (gap <= 0) gap = half;
+      return r.normalMax + (level - 1) * gap;
+    }
+    if (level >= -1) return c + level * half;
+    let gap = r.normalMin - r.criticalMin; if (gap <= 0) gap = half;
+    return r.normalMin + (level + 1) * gap;
+  }
+  // Inversa de levelToValue (para arrastrar puntos sobre el grafico).
+  function valueToLevel(r, v){
+    const c = center(r), half = (r.normalMax - r.normalMin) / 2;
+    if (half <= 0) return 0;
+    if (v >= r.normalMax) {
+      let gap = r.criticalMax - r.normalMax; if (gap <= 0) gap = half;
+      return 1 + (v - r.normalMax) / gap;
+    }
+    if (v <= r.normalMin) {
+      let gap = r.normalMin - r.criticalMin; if (gap <= 0) gap = half;
+      return -1 - (r.normalMin - v) / gap;
+    }
+    return (v - c) / half;
+  }
+  function fieldValue(sc, r, level, duty){
+    const value = levelToValue(r, level);
+    if (!(sc.setpointDuty > 0)) return value;
+    const target = center(r);
+    return target * (duty / sc.setpointDuty) + (value - target);
+  }
+
+  // ---- detectorconfigbuilder.hpp
+  function cemRanges(target, tol, mult, mode){
+    if (mode === "null") {
+      const band = target * tol / 100;
+      return {normalMin: -band, normalMax: band, criticalMin: -mult * band, criticalMax: mult * band};
+    }
+    return {criticalMin: target * (1 - mult * tol / 100), criticalMax: target * (1 + mult * tol / 100),
+            normalMin: target * (1 - tol / 100), normalMax: target * (1 + tol / 100)};
+  }
+
+  // ---- fieldcontroller.hpp
+  function makeController(ctl, intervalMs){
+    const c = {kp: ctl.kp, maxStep: ctl.maxStep, deadBand: ctl.deadBand, sampleTime: intervalMs / 1000,
+               driftThreshold: 0.02, driftWindow: 5, integralGain: 0.001, integralLimit: 0.2};
+    const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+    let setpoint = 0, output = 0, integral = 0, win = [], idx = 0, filled = false;
+    return {
+      setSetpoint(v){ setpoint = v; },
+      preload(v){ output = clamp(v, 0, 1); },
+      get output(){ return output; },
+      update(measured){
+        win[idx] = measured; idx++;
+        if (idx >= c.driftWindow) { idx = 0; filled = true; }
+        const error = setpoint - measured;
+        const n = filled ? c.driftWindow : idx;
+        let variation = 0;
+        if (n >= 2) { const w = win.slice(0, n); variation = Math.max(...w) - Math.min(...w); }
+        if (Math.abs(error) > c.deadBand) output += clamp(c.kp * error, -c.maxStep, c.maxStep);
+        else if (filled && variation > c.driftThreshold) {
+          integral = clamp(integral + error * c.sampleTime * c.integralGain, -c.integralLimit, c.integralLimit);
+          output += integral;
+        }
+        output = clamp(output, 0, 1);
+        return output;
+      }
+    };
+  }
+
+  // ---- detector.hpp (Rule + Source + silencio)
+  function makeRule(r){
+    let total = 0, cd = 0;
+    return {
+      maxEvents: r.maxEvents,
+      get total(){ return total; },
+      cool(n){ cd = n >= cd ? 0 : cd - n; },
+      evaluate(value){
+        if (!r.threshold || value < r.threshold || cd > 0) return false;
+        if (r.maxEvents > 0 && total >= r.maxEvents) return false;
+        total++; cd = r.cooldown; return true;
+      }
+    };
+  }
+  const MIN_SILENCE_MS = 5000;
+  function makeSource(name, src, ranges, intervalMs, emit){
+    const size = src.bufferSize, buf = [];
+    let head = 0, outCount = 0, critStreak = 0, outStreak = 0;
+    const rules = {critical: makeRule(src.rules.critical), streak: makeRule(src.rules.streak),
+                   frequency: makeRule(src.rules.frequency)};
+    const isOut = v => v < ranges.normalMin || v > ranges.normalMax;
+    const isCrit = v => v < ranges.criticalMin || v > ranges.criticalMax;
+    let lastAlive = 0, armed = false, reported = false;
+    const maxMissed = src.maxMissedSamples;
+    const limitMs = (maxMissed && intervalMs) ? Math.max(maxMissed * intervalMs, MIN_SILENCE_MS) : 0;
+    function fire(type, rule, now){
+      if (rule.evaluate(type === "critical" ? critStreak : type === "streak" ? outStreak : outCount))
+        emit({t: now / 1000, source: name, type, count: rule.total, limit: rule.maxEvents});
+    }
+    return {
+      addSample(v, now){
+        if (size > 0) {
+          if (buf.length < size) buf.push(v);
+          else { if (isOut(buf[head])) outCount = Math.max(0, outCount - 1); buf[head] = v; head = (head + 1) % size; }
+        }
+        if (isOut(v)) outCount++;
+        critStreak = isCrit(v) ? critStreak + 1 : 0;
+        outStreak = isOut(v) ? outStreak + 1 : 0;
+        rules.critical.cool(1); rules.streak.cool(1); rules.frequency.cool(1);
+        fire("critical", rules.critical, now);
+        fire("streak", rules.streak, now);
+        fire("frequency", rules.frequency, now);
+      },
+      resetSilence(now){ lastAlive = now; armed = false; reported = false; },
+      noteAlive(now){ lastAlive = now; },
+      arm(){ armed = true; },
+      checkSilence(now){
+        if (!armed || reported || !limitMs) return;
+        const silent = now - lastAlive;
+        if (silent < limitMs) return;
+        reported = true;
+        const missed = Math.max(Math.floor(silent / intervalMs), maxMissed);
+        emit({t: now / 1000, source: name, type: "silence", count: missed, limit: maxMissed});
+      }
+    };
+  }
+
+  // ---- controlmap.hpp
+  function findMapPoint(map, intensity, frequency){
+    return (map || []).find(p => Math.abs(p.intensity - intensity) <= 0.001 &&
+                                 Math.abs(p.frequency - frequency) <= 0.5) || null;
+  }
+
+  // ---- la corrida (engine.hpp)
+  // cfg = el estado del formulario; ref = {intensity, frequency, tolerance,
+  // tempNormal:{min,max}, tempCritical:{min,max}, durationS, mode:"x"|"null"}.
+  function run(cfg, ref, opts){
+    opts = opts || {};
+    const stepMs = opts.stepMs || 100;
+    const iv = cfg.intervals.mega;
+    const cemMs = iv.measureMagneticField, tempMs = iv.measureTemperature, settleMs = iv.settlingTime;
+    const ctl = cfg.control;
+    const byName = n => cfg.detector.sources.find(s => s.name === n);
+    const cemS = byName("CEM1"), tempS = byName("TEMP1");
+    const detectorOn = cfg.detector.enabled !== false;
+    const ranges = {
+      CEM1: cemRanges(ref.intensity, ref.tolerance, cemS.range.criticalMultiplier, ref.mode),
+      TEMP1: {normalMin: ref.tempNormal.min, normalMax: ref.tempNormal.max,
+              criticalMin: ref.tempCritical.min, criticalMax: ref.tempCritical.max}
+    };
+    const out = {ranges, samples: {CEM1: [], TEMP1: []}, duty: [], events: [], cut: null, refused: null,
+                 durationS: ref.durationS,
+                 simulated: {CEM1: cemS.sensor === "scenario", TEMP1: tempS.sensor === "scenario"}};
+
+    // Plan de arranque: en campo nulo sin punto mapeado (o con balance de
+    // mas) el Mega ni arranca.
+    const point = findMapPoint(ctl.map, ref.intensity, ref.frequency);
+    let openLoop = false, startDuty = 0;
+    if (ref.mode === "null") {
+      if (!point) { out.refused = "nomap"; return out; }
+      if (Math.abs(point.balance) > ctl.balanceMax) { out.refused = "balance"; return out; }
+      openLoop = true; startDuty = point.duty;
+    } else if (point) startDuty = point.duty;
+    else if (out.simulated.CEM1 && cemS.scenario.setpointDuty > 0) startDuty = cemS.scenario.setpointDuty;
+    const loopOn = ctl.enabled !== false;
+    const controller = makeController(ctl, cemMs);
+    controller.setSetpoint(ref.mode === "null" ? 0 : ref.intensity);
+    controller.preload(loopOn ? startDuty : 0);
+    let duty = loopOn ? controller.output : 0;
+
+    const emit = ev => {
+      out.events.push(ev);
+      if (!out.cut && ev.count >= ev.limit) out.cut = {at: ev.t, source: ev.source, type: ev.type};
+    };
+    // Solo entran al Detector las fuentes vigiladas Y simuladas: una con
+    // sensor real no se puede predecir desde aca.
+    const src = {};
+    if (cemS.enabled && out.simulated.CEM1) src.CEM1 = makeSource("CEM1", cemS, ranges.CEM1, cemMs, emit);
+    if (tempS.enabled && out.simulated.TEMP1) src.TEMP1 = makeSource("TEMP1", tempS, ranges.TEMP1, tempMs, emit);
+    Object.values(src).forEach(s => s.resetSilence(0));
+    const cemNoise = makeNoise(0x1234567), tempNoise = makeNoise(0x7654321);
+
+    // Silencio del LAZO (Engine::_checkControlSilence): con el lazo activo en
+    // campo X, CEM1 sin lecturas corta aunque no este vigilada ni haya
+    // Detector, porque el lazo seguiria excitando a ciegas.
+    let lastMagAlive = 0;
+    const cemSilenceMs = (cemS.maxMissedSamples && cemMs)
+      ? Math.max(cemS.maxMissedSamples * cemMs, MIN_SILENCE_MS) : 0;
+
+    let settling = true;
+    let nextCem = cemMs + (opts.cemPhaseMs || 0), nextTemp = tempMs + (opts.tempPhaseMs || 0);
+    const endMs = ref.durationS * 1000;
+    for (let now = 0; now <= endMs && !out.cut; now += stepMs) {
+      if (settling && now >= settleMs) { settling = false; Object.values(src).forEach(s => s.arm()); }
+      const t = now / 1000;
+      if (now >= nextCem) {
+        nextCem += cemMs;
+        if (out.simulated.CEM1) {
+          const sc = cemS.scenario;
+          if (sc.dropAt > 0 && t >= sc.dropAt) out.samples.CEM1.push({t, valid: false});
+          else {
+            let v = fieldValue(sc, ranges.CEM1, levelAt(sc, t, cemNoise()), duty);
+            if (v < 0) v = 0;
+            out.samples.CEM1.push({t, v, valid: true, settling});
+            lastMagAlive = now;
+            if (src.CEM1) src.CEM1.noteAlive(now);
+            if (loopOn && !openLoop) duty = controller.update(v);
+            if (src.CEM1 && !settling && detectorOn) src.CEM1.addSample(v, now);
+          }
+        }
+        out.duty.push({t, d: duty});
+      }
+      if (now >= nextTemp) {
+        nextTemp += tempMs;
+        if (out.simulated.TEMP1) {
+          const sc = tempS.scenario;
+          if (sc.dropAt > 0 && t >= sc.dropAt) out.samples.TEMP1.push({t, valid: false});
+          else {
+            const v = levelToValue(ranges.TEMP1, levelAt(sc, t, tempNoise()));
+            out.samples.TEMP1.push({t, v, valid: true, settling});
+            if (src.TEMP1) src.TEMP1.noteAlive(now);
+            if (src.TEMP1 && !settling && detectorOn) src.TEMP1.addSample(v, now);
+          }
+        }
+      }
+      if (detectorOn) Object.values(src).forEach(s => s.checkSilence(now));
+      if (!out.cut && out.simulated.CEM1 && loopOn && !openLoop && !settling && cemSilenceMs &&
+          now - lastMagAlive >= cemSilenceMs) {
+        const missed = Math.max(Math.floor((now - lastMagAlive) / cemMs), cemS.maxMissedSamples);
+        emit({t, source: "CEM1", type: "silence", count: missed, limit: cemS.maxMissedSamples});
+      }
+    }
+    return out;
+  }
+
+  return {pointsLevelAt, shapeAt, levelToValue, valueToLevel, fieldValue, cemRanges, makeNoise, run};
+})();
 
 /* ---------- helpers de render ---------- */
 const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -732,9 +1147,399 @@ const TELEMETRY_FIELDS = [
  * =========================================================================== */
 const EMBEDDED = typeof window !== "undefined" && window.parent !== window;
 
+/* ===========================================================================
+ * EDITOR DE ESCENARIOS: corrida de referencia, resultado previsto y un
+ * grafico por fuente con los puntos de control arrastrables. Todo lo que se
+ * dibuja sale de SIM.run(): es la prediccion de lo que el Mega haria con
+ * esta configuracion, no un dibujo aparte.
+ * =========================================================================== */
+
+// La corrida contra la que se dibuja: los mismos menus de la pantalla. No se
+// guarda en el archivo (el operador la elige en la placa al iniciar): solo
+// dice "si en la placa eligen esto, pasa esto otro". Indices sobre los menus.
+let refRun = null;
+function refDefaults(){
+  const m = state.menus;
+  // Duracion: la primera de 5 min o mas (alcanza para todos los perfiles),
+  // si no la mas larga.
+  const durs = m.duration || [];
+  let di = durs.findIndex(d => d.value >= 300000);
+  if (di < 0) di = Math.max(0, durs.length - 1);
+  return {intensity: 0, frequency: 0, tolerance: 0, tempNormal: 0, tempCritical: 0, duration: di, mode: "x"};
+}
+function refResolved(){
+  if (!refRun) refRun = refDefaults();
+  const m = state.menus;
+  const pick = (list, i) => (list && list.length) ? list[Math.min(i, list.length - 1)] : null;
+  const it = pick(m.fieldIntensity, refRun.intensity), fr = pick(m.frequency, refRun.frequency);
+  const to = pick(m.fieldTolerance, refRun.tolerance), tn = pick(m.temperatureNormal, refRun.tempNormal);
+  const tc = pick(m.temperatureCritical, refRun.tempCritical), du = pick(m.duration, refRun.duration);
+  if (!it || !fr || !to || !tn || !tc || !du) return null;
+  return {intensity: it.value, frequency: fr.value, tolerance: to.value,
+          tempNormal: {min: tn.min, max: tn.max}, tempCritical: {min: tc.min, max: tc.max},
+          durationS: du.value / 1000, mode: refRun.mode};
+}
+
+// Simulacion de la corrida de referencia con el formulario actual. Devuelve
+// null si el formulario no se puede simular (puntos mal escritos, etc.).
+function simulateForm(){
+  const ref = refResolved();
+  if (!ref) return null;
+  const ok = state.detector.sources.every(s => s.sensor !== "scenario" ||
+    (s.scenario && Array.isArray(s.scenario.points) && s.scenario.points.every(p =>
+      Array.isArray(p) && isNum(p[0]) && isNum(p[1]))));
+  if (!ok) return null;
+  try { return {ref, sim: SIM.run(state, ref)}; } catch (e) { return null; }
+}
+
+const TIPO_ALERTA = {critical: "critico", streak: "racha", frequency: "frecuencia", silence: "silencio"};
+const fmtT = s => {
+  s = Math.round(s);
+  return s < 60 ? s + " s" : Math.floor(s / 60) + " min" + (s % 60 ? " " + (s % 60) + " s" : "");
+};
+
+function sScenarios(){
+  const anyScenario = state.detector.sources.some(s => s.sensor === "scenario");
+  let h = '<section id="escenarios"><h2>5b · Escenarios de prueba (sensores simulados)</h2>' +
+    '<p class="hint">Para probar el equipo <b>sin sensores</b>: el Mega inventa las lecturas de CEM1 y/o ' +
+    'TEMP1 con la forma que se dibuja aca, y todo lo demas es real (alertas, cortes, pantallas y monitor). ' +
+    'Las corridas salen marcadas <b>PRUEBA</b> y, si CEM1 es simulado, <b>las bobinas no se energizan</b>.</p>' +
+    '<h3 class="paso"><span>1</span> Elegir una prueba</h3>' +
+    '<div class="etapas" id="profileStatus"></div>' + libraryBar() +
+    '<div class="perfiles">' +
+    scenarioList().map(p => {
+      const sub = p.expect ? expectText(p) + " · " + Math.ceil(p.minDuration / 60) + " min o mas"
+        : (p.factoryKey ? "de fabrica, modificado · " : "propio · ") + predictText(p);
+      return '<button type="button" class="prof" data-profile="' + esc(p.key) + '" title="' +
+        esc(p.description) + '"><b data-profile="' + esc(p.key) + '">' + esc(p.name) + '</b><small data-profile="' +
+        esc(p.key) + '">' + esc(sub) + '</small></button>';
+    }).join("") +
+    '<button type="button" class="prof" data-real="1"><b data-real="1">Sensores reales</b>' +
+    '<small data-real="1">MLX90393 y DS18B20: nada simulado</small></button></div>';
+  if (!anyScenario) return h + '<p class="hint" style="margin-top:12px">Ninguna fuente usa ' +
+    '<code>scenario</code>. Elegir una prueba, o poner el sensor de una fuente en <code>scenario</code> ' +
+    '(seccion 5), para editar su senal.</p></section>';
+
+  const m = state.menus, r = refRun || (refRun = refDefaults());
+  const opt = (key, list, labelOf) => '<label class="f"><span>' + key[1] + '</span><select data-ref="' +
+    key[0] + '">' + (list || []).map((o, i) => '<option value="' + i + '"' + (i === r[key[0]] ? " selected" : "") +
+    '>' + esc(labelOf(o)) + '</option>').join("") + '</select></label>';
+  h += '<h3 class="paso"><span>2</span> Contra que corrida mirarla</h3>' +
+    '<p class="hint">Lo que se elegiria en la pantalla de la placa al iniciar. No se guarda en el archivo: ' +
+    'la senal esta en <b>niveles</b> (0 = centro del normal, 1 = borde del normal, 2 = borde del critico), ' +
+    'asi que el mismo escenario se adapta a cualquier rango; esto solo cambia en que unidades se dibuja.</p>' +
+    '<div class="grid ref">' +
+    opt(["intensity", "Intensidad"], m.fieldIntensity, o => o.label) +
+    opt(["tolerance", "Tolerancia"], m.fieldTolerance, o => o.label) +
+    opt(["frequency", "Frecuencia"], m.frequency, o => o.label) +
+    opt(["tempNormal", "Temperatura normal"], m.temperatureNormal, o => o.label) +
+    opt(["tempCritical", "Temperatura critica"], m.temperatureCritical, o => o.label) +
+    opt(["duration", "Duracion"], m.duration, o => o.label) +
+    '<label class="f"><span>Modo</span><select data-ref="mode">' +
+    '<option value="x"' + (r.mode === "x" ? " selected" : "") + '>Campo X</option>' +
+    '<option value="null"' + (r.mode === "null" ? " selected" : "") + '>Campo nulo</option></select></label>' +
+    '</div>' +
+    '<h3 class="paso"><span>3</span> Resultado previsto</h3><div id="scnOutcome"></div>' +
+    '<h3 class="paso"><span>4</span> Dibujar la senal</h3>' +
+    '<p class="hint"><b>Arrastrar</b> un punto para moverlo · <b>clic</b> en un lugar vacio para agregar ' +
+    'uno (hasta 8) · <b>doble clic</b> en un punto para borrarlo. Dos puntos en el mismo segundo hacen un ' +
+    'salto. La linea es la senal dibujada; los puntos chicos, lo que leeria el Mega (con ruido y, en CEM1, ' +
+    'con el lazo de control corrigiendo).</p>';
+  state.detector.sources.forEach((s, i) => {
+    if (s.sensor !== "scenario" || !s.scenario) return;
+    const b = "detector.sources." + i + ".scenario.";
+    const unit = s.name === "CEM1" ? "mT" : "°C";
+    h += '<div class="sub scn"><h3>' + s.name + ' <small>' + (s.name === "CEM1" ? "campo magnetico" :
+      "temperatura") + ', en ' + unit + (s.enabled ? "" : ' · <span class="alerta">no vigilada: no ' +
+      'puede cortar</span>') + '</small></h3>' +
+      '<div class="chart" data-chart="' + s.name + '" data-src="' + i + '"></div>' +
+      '<div class="grid" style="margin-top:10px">' +
+      '<label class="f" style="grid-column:1/-1"><span>Puntos (segundo:nivel) — tambien se pueden ' +
+      'escribir, ej. <code>0:0  60:0  60:2,5</code></span><input type="text" data-path="' + b +
+      'points" data-kind="pts" placeholder="sin puntos: nivel 0 todo el tiempo" value="' +
+      esc(pointsToText(s.scenario.points)) + '"></label>' +
+      num(b + "noise", FLT, "Ruido ± (niveles, en cada lectura)") +
+      num(b + "oscAmp", FLT, "Oscilacion ± (niveles)") +
+      num(b + "oscPeriod", FLT, "Periodo de la oscilacion (s, 0 = no oscila)") +
+      num(b + "dropAt", FLT, "El sensor deja de responder a los (s, 0 = nunca)") +
+      (s.name === "CEM1" ? num(b + "setpointDuty", FLT,
+        "Duty con el que las bobinas dan el objetivo (0 = el campo no responde al lazo)") : "") +
+      '</div></div>';
+  });
+  return h + '</section>';
+}
+
+// Barra de la biblioteca: solo embebido. Las operaciones las ejecuta el
+// monitor (que pide confirmacion para borrar y restaurar).
+function libraryBar(){
+  if (!LIBRARY) return "";
+  const sel = scenarioList().find(p => p.key === selectedScenario);
+  const status = libStatus ? '<span class="' + (libStatus.ok ? "ok" : "alerta") + '">' + esc(libStatus.text) + '</span>' : "";
+  if (!LIB_ADMIN) return '<p class="hint">Biblioteca del monitor. Crear, editar y borrar escenarios es para ' +
+    'administradores. ' + status + '</p>';
+  return '<div class="libbar">' +
+    '<span>' + (sel ? 'Escenario elegido: <b>' + esc(sel.name) + '</b>' : 'Ningun escenario elegido') + '</span>' +
+    '<button type="button" class="mini" data-lib="update"' + (sel ? "" : " disabled") +
+      ' title="Guarda la senal del formulario en el escenario elegido">Guardar cambios</button>' +
+    '<button type="button" class="mini" data-lib="create">Guardar como nuevo…</button>' +
+    '<button type="button" class="mini" data-lib="delete"' + (sel ? "" : " disabled") + '>Borrar</button>' +
+    '<button type="button" class="mini" data-lib="restore" title="Vuelve los de fabrica a sus valores y ' +
+      'recrea los borrados; los propios no se tocan">Restaurar los de fabrica</button>' + status + '</div>';
+}
+
+function libraryAction(action){
+  const sel = scenarioList().find(p => p.key === selectedScenario);
+  const post = msg => window.parent.postMessage(msg, window.location.origin);
+  if (action === "restore") { post({type: "biosoft-scenario-restore"}); return; }
+  if (action === "delete") { if (sel) post({type: "biosoft-scenario-delete", id: sel.key, name: sel.name}); return; }
+  const data = scenarioFromForm();
+  if (!Object.keys(data.sources).length) {
+    libStatus = {ok: false, text: "Ninguna fuente esta en scenario: no hay senal para guardar."};
+    render(); return;
+  }
+  const name = window.prompt("Nombre del escenario", action === "update" && sel ? sel.name : "");
+  if (name === null || !name.trim()) return;
+  const description = window.prompt("Descripcion (que prueba y que deberia pasar)",
+    action === "update" && sel ? sel.description : "");
+  if (description === null) return;
+  post({type: "biosoft-scenario-save", id: action === "update" && sel ? sel.key : null,
+        scenario: Object.assign({name: name.trim(), description: description.trim()}, data)});
+}
+
+function outcomeHtml(res){
+  if (!res) return '<div class="msg w">No se puede simular: hay puntos mal escritos (ver los errores).</div>';
+  const {sim, ref} = res;
+  const prof = scenarioList().find(p => p.key === profileOf(state) && p.expect);
+  if (sim.refused) return '<div class="msg e"><b>No inicia.</b> ' + (sim.refused === "nomap"
+    ? "En campo nulo el Mega necesita un punto del mapa (seccion 3) para esta intensidad y frecuencia."
+    : "El balance del punto del mapa supera balanceMax.") + '</div>';
+  let h;
+  if (sim.cut) {
+    const tipo = TIPO_ALERTA[sim.cut.type] || sim.cut.type;
+    h = '<div class="msg e outcome"><b>Corta a los ' + fmtT(sim.cut.at) + '</b> por ' + tipo + ' de ' +
+        sim.cut.source + (sim.cut.type === "silence" ? " (" + sim.cut.source + " SIN LECTURAS)" : "") + '.';
+  } else {
+    h = '<div class="msg o outcome"><b>Termina completo</b> (' + fmtT(ref.durationS) + ').';
+  }
+  const alerts = sim.events.filter(e => !sim.cut || e.t < sim.cut.at || e.type !== sim.cut.type);
+  if (alerts.length) {
+    const byType = {};
+    alerts.forEach(e => { const k = e.source + " " + (TIPO_ALERTA[e.type] || e.type); (byType[k] = byType[k] || []).push(e); });
+    h += ' Alertas antes: ' + Object.entries(byType).map(([k, es]) => k + " (" + es.length + ", desde " +
+         fmtT(es[0].t) + ")").join(", ") + '.';
+  } else if (!sim.cut) h += ' Sin alertas.';
+  const notSim = ["CEM1", "TEMP1"].filter(n => !sim.simulated[n]);
+  if (notSim.length) h += '<br><small>' + notSim.join(" y ") + ' con sensor real: no entra en la prediccion.</small>';
+  if (state.detector.enabled === false) h += '<br><small>Detector apagado: ninguna fuente puede cortar.</small>';
+  h += '</div>';
+  if (prof) {
+    const e = prof.expect;
+    const matches = e.reason === "completed" ? !sim.cut
+      : sim.cut && sim.cut.source === e.source && sim.cut.type === e.type;
+    if (!matches) h += '<div class="msg w">El perfil "' + esc(prof.name) + '" promete: ' + esc(expectText(prof)) +
+      '.' + (ref.durationS < prof.minDuration ? " La duracion elegida (" + fmtT(ref.durationS) +
+      ") es mas corta que la que necesita (" + fmtT(prof.minDuration) + ")." : "") + '</div>';
+  }
+  return h;
+}
+
+/* ---------- grafico ---------- */
+const CH = {W: 860, H: 250, L: 64, R: 54, T: 22, B: 30};
+function chartGeom(name, sim){
+  const s = state.detector.sources.find(x => x.name === name);
+  const r = sim.ranges[name], sc = s.scenario, dur = sim.durationS;
+  let lo = -3, hi = 3;
+  const lv = [];
+  for (let k = 0; k <= 200; k++) lv.push(SIM.shapeAt(sc, dur * k / 200));
+  (sc.points || []).forEach(p => lv.push(p[1]));
+  lo = Math.min(lo, Math.min(...lv) - (sc.noise || 0) - 0.3);
+  hi = Math.max(hi, Math.max(...lv) + (sc.noise || 0) + 0.3);
+  let vLo = SIM.levelToValue(r, lo), vHi = SIM.levelToValue(r, hi);
+  sim.samples[name].forEach(p => { if (p.valid) { vLo = Math.min(vLo, p.v); vHi = Math.max(vHi, p.v); } });
+  if (name === "CEM1") vLo = Math.max(vLo, 0);
+  const pw = CH.W - CH.L - CH.R, ph = CH.H - CH.T - CH.B;
+  const x = t => CH.L + pw * t / dur;
+  const y = v => CH.T + ph * (1 - (v - vLo) / (vHi - vLo));
+  const tOf = px => (px - CH.L) / pw * dur;
+  const vOf = py => vLo + (1 - (py - CH.T) / ph) * (vHi - vLo);
+  return {s, r, sc, dur, vLo, vHi, x, y, tOf, vOf, pw, ph};
+}
+function niceStep(range, n){
+  const raw = range / n, p = Math.pow(10, Math.floor(Math.log10(raw)));
+  return [1, 2, 2.5, 5, 10].map(k => k * p).find(k => k >= raw) || 10 * p;
+}
+function chartSvg(name, sim){
+  const g = chartGeom(name, sim), {r, sc, dur, x, y} = g;
+  const unit = name === "CEM1" ? "mT" : "°C";
+  const dec = name === "CEM1" ? 3 : 1;
+  const clampY = v => Math.max(CH.T, Math.min(CH.H - CH.B, y(v)));
+  const band = (a, b, cls) => {
+    const y1 = clampY(b), y2 = clampY(a);
+    return y2 > y1 ? '<rect class="' + cls + '" x="' + CH.L + '" y="' + y1 + '" width="' + g.pw + '" height="' + (y2 - y1) + '"/>' : "";
+  };
+  let h = '<svg viewBox="0 0 ' + CH.W + ' ' + CH.H + '" role="img" aria-label="Senal de ' + name + '">';
+  // zonas: critica (afuera), advertencia, normal
+  // Sin superponer: cada franja pinta solo su tramo.
+  h += band(r.criticalMax, g.vHi, "z-crit") + band(g.vLo, r.criticalMin, "z-crit") +
+       band(r.normalMax, r.criticalMax, "z-warn") + band(r.criticalMin, r.normalMin, "z-warn") +
+       band(r.normalMin, r.normalMax, "z-ok");
+  // estabilizacion
+  const st = state.intervals.mega.settlingTime / 1000;
+  h += '<rect class="z-settle" x="' + CH.L + '" y="' + CH.T + '" width="' + (x(Math.min(st, dur)) - CH.L) +
+       '" height="' + g.ph + '"/><text class="lbl" x="' + (CH.L + 4) + '" y="' + (CH.T + 11) + '">estabiliz.</text>';
+  // ejes
+  const ys = niceStep(g.vHi - g.vLo, 5);
+  for (let v = Math.ceil(g.vLo / ys) * ys; v <= g.vHi + 1e-9; v += ys)
+    h += '<line class="grid" x1="' + CH.L + '" x2="' + (CH.W - CH.R) + '" y1="' + y(v) + '" y2="' + y(v) + '"/>' +
+         '<text class="ax" x="' + (CH.L - 6) + '" y="' + (y(v) + 4) + '" text-anchor="end">' +
+         (+v.toFixed(dec)).toString().replace(".", ",") + '</text>';
+  h += '<text class="ax" x="' + (CH.L - 6) + '" y="' + (CH.T - 8) + '" text-anchor="end">' + unit + '</text>';
+  // Pasos de tiempo "redondos" (no 50 s ni 1 min 40 s).
+  const xs = [5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600].find(k => dur / k <= 8) || 7200;
+  for (let t = 0; t <= dur + 1e-9; t += xs)
+    h += '<text class="ax" x="' + x(t) + '" y="' + (CH.H - 10) + '" text-anchor="middle">' + fmtT(t) + '</text>';
+  // niveles a la derecha
+  [-2, -1, 0, 1, 2].forEach(l => {
+    const v = SIM.levelToValue(r, l);
+    if (v < g.vLo || v > g.vHi) return;
+    h += '<text class="lv" x="' + (CH.W - CH.R + 6) + '" y="' + (y(v) + 4) + '">' +
+         (l === 0 ? "nivel 0" : (l > 0 ? "+" : "") + l) + '</text>';
+  });
+  // caida del sensor
+  if (sc.dropAt > 0 && sc.dropAt <= dur)
+    h += '<line class="drop" x1="' + x(sc.dropAt) + '" x2="' + x(sc.dropAt) + '" y1="' + CH.T + '" y2="' + (CH.H - CH.B) +
+         '"/><text class="lbl" x="' + (x(sc.dropAt) + 4) + '" y="' + (CH.H - CH.B - 6) + '">sensor caido</text>';
+  // senal dibujada (forma, sin ruido)
+  const N = 400, pts = [];
+  for (let k = 0; k <= N; k++) {
+    const t = dur * k / N;
+    pts.push(x(t).toFixed(1) + "," + clampY(SIM.levelToValue(r, SIM.shapeAt(sc, t))).toFixed(1));
+  }
+  (sc.points || []).forEach(p => { if (p[0] <= dur) pts.push(null); });
+  h += '<polyline class="shape" points="' + pts.filter(Boolean).join(" ") + '"/>';
+  // lo que leeria el Mega
+  sim.samples[name].forEach(p => {
+    if (!p.valid) return;
+    const cls = (p.v < r.criticalMin || p.v > r.criticalMax) ? "s-crit" : (p.v < r.normalMin || p.v > r.normalMax) ? "s-warn" : "s-ok";
+    h += '<circle class="smp ' + cls + (p.settling ? " s-set" : "") + '" cx="' + x(p.t).toFixed(1) + '" cy="' +
+         clampY(p.v).toFixed(1) + '" r="2"/>';
+  });
+  // alertas de esta fuente y corte
+  sim.events.filter(e => e.source === name).forEach(e => {
+    const px = x(e.t);
+    h += '<path class="ev ev-' + e.type + '" d="M' + (px - 5) + ',' + CH.T + ' L' + (px + 5) + ',' + CH.T + ' L' + px + ',' +
+         (CH.T + 8) + ' Z"><title>' + (TIPO_ALERTA[e.type] || e.type) + ' ' + e.count + '/' + e.limit + ' a los ' +
+         fmtT(e.t) + '</title></path>';
+  });
+  if (sim.cut) {
+    const px = x(sim.cut.at);
+    h += '<line class="cut" x1="' + px + '" x2="' + px + '" y1="' + CH.T + '" y2="' + (CH.H - CH.B) + '"/>' +
+         '<text class="lbl cutl" x="' + (px + 4) + '" y="' + (CH.T + 22) + '">corte ' + fmtT(sim.cut.at) + '</text>';
+  }
+  // puntos de control, arrastrables
+  (sc.points || []).forEach((p, k) => {
+    if (p[0] > dur) return;
+    const v = SIM.levelToValue(r, p[1]);
+    h += '<circle class="cp" data-pt="' + k + '" cx="' + x(p[0]).toFixed(1) + '" cy="' + clampY(v).toFixed(1) +
+         '" r="7"><title>' + p[0] + ' s · nivel ' + String(p[1]).replace(".", ",") + ' · ' +
+         (+v.toFixed(dec)).toString().replace(".", ",") + ' ' + unit + '</title></circle>';
+  });
+  const hidden = (sc.points || []).filter(p => p[0] > dur).length;
+  if (hidden) h += '<text class="lbl" x="' + (CH.W - CH.R - 4) + '" y="' + (CH.T + 11) + '" text-anchor="end">' + hidden +
+                   ' punto(s) despues del final de la corrida</text>';
+  return h + '</svg>';
+}
+
+let lastSim = null;
+function paintScenario(){
+  if (typeof document.querySelectorAll !== "function") return;
+  const box = document.getElementById("scnOutcome");
+  if (!box || !box.isConnected) return;
+  const res = simulateForm();
+  lastSim = res;
+  box.innerHTML = outcomeHtml(res);
+  document.querySelectorAll("[data-chart]").forEach(el => {
+    el.innerHTML = res && !res.sim.refused ? chartSvg(el.dataset.chart, res.sim) : "";
+  });
+}
+
+/* ---------- interaccion con el grafico ---------- */
+let drag = null;   // {el, src, k, moved}
+function svgPoint(el, ev){
+  const svg = el.querySelector("svg");
+  const rc = svg.getBoundingClientRect();
+  return {px: (ev.clientX - rc.left) * CH.W / rc.width, py: (ev.clientY - rc.top) * CH.H / rc.height};
+}
+function pointsPathOf(el){ return "detector.sources." + el.dataset.src + ".scenario.points"; }
+function syncPointsInput(el){
+  const input = document.querySelector('input[data-path="' + pointsPathOf(el) + '"]');
+  if (input) input.value = pointsToText(getPath(pointsPathOf(el)));
+}
+function pointFromEvent(el, ev){
+  if (!lastSim) return null;
+  const g = chartGeom(el.dataset.chart, lastSim.sim);
+  const {px, py} = svgPoint(el, ev);
+  return {t: Math.round(Math.max(0, Math.min(g.dur, g.tOf(px)))),
+          level: Math.max(-SCENARIO_MAX_LEVEL, Math.min(SCENARIO_MAX_LEVEL,
+                   Math.round(SIM.valueToLevel(g.r, g.vOf(py)) * 20) / 20))};
+}
+if (typeof document.querySelectorAll === "function") {
+  document.addEventListener("pointerdown", ev => {
+    const el = ev.target.closest && ev.target.closest("[data-chart]");
+    if (!el || ev.button !== 0) return;
+    const k = ev.target.dataset && ev.target.dataset.pt;
+    if (k === undefined) return;
+    drag = {el, k: parseInt(k, 10), moved: false};
+    try { el.setPointerCapture(ev.pointerId); } catch (e) { /* sin captura igual se arrastra */ }
+    ev.preventDefault();
+  });
+  document.addEventListener("pointermove", ev => {
+    if (!drag) return;
+    const p = pointFromEvent(drag.el, ev);
+    if (!p) return;
+    const pts = getPath(pointsPathOf(drag.el));
+    const prev = pts[drag.k - 1], next = pts[drag.k + 1];
+    if (prev) p.t = Math.max(p.t, prev[0]);
+    if (next) p.t = Math.min(p.t, next[0]);
+    pts[drag.k] = [p.t, p.level];
+    drag.moved = true;
+    syncPointsInput(drag.el);
+    validate();
+  });
+  document.addEventListener("pointerup", () => { if (drag) setTimeout(() => { drag = null; }, 0); });
+  document.addEventListener("click", ev => {
+    const el = ev.target.closest && ev.target.closest("[data-chart]");
+    if (!el || (drag && drag.moved) || (ev.target.dataset && ev.target.dataset.pt !== undefined)) return;
+    const pts = getPath(pointsPathOf(el));
+    if (!Array.isArray(pts) || pts.length >= SCENARIO_MAX_POINTS) return;
+    const p = pointFromEvent(el, ev);
+    if (!p) return;
+    let at = pts.findIndex(q => q[0] > p.t);
+    if (at < 0) at = pts.length;
+    pts.splice(at, 0, [p.t, p.level]);
+    syncPointsInput(el);
+    validate();
+  });
+  document.addEventListener("dblclick", ev => {
+    const el = ev.target.closest && ev.target.closest("[data-chart]");
+    const k = ev.target.dataset && ev.target.dataset.pt;
+    if (!el || k === undefined) return;
+    getPath(pointsPathOf(el)).splice(parseInt(k, 10), 1);
+    syncPointsInput(el);
+    validate();
+  });
+  document.addEventListener("change", ev => {
+    const key = ev.target.dataset && ev.target.dataset.ref;
+    if (!key) return;
+    if (!refRun) refRun = refDefaults();
+    refRun[key] = key === "mode" ? ev.target.value : parseInt(ev.target.value, 10);
+    paintScenario();
+  });
+}
+
 function render(){
   document.getElementById("app").innerHTML =
-    sRunType() + sMenus() + sIntervals() + sControl() + sCoils() + sDetector() + sCurrent() + sTelemetry() +
+    sRunType() + sMenus() + sIntervals() + sControl() + sCoils() + sDetector() + sScenarios() + sCurrent() + sTelemetry() +
     (EMBEDDED ? "" : sWifi() + sBroker()) + sPreview();
   validate();
 }
@@ -874,20 +1679,8 @@ function sDetector(){
     '<code>none</code> no registra ningun termometro: es lo que va sin DS18B20 cableado, que si no ' +
     'bloquea ~750 ms en cada medicion.</p>' +
     '<div class="grid">' + chk("detector.enabled", "Detector encendido (interruptor general)") + '</div>' +
-    '<div class="sub"><h3>Escenarios sinteticos</h3>' +
-    '<p class="hint">Con <code>sensor: scenario</code> el Mega no lee el sensor: calcula la lectura y la ' +
-    'pasa por toda la logica real (Detector, alertas, corte, pantalla y monitor remoto). La senal se mide ' +
-    'en <b>niveles</b> relativos a los rangos que se elijan en pantalla: <b>0</b> = centro del normal, ' +
-    '<b>1</b> = borde del normal, <b>2</b> = borde del critico. La forma son hasta 8 <b>puntos</b> ' +
-    '<code>segundo:nivel</code> unidos por rectas (dos en el mismo segundo = salto), mas oscilacion y ruido. ' +
-    'Las corridas salen marcadas <b>PRUEBA</b> y, si CEM1 no es el sensor real, <b>las bobinas no se ' +
-    'energizan</b>. Un perfil completa las dos fuentes; despues se puede ajustar cada numero.</p>' +
-    '<div class="etapas" id="profileStatus"></div><div class="grid">' +
-    SCENARIO_PROFILES.map(p => '<button type="button" class="prof" data-profile="' + p.key + '" title="' +
-      esc(p.description + " Esperado: " + expectText(p) + ". Duracion minima: " +
-          Math.ceil(p.minDuration / 60) + " min.") + '">' + esc(p.name) + '</button>').join("") +
-    '<button type="button" class="prof" data-real="1" title="CEM1 con el MLX90393 y TEMP1 con el DS18B20">' +
-    'Sensores reales</button></div></div>';
+    '<p class="hint">Con <code>scenario</code> el Mega inventa las lecturas de esa fuente: la senal se ' +
+    'dibuja en la seccion <a href="#escenarios">5b · Escenarios de prueba</a>.</p>';
   state.detector.sources.forEach((s, i) => {
     const sensors = SOURCE_SENSORS[s.name] || [s.sensor];
     h += '<div class="sub"><h3>' + s.name + '</h3><div class="grid">' +
@@ -899,18 +1692,6 @@ function sDetector(){
         : "") +
       num("detector.sources." + i + ".bufferSize", INT, "bufferSize — ventana (8 a 32)") +
       num("detector.sources." + i + ".maxMissedSamples", INT, "Lecturas perdidas antes del corte (1 a 20)");
-    if (s.sensor === "scenario" && s.scenario) {
-      const pp = "detector.sources." + i + ".scenario.points";
-      h += '</div><div class="grid" style="margin-top:10px">' +
-        '<label class="f" style="grid-column:1/-1"><span>Puntos de control (segundo:nivel, hasta 8; ' +
-        'ej. <code>0:0  60:0  60:2,5</code> = salto a 2,5 a los 60 s)</span>' +
-        '<input type="text" data-path="' + pp + '" data-kind="pts" value="' +
-        esc(pointsToText(getPath(pp))) + '"></label>' +
-        SCENARIO_KEYS.map(([k, kind, lbl]) => num("detector.sources." + i + ".scenario." + k, kind, lbl)).join("") +
-        (s.name === "CEM1"
-          ? num("detector.sources." + i + ".scenario.setpointDuty", FLT, "Duty que da el objetivo (0 = sin planta)")
-          : "");
-    }
     h += s.range.mode === "derived"
       ? num("detector.sources." + i + ".range.criticalMultiplier", FLT, "criticalMultiplier (1,0 a 3,0)")
       : '<label class="f"><span>Rangos</span><input type="text" disabled ' +
@@ -1088,6 +1869,8 @@ document.addEventListener("click", e => {
   } else if (del){
     state.menus[del].splice(parseInt(e.target.dataset.i, 10), 1);
     render();
+  } else if (e.target.dataset && e.target.dataset.lib){
+    libraryAction(e.target.dataset.lib);
   } else if (e.target.dataset && e.target.dataset.profile){
     applyProfile(e.target.dataset.profile);
   } else if (e.target.dataset && e.target.dataset.real){
@@ -1669,6 +2452,7 @@ function paint(){
   if (!errors.length && !warns.length) r += '<span class="pill o">Sin errores ni avisos</span>';
   document.getElementById("msgSummary").innerHTML = r;
   updateProfileMarks();
+  paintScenario();
 }
 
 // Un solo listener (delegado) para las pastillas del resumen, que se
@@ -1774,6 +2558,17 @@ if (EMBEDDED) {
       updateProfileMarks();
     }
     if (ev.data.type === "biosoft-status") showSendStatus(ev.data.status);
+    if (ev.data.type === "biosoft-scenarios" && Array.isArray(ev.data.items)) {
+      LIBRARY = ev.data.items;
+      LIB_ADMIN = !!ev.data.admin;
+      if (selectedScenario && !LIBRARY.some(e => e.id === selectedScenario)) selectedScenario = null;
+      render();
+    }
+    if (ev.data.type === "biosoft-scenario-result") {
+      libStatus = {ok: !!ev.data.ok, text: String(ev.data.text || "")};
+      if (ev.data.selectId !== undefined) selectedScenario = ev.data.selectId;
+      render();
+    }
     // Un usuario de solo lectura ve y edita (para descargar o mirar), pero no
     // envia: el servidor lo rechazaria igual, mejor no ofrecer el boton.
     if (ev.data.type === "biosoft-readonly") {

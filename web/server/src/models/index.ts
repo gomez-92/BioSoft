@@ -188,3 +188,31 @@ const configRequestSchema = new Schema({
 }, { timestamps: true });
 
 export const ConfigRequest = model('ConfigRequest', configRequestSchema);
+
+/* ------------------- escenarios de prueba (sensores simulados) ------------------- */
+
+// Biblioteca de escenarios que ofrece el generador embebido (ver
+// domain/escenarios.ts). `sources` = {CEM1?, TEMP1?: {enabled, scenario}}, en
+// el mismo formato que detector.sources[] de la tarjeta SD. `factoryKey` y
+// `expect`/`minDuration` solo en los sembrados desde tools/escenarios.json.
+const scenarioSchema = new Schema({
+  name: { type: String, required: true, unique: true },
+  description: { type: String, default: '' },
+  sources: { type: Schema.Types.Mixed, required: true },
+  reference: { type: Schema.Types.Mixed, default: null },
+  factoryKey: { type: String, default: null, index: true },
+  expect: { type: Schema.Types.Mixed, default: null },
+  minDuration: { type: Number, default: null },
+  updatedBy: String,
+}, { timestamps: true, minimize: false });
+
+export const Scenario = model('Scenario', scenarioSchema);
+
+// Marcas sueltas del monitor (clave -> valor). Hoy solo "escenariosSembrados":
+// que la siembra de los de fabrica ya ocurrio y no se repite.
+const settingSchema = new Schema({
+  key: { type: String, required: true, unique: true },
+  value: Schema.Types.Mixed,
+});
+
+export const Setting = model('Setting', settingSchema);

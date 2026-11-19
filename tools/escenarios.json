@@ -46,6 +46,17 @@
       }
     },
     {
+      "key": "tempBaja",
+      "name": "Temperatura baja",
+      "description": "TEMP1 cae a la zona critica por debajo (nivel -2,5) a los 60 s: prueba el borde inferior.",
+      "expect": { "reason": "critical", "source": "TEMP1", "type": "critical", "at": 75 },
+      "minDuration": 120,
+      "sources": {
+        "CEM1": { "enabled": false, "scenario": { "points": [], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0, "setpointDuty": 0.5 } },
+        "TEMP1": { "enabled": true, "scenario": { "points": [[0, 0], [60, 0], [60, -2.5]], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0 } }
+      }
+    },
+    {
       "key": "tempRecupera",
       "name": "Temperatura que se recupera",
       "description": "TEMP1 entra en advertencia (nivel 1,5) por un minuto y vuelve al centro: alertas de racha, sin corte.",
@@ -109,6 +120,17 @@
       "sources": {
         "CEM1": { "enabled": false, "scenario": { "points": [], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0, "setpointDuty": 0.5 } },
         "TEMP1": { "enabled": true, "scenario": { "points": [], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 90 } }
+      }
+    },
+    {
+      "key": "campoCaido",
+      "name": "Sensor de campo caido",
+      "description": "CEM1 deja de responder a los 90 s. Aunque CEM1 NO esta vigilada, el Mega corta porque el lazo seguiria excitando las bobinas a ciegas (CEM1 SIN LECTURAS).",
+      "expect": { "reason": "critical", "source": "CEM1", "type": "silence", "at": 95 },
+      "minDuration": 180,
+      "sources": {
+        "CEM1": { "enabled": false, "scenario": { "points": [], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 90, "setpointDuty": 0.5 } },
+        "TEMP1": { "enabled": true, "scenario": { "points": [], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0 } }
       }
     }
   ]

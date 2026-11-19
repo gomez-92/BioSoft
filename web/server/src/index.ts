@@ -16,6 +16,8 @@ import { requireAdmin, requireAuth } from './auth/middleware.js';
 import { seedInitialUser } from './auth/seed.js';
 import { cargarSesiones } from './auth/sesiones.js';
 import { usuariosRouter } from './api/usuarios.js';
+import { escenariosRouter } from './api/escenarios.js';
+import { sembrarEscenarios } from './domain/escenarios.js';
 import { connectMongo } from './db/mongo.js';
 import { initRunTracker, normalizarDuraciones, sweepStaleRuns } from './domain/runtracker.js';
 import { registerHandlers } from './mqtt/handlers.js';
@@ -71,6 +73,7 @@ app.use('/api', requireAuth, requiereBase, liveRouter);
 // ademas el rol admin; cada router lo pide en las rutas que corresponde.
 app.use('/api', requireAuth, requiereBase, runsRouter);
 app.use('/api', requireAuth, requiereBase, configRouter);
+app.use('/api', requireAuth, requiereBase, escenariosRouter);
 app.use('/api/users', requireAuth, requiereBase, requireAdmin, usuariosRouter);
 
 // El front va DESPUES de las rutas de la API: su comodin atrapa todo lo que
@@ -115,6 +118,8 @@ mongoose.connection.once('connected', () => {
     console.error('[app] no se pudo recuperar la corrida abierta:', error));
   normalizarDuraciones().catch((error) =>
     console.error('[corridas] no se pudieron normalizar las duraciones:', error));
+  sembrarEscenarios().catch((error) =>
+    console.error('[escenarios] no se pudieron sembrar los de fabrica:', error));
 });
 
 // El barrido corre por intervalo, no por evento, porque el caso que atiende es

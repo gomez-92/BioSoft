@@ -166,11 +166,72 @@ export function Configuracion() {
     marco.current?.contentWindow?.postMessage({ type: 'biosoft-readonly' }, window.location.origin);
   }, [generadorListo, esAdmin]);
 
+  // Biblioteca de escenarios de prueba: la lista vive en la base del monitor
+  // (los de fabrica sembrados + los propios) y el generador la muestra como
+  // "pruebas". Leer es para todos; crear, editar, borrar y restaurar, solo
+  // admin (el servidor lo exige igual).
+  const [escenarios, setEscenarios] = useState<unknown[] | null>(null);
+  useEffect(() => {
+    authFetch('/api/scenarios').then((r) => (r.ok ? r.json() : null))
+      .then((data) => setEscenarios(data?.items ?? null)).catch(() => setEscenarios(null));
+  }, []);
+  useEffect(() => {
+    if (!generadorListo || !escenarios) return;
+    marco.current?.contentWindow?.postMessage(
+      { type: 'biosoft-scenarios', items: escenarios, admin: esAdmin }, window.location.origin,
+    );
+  }, [generadorListo, escenarios, esAdmin]);
+
+  function avisarAlGenerador(ok: boolean, text: string, selectId?: string | null) {
+    marco.current?.contentWindow?.postMessage(
+      { type: 'biosoft-scenario-result', ok, text, ...(selectId !== undefined ? { selectId } : {}) },
+      window.location.origin,
+    );
+  }
+
+  async function operarEscenario(metodo: string, ruta: string, cuerpo?: unknown) {
+    const respuesta = await authFetch(ruta, {
+      method: metodo,
+      headers: { 'Content-Type': 'application/json' },
+      body: cuerpo === undefined ? undefined : JSON.stringify(cuerpo),
+    });
+    const data = await respuesta.json().catch(() => ({}));
+    if (respuesta.ok && Array.isArray(data.items)) setEscenarios(data.items);
+    return { ok: respuesta.ok, data, status: respuesta.status };
+  }
+
+  async function guardarEscenario(id: string | null, escenario: unknown) {
+    const r = id
+      ? await operarEscenario('PUT', `/api/scenarios/${encodeURIComponent(id)}`, escenario)
+      : await operarEscenario('POST', '/api/scenarios', escenario);
+    if (r.ok) avisarAlGenerador(true, id ? 'Cambios guardados.' : 'Escenario creado.', r.data.item?.id ?? null);
+    else avisarAlGenerador(false, r.data.error ?? `No se pudo guardar (error ${r.status}).`);
+  }
+
+  async function borrarEscenario(id: string, nombre: string) {
+    if (!window.confirm(`¿Borrar el escenario "${nombre}"? Si es de fabrica, se puede recuperar con ` +
+      '"Restaurar los de fabrica".')) return;
+    const r = await operarEscenario('DELETE', `/api/scenarios/${encodeURIComponent(id)}`);
+    if (r.ok) avisarAlGenerador(true, `"${nombre}" borrado.`, null);
+    else avisarAlGenerador(false, r.data.error ?? `No se pudo borrar (error ${r.status}).`);
+  }
+
+  async function restaurarEscenarios() {
+    if (!window.confirm('Los escenarios de fabrica vuelven a sus valores originales y se recrean los que ' +
+      'se hayan borrado. Los escenarios propios no se tocan.\n\n¿Restaurar?')) return;
+    const r = await operarEscenario('POST', '/api/scenarios/restore');
+    if (r.ok) avisarAlGenerador(true, 'Escenarios de fabrica restaurados.');
+    else avisarAlGenerador(false, r.data.error ?? `No se pudo restaurar (error ${r.status}).`);
+  }
+
   useEffect(() => {
     function alRecibir(ev: MessageEvent) {
       if (ev.origin !== window.location.origin || ev.source !== marco.current?.contentWindow) return;
       if (ev.data?.type === 'biosoft-ready') setGeneradorListo(true);
       if (ev.data?.type === 'biosoft-send') void enviar(ev.data.config);
+      if (ev.data?.type === 'biosoft-scenario-save') void guardarEscenario(ev.data.id ?? null, ev.data.scenario);
+      if (ev.data?.type === 'biosoft-scenario-delete') void borrarEscenario(String(ev.data.id), String(ev.data.name ?? ''));
+      if (ev.data?.type === 'biosoft-scenario-restore') void restaurarEscenarios();
     }
     window.addEventListener('message', alRecibir);
     return () => window.removeEventListener('message', alRecibir);

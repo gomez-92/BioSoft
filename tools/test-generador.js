@@ -43,7 +43,7 @@ var __t = {
   get errors(){ return errors; }, get warns(){ return warns; },
   get state(){ return state; }, set state(v){ state = v; },
   DEFAULTS: DEFAULTS, validate: validate, buildJson: buildJson, loadParsed: loadParsed,
-  SCENARIO_PROFILES: SCENARIO_PROFILES, SCENARIO_FILE: SCENARIO_FILE
+  SCENARIO_PROFILES: SCENARIO_PROFILES, SCENARIO_FILE: SCENARIO_FILE, SIM: SIM
 };`, ctx);
 const T = ctx.__t;
 
@@ -252,7 +252,7 @@ expectWarn("oscilacion sin periodo avisa que no oscila",
 const archivoPerfiles = JSON.parse(fs.readFileSync(path.join(REPO, "tools/escenarios.json"), "utf8"));
 check("los perfiles del generador son identicos a tools/escenarios.json",
       JSON.stringify(ctx.__t.SCENARIO_FILE) === JSON.stringify(archivoPerfiles),
-      "copiar tools/escenarios.json en SCENARIO_FILE de tools/generador-config.html");
+      "correr node tools/sincronizar-escenarios.js");
 
 // Cada perfil: las dos fuentes en escenario, con la senal y la vigilancia que
 // dice el archivo, y sin errores -- un perfil que no se puede descargar no sirve.
@@ -307,6 +307,47 @@ check("TEMP1 en none no es ningun perfil", ctx.profileOf(T.state) === "custom");
 reset(); ctx.applyProfile("campoInestable"); T.state.detector.sources[0].enabled = false;
 check("campo inestable con CEM1 sin vigilar no se marca como ese perfil",
       ctx.profileOf(T.state) !== "campoInestable");
+
+// El simulador del editor (SIM) es una copia en JS de lo que hace el Mega.
+// Se corre con EXACTAMENTE las combinaciones de mega2560/test/test_scenario_runs
+// (rangos de los menus, fases de muestreo, paso de 50 ms, duracion minima +
+// 2 min) y se le exige el mismo final que alli: si el Mega y el editor dejan
+// de coincidir, falla uno de los dos tests.
+console.log("\n== Simulador del editor vs. el Mega (tools/escenarios.json) ==");
+const COMBOS = [[1, 5, 30, 40, 25, 45], [1, 10, 28, 42, 23, 47], [2, 5, 26, 44, 20, 50],
+                [2, 10, 30, 40, 20, 50], [1, 5, 26, 44, 25, 45]];
+const PHASES = [[250, 1100], [900, 2600], [1650, 4300]];
+T.SCENARIO_PROFILES.forEach(prof => {
+  reset(); ctx.applyProfile(prof.key);
+  const fallas = [];
+  COMBOS.forEach(([i, tol, nmin, nmax, cmin, cmax]) => PHASES.forEach(([cp, tp]) => {
+    const r = T.SIM.run(T.state, {intensity: i, frequency: 10, tolerance: tol,
+      tempNormal: {min: nmin, max: nmax}, tempCritical: {min: cmin, max: cmax},
+      durationS: prof.minDuration + 120, mode: "x"}, {stepMs: 50, cemPhaseMs: cp, tempPhaseMs: tp});
+    const e = prof.expect;
+    const ok = e.reason === "completed"
+      ? !r.cut && (e.alerts || []).every(a => r.events.some(ev => ev.type === a))
+      : r.cut && r.cut.source === e.source && r.cut.type === e.type &&
+        Math.abs(r.cut.at - e.at) <= 15 && r.cut.at <= prof.minDuration;
+    if (!ok) fallas.push(i + " mT " + tol + "%, " + nmin + "~" + nmax + "/" + cmin + "~" + cmax +
+                         ", fase " + cp + "/" + tp + ": " + (r.cut ? r.cut.type + " de " + r.cut.source +
+                         " a los " + r.cut.at.toFixed(1) + " s" : "completo"));
+  }));
+  check("simulador: " + prof.name + " -> " + ctx.expectText(prof), fallas.length === 0, fallas.slice(0, 3).join(" | "));
+});
+reset();
+T.state.control.map = [];
+T.state.detector.sources[0].sensor = "scenario";
+const nulo = T.SIM.run(T.state, {intensity: 1, frequency: 10, tolerance: 5, tempNormal: {min: 30, max: 40},
+  tempCritical: {min: 25, max: 45}, durationS: 60, mode: "null"});
+check("simulador: campo nulo sin punto del mapa no inicia (como planStart)", nulo.refused === "nomap");
+check("simulador: niveles <-> valores ida y vuelta",
+      [-3, -1.5, -0.4, 0, 0.7, 1.3, 2.6].every(l => {
+        const r = {normalMin: 30, normalMax: 40, criticalMin: 25, criticalMax: 45};
+        return Math.abs(T.SIM.valueToLevel(r, T.SIM.levelToValue(r, l)) - l) < 1e-9;
+      }));
+const ruido = T.SIM.makeNoise(0x7654321);
+check("simulador: el ruido queda en [-1, 1]", [ruido(), ruido(), ruido(), ruido()].every(v => v >= -1 && v <= 1));
 
 console.log("\n== Escenarios: puntos de control ==");
 expectError("mas de 8 puntos bloquea la descarga",
