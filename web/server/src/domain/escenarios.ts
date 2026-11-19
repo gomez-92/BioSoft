@@ -2,9 +2,11 @@ import { Scenario, Setting } from '../models/index.js';
 import { ESCENARIOS_FABRICA } from './escenariosfabrica.js';
 
 // Biblioteca de escenarios de prueba (sensores simulados). Un escenario es
-// la senal de cada fuente simulada (scenario.hpp en el Mega) mas la corrida de
-// referencia contra la que se diseno; el generador embebido los ofrece como
-// "pruebas" y, elegido uno, lo vuelca al formulario de configuracion.
+// la senal de UNA fuente simulada (scenario.hpp en el Mega: TEMP1 o CEM1) mas
+// la corrida de referencia contra la que se diseno; el generador embebido
+// ofrece los de cada fuente por separado (ej. temperatura normal + campo
+// inestable) y vuelca el elegido a esa fuente del formulario. Se guarda como
+// sources = {<fuente>: {enabled, scenario}} con UNA sola clave.
 //
 // Los de FABRICA son los de tools/escenarios.json (copiado en
 // escenariosfabrica.ts por `npm run sync:generador`). Ahi estan comprobados:
@@ -113,6 +115,9 @@ export function leerEscenario(cuerpo: unknown): EscenarioEntrada {
     throw new EscenarioInvalido('las unicas fuentes son CEM1 y TEMP1');
   }
   if (Object.keys(sources).length === 0) throw new EscenarioInvalido('el escenario no simula ninguna fuente');
+  if (Object.keys(sources).length > 1) {
+    throw new EscenarioInvalido('un escenario es de una sola fuente (CEM1 o TEMP1): guardar cada una por separado');
+  }
   return { name, description, sources, reference: leerReferencia(b.reference) };
 }
 
@@ -125,6 +130,7 @@ export function fila(e: {
   const fabrica = e.factoryKey ? ESCENARIOS_FABRICA.profiles.find((p) => p.key === e.factoryKey) : undefined;
   return {
     id: String(e._id),
+    source: Object.keys((e.sources ?? {}) as object)[0] ?? null,
     name: e.name,
     description: e.description ?? '',
     sources: e.sources,
@@ -142,13 +148,52 @@ export function fila(e: {
 
 // Solo la senal: el nombre no cambia lo que hace el Mega (y al restaurar
 // puede volver con "(fabrica)").
-function igualAFabrica(e: { sources: unknown }, f: { sources: unknown }): boolean {
-  return JSON.stringify(e.sources) === JSON.stringify(f.sources);
+function igualAFabrica(e: { sources: unknown }, f: Fabrica): boolean {
+  return JSON.stringify(e.sources) === JSON.stringify(fuentesDeFabrica(f));
 }
 
-function docDeFabrica(p: typeof ESCENARIOS_FABRICA.profiles[number]) {
+const NOMBRE_FUENTE: Record<string, string> = { TEMP1: 'temperatura', CEM1: 'campo' };
+
+/**
+ * Hasta 2026-11-19 un escenario traia las DOS fuentes juntas. Ahora es de
+ * una: los de fabrica viejos se reemplazan por los nuevos (los de una fuente
+ * conservan su clave; "normal" se partio en tempNormal y campoNormal y
+ * "sensorCaido" paso a tempCaido, que se siembran como nuevos), y uno propio
+ * se parte en uno por fuente, "<nombre> (temperatura)" / "(campo)". Solo toca
+ * filas con mas de una fuente: correrla de nuevo no hace nada.
+ */
+export async function migrarEscenariosCombinados(): Promise<void> {
+  const filas = await Scenario.find().lean();
+  for (const e of filas) {
+    const fuentes = Object.keys((e.sources ?? {}) as object);
+    if (fuentes.length <= 1) continue;
+    const fabrica = e.factoryKey ? ESCENARIOS_FABRICA.profiles.find((p) => p.key === e.factoryKey) : undefined;
+    if (fabrica) {
+      await Scenario.updateOne({ _id: e._id }, { $set: { ...docDeFabrica(fabrica), name: e.name } });
+      console.log(`[escenarios] "${e.name}" pasa a ser solo de ${fabrica.source}`);
+      continue;
+    }
+    await Scenario.deleteOne({ _id: e._id });
+    if (e.factoryKey) { console.log(`[escenarios] "${e.name}" (de fabrica, combinado) se reemplaza por uno por fuente`); continue; }
+    for (const f of fuentes) {
+      let nombre = `${e.name} (${NOMBRE_FUENTE[f] ?? f})`;
+      if (await Scenario.exists({ name: nombre })) nombre = `${nombre} ${String(e._id).slice(-4)}`;
+      await Scenario.create({
+        name: nombre, description: e.description ?? '', sources: { [f]: (e.sources as Record<string, unknown>)[f] },
+        reference: e.reference ?? null, factoryKey: null, expect: null, minDuration: null,
+        updatedBy: e.updatedBy ?? 'migracion',
+      });
+    }
+    console.log(`[escenarios] "${e.name}" (propio, combinado) se partio en uno por fuente`);
+  }
+}
+
+type Fabrica = typeof ESCENARIOS_FABRICA.profiles[number];
+const fuentesDeFabrica = (p: Fabrica) => ({ [p.source]: { enabled: p.enabled, scenario: p.scenario } });
+
+function docDeFabrica(p: Fabrica) {
   return {
-    name: p.name, description: p.description, sources: p.sources, reference: null,
+    name: p.name, description: p.description, sources: fuentesDeFabrica(p), reference: null,
     factoryKey: p.key, expect: p.expect, minDuration: p.minDuration, updatedBy: 'fabrica',
   };
 }
@@ -169,6 +214,7 @@ export async function sembrarEscenarios(): Promise<void> {
   // Los indices (nombre unico) antes de escribir: Mongoose los arma en
   // segundo plano, y un alta que gana esa carrera duplica un nombre.
   await Promise.all([Scenario.init(), Setting.init()]);
+  await migrarEscenariosCombinados();
   const marca = await Setting.findOne({ key: SEMBRADO }).lean();
   const sembrados = new Set<string>(Array.isArray(marca?.value?.keys) ? marca.value.keys : []);
   const nuevos = ESCENARIOS_FABRICA.profiles.filter((p) => !sembrados.has(p.key));

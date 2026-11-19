@@ -192,8 +192,9 @@ export const ConfigRequest = model('ConfigRequest', configRequestSchema);
 /* ------------------- escenarios de prueba (sensores simulados) ------------------- */
 
 // Biblioteca de escenarios que ofrece el generador embebido (ver
-// domain/escenarios.ts). `sources` = {CEM1?, TEMP1?: {enabled, scenario}}, en
-// el mismo formato que detector.sources[] de la tarjeta SD. `factoryKey` y
+// domain/escenarios.ts). `sources` = {CEM1 | TEMP1: {enabled, scenario}}, con
+// UNA sola fuente (un escenario es de una fuente), en el mismo formato que
+// detector.sources[] de la tarjeta SD. `factoryKey` y
 // `expect`/`minDuration` solo en los sembrados desde tools/escenarios.json.
 const scenarioSchema = new Schema({
   name: { type: String, required: true, unique: true },

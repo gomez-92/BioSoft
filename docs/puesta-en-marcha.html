@@ -227,13 +227,16 @@
   <section class="fase" data-fase="3">
     <div class="fase-cab"><h2>Fase 3 · Corridas completas sin sensores</h2><span class="cuenta"></span></div>
     <p class="intro">CEM1 y TEMP1 en <code>scenario</code>: el Mega inventa las lecturas pero todo lo demás es
-      real (Detector, cortes, pantallas, monitor). <b>No se energiza nada.</b> Cargar cada perfil desde el
-      generador y elegir <b>5 minutos</b> de duración (1 minuto alcanza para "Todo normal"). Los tiempos
-      son los que fija <code>tools/escenarios.json</code> y comprueba <code>test_scenario_runs</code>
-      en native; en la placa pueden correrse unos segundos.</p>
+      real (Detector, cortes, pantallas, monitor). <b>No se energiza nada.</b> Los escenarios son <b>por
+      fuente</b>: en el paso 5b del generador se elige uno para la temperatura y otro para el campo. Para
+      cada fila, elegir ese escenario en su fuente y el <b>normal</b> en la otra ("Campo normal" para los
+      de temperatura, "Temperatura normal" para los de campo), y <b>5 minutos</b> de duración (1 minuto
+      alcanza para los dos normales). Los tiempos son los que fija <code>tools/escenarios.json</code> y
+      comprueba <code>test_scenario_runs</code> en native con esa misma pareja; en la placa pueden correrse
+      unos segundos.</p>
     <div class="tabla"><table>
-      <tr><th>Perfil</th><th>Resultado esperado</th></tr>
-      <tr><td>Todo normal</td><td>Termina <b>completed</b>, sin alertas</td></tr>
+      <tr><th>Escenario</th><th>Resultado esperado</th></tr>
+      <tr><td>Temperatura normal + Campo normal</td><td>Termina <b>completed</b>, sin alertas</td></tr>
       <tr><td>Temperatura alta</td><td>Corte <b>critical</b> de TEMP1 a los ~75 s</td></tr>
       <tr><td>Temperatura que sube</td><td>Alertas de racha desde ~90 s, corte <b>critical</b> de TEMP1 a los ~125 s</td></tr>
       <tr><td>Temperatura que se recupera</td><td>Alertas de racha (amarillas) y termina <b>completed</b></td></tr>
@@ -246,7 +249,7 @@
       <tr><td>Sensor de campo caído</td><td>Corte a los ~95 s, <b>CEM1 SIN LECTURAS</b>, aunque CEM1 no esté vigilada</td></tr>
     </table></div>
     <ul class="items">
-      <li><label class="item"><input type="checkbox" data-id="f3-normal"><span class="que">Todo normal → completed</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f3-normal"><span class="que">Temperatura normal + Campo normal → completed</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f3-tempalta"><span class="que">Temperatura alta → critical TEMP1</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f3-tempsube"><span class="que">Temperatura que sube → rachas, después critical TEMP1</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f3-temprecupera"><span class="que">Temperatura que se recupera → rachas, completed</span></label></li>

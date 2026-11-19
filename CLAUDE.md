@@ -458,11 +458,18 @@ Key collaborators:
   list keeps the previous one. Its refusal reasons are an enum, not strings:
   as plain literals they cost ~150 bytes of RAM (measured). Sampled arrays
   were rejected for RAM (an hour of TEMP1 at 5 s is 2.9 KB).
-  **Profiles live in `tools/escenarios.json`** (11 factory ones; after
-  editing it run `node tools/sincronizar-escenarios.js` — the generator
-  embeds a copy — and `npm run sync:generador` in `web/`), each with an `expect`
-  (completed, or cut by rule X of source Y at ~N s) and a `minDuration`;
-  `test_scenario_runs` (native) runs every profile through the real
+  **Profiles live in `tools/escenarios.json`, one per source** (12 factory
+  ones: 7 TEMP1 + 5 CEM1, since 2026-11-19 — they used to carry both sources
+  at once; the operator now picks one for temperature and one for field,
+  e.g. normal + unstable). Each carries its `source`, `enabled` (whether the
+  source is watched is part of what the scenario tests: "campo caido" proves
+  the cut with CEM1 *unwatched*), the signal, an `expect` and a
+  `minDuration`. The `expect` holds with the *other* source on its
+  `pairWith` profile (the normal one) — any other combination is predicted
+  by the generator's `SIM`, not promised. After editing it run
+  `node tools/sincronizar-escenarios.js` — the generator embeds a copy —
+  and `npm run sync:generador` in `web/`;
+  `test_scenario_runs` (native) runs every profile (with its pair) through the real
   Detector + FieldController + scenario sensors over 5 menu-range combos ×
   3 sampling phases and fails if the ending differs; it also reproduces
   `Engine::_checkControlSilence` (CEM1 silent with the loop on cuts even
@@ -1618,6 +1625,16 @@ Other things worth knowing before touching it:
 
 - **Scenario library** (`domain/escenarios.ts`, `api/escenarios.ts`,
   collection `Scenario`): the test scenarios the embedded generator offers.
+  **One source per row** (`sources` with a single key; the server rejects
+  two). `migrarEscenariosCombinados()` runs before seeding and converts
+  the old two-source rows: factory ones to their new single-source value,
+  `normal`/`sensorCaido` deleted (replaced by `tempNormal`/`campoNormal`/
+  `tempCaido`), custom ones split into `<name> (temperatura)` / `(campo)`.
+  In the generator step 5b has one block per source (a "Lee" selector:
+  real sensor / factory / own / new flat signal), each with its chart and
+  its own library bar and inline name/description form; in `runType:
+  normal` the step stays visible with a "switch to test" button instead of
+  vanishing, which is why nobody could find it.
   The factory ones come from `tools/escenarios.json`, copied to
   `domain/escenariosfabrica.ts` by `npm run sync:generador` (a generated
   `.ts`, not a `.json`, so plain `tsc` builds it; `test/escenarios.test.ts`

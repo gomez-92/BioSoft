@@ -21,7 +21,8 @@ describe('escenarios de fabrica', () => {
 
   it('todos pasan la validacion del servidor', () => {
     for (const p of ESCENARIOS_FABRICA.profiles) {
-      expect(() => leerEscenario({ name: p.name, description: p.description, sources: p.sources })).not.toThrow();
+      const sources = { [p.source]: { enabled: p.enabled, scenario: p.scenario } };
+      expect(() => leerEscenario({ name: p.name, description: p.description, sources })).not.toThrow();
     }
   });
 });
@@ -54,10 +55,14 @@ describe('validacion de un escenario (los limites del Mega)', () => {
   it('rechaza ruido negativo y un duty de CEM1 fuera de 0..1', () => {
     rechaza((b) => { b.sources.TEMP1.scenario.noise = -1; }, /noise/);
     rechaza((b) => {
-      (b.sources as Record<string, unknown>).CEM1 = { enabled: true,
-        scenario: { points: [], noise: 0, oscAmp: 0, oscPeriod: 0, dropAt: 0, setpointDuty: 1.5 } };
+      b.sources = { CEM1: { enabled: true,
+        scenario: { points: [], noise: 0, oscAmp: 0, oscPeriod: 0, dropAt: 0, setpointDuty: 1.5 } } } as never;
     }, /setpointDuty/);
   });
+  it('rechaza un escenario con las dos fuentes juntas (son por fuente)', () => rechaza((b) => {
+    (b.sources as Record<string, unknown>).CEM1 = { enabled: true,
+      scenario: { points: [], noise: 0, oscAmp: 0, oscPeriod: 0, dropAt: 0, setpointDuty: 0.5 } };
+  }, /una sola fuente/));
   it('rechaza un escenario sin fuentes, sin nombre o con fuentes desconocidas', () => {
     rechaza((b) => { b.sources = {} as never; }, /ninguna fuente/);
     rechaza((b) => { b.name = '  '; }, /nombre/);
@@ -134,6 +139,9 @@ describe.skipIf(!hayMongo)('biblioteca de escenarios', () => {
     expect(data.items.map((e: { factoryKey: string }) => e.factoryKey))
       .toEqual(ESCENARIOS_FABRICA.profiles.map((p) => p.key));
     expect(data.items[1].expect).toEqual(ESCENARIOS_FABRICA.profiles[1].expect);
+    // Cada uno es de una fuente, y la fila lo dice.
+    expect(data.items.map((e: { source: string }) => e.source))
+      .toEqual(ESCENARIOS_FABRICA.profiles.map((p) => p.source));
   }, 20000);
 
   it('un viewer lee pero no escribe', async () => {
@@ -173,10 +181,10 @@ describe.skipIf(!hayMongo)('biblioteca de escenarios', () => {
   it('restaurar vuelve los de fabrica y recrea los borrados, sin tocar los propios', async () => {
     const admin = await entrar('admin', 'clave-admin');
     let lista = (await pedir('GET', '/api/scenarios', admin)).data.items;
-    const normal = lista.find((e: { factoryKey: string }) => e.factoryKey === 'normal');
+    const normal = lista.find((e: { factoryKey: string }) => e.factoryKey === 'tempNormal');
     await pedir('DELETE', `/api/scenarios/${normal.id}`, admin);
     // Uno propio que ocupa el nombre de uno de fabrica borrado.
-    await pedir('POST', '/api/scenarios', admin, { ...propio, name: 'Todo normal' });
+    await pedir('POST', '/api/scenarios', admin, { ...propio, name: 'Temperatura normal' });
 
     const r = await pedir('POST', '/api/scenarios/restore', admin);
     expect(r.status).toBe(200);
@@ -184,8 +192,8 @@ describe.skipIf(!hayMongo)('biblioteca de escenarios', () => {
     const deFabrica = lista.filter((e: { factoryKey: string | null }) => e.factoryKey);
     expect(deFabrica).toHaveLength(ESCENARIOS_FABRICA.profiles.length);
     expect(deFabrica.every((e: { modificado: boolean }) => !e.modificado)).toBe(true);
-    expect(lista.find((e: { factoryKey: string }) => e.factoryKey === 'normal').name).toBe('Todo normal (fabrica)');
-    expect(lista.find((e: { name: string; factoryKey: string | null }) => e.name === 'Todo normal' && !e.factoryKey))
+    expect(lista.find((e: { factoryKey: string }) => e.factoryKey === 'tempNormal').name).toBe('Temperatura normal (fabrica)');
+    expect(lista.find((e: { name: string; factoryKey: string | null }) => e.name === 'Temperatura normal' && !e.factoryKey))
       .toBeTruthy();
   });
 
@@ -200,6 +208,33 @@ describe.skipIf(!hayMongo)('biblioteca de escenarios', () => {
     await sembrarEscenarios();
     expect(await Scenario.exists({ factoryKey: ultimo.key })).toBeTruthy();
     expect(await Scenario.exists({ factoryKey: resto[0].key })).toBeFalsy();
+  });
+
+  it('los escenarios viejos con las dos fuentes juntas se pasan a uno por fuente', async () => {
+    const { migrarEscenariosCombinados } = await import('../src/domain/escenarios.js');
+    const senal = { points: [], noise: 0.1, oscAmp: 0, oscPeriod: 0, dropAt: 0 };
+    await Scenario.deleteMany({});
+    await Scenario.collection.insertMany([
+      // De fabrica, de antes: combinado, con una clave que sigue existiendo.
+      { name: 'Temperatura alta', factoryKey: 'tempAlta', description: '',
+        sources: { CEM1: { enabled: false, scenario: { ...senal, setpointDuty: 0.5 } },
+                   TEMP1: { enabled: true, scenario: { ...senal, points: [[0, 0], [60, 0], [60, 2.5]] } } } },
+      // De fabrica con una clave que ya no existe.
+      { name: 'Todo normal', factoryKey: 'normal', description: '',
+        sources: { CEM1: { enabled: true, scenario: { ...senal, setpointDuty: 0.5 } }, TEMP1: { enabled: true, scenario: senal } } },
+      // Propio, combinado.
+      { name: 'Mio', factoryKey: null, description: 'los dos',
+        sources: { CEM1: { enabled: true, scenario: { ...senal, setpointDuty: 0.3 } }, TEMP1: { enabled: false, scenario: senal } } },
+    ]);
+    await migrarEscenariosCombinados();
+    const filas = await Scenario.find().lean();
+    expect(filas.every((e) => Object.keys(e.sources as object).length === 1)).toBe(true);
+    expect(Object.keys(filas.find((e) => e.factoryKey === 'tempAlta')!.sources as object)).toEqual(['TEMP1']);
+    expect(filas.some((e) => e.factoryKey === 'normal')).toBe(false);
+    expect(filas.filter((e) => !e.factoryKey).map((e) => e.name).sort()).toEqual(['Mio (campo)', 'Mio (temperatura)']);
+    // Correrla de nuevo no cambia nada.
+    await migrarEscenariosCombinados();
+    expect(await Scenario.countDocuments()).toBe(filas.length);
   });
 
   it('la siembra no se repite aunque se borren todos', async () => {

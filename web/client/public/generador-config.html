@@ -28,7 +28,7 @@
   }
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--ink);
-       font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+       font:14px/1.5 "Segoe UI",system-ui,-apple-system,Roboto,sans-serif}
   header{position:sticky;top:0;z-index:10;background:var(--panel);
          border-bottom:1px solid var(--line);padding:12px 20px}
   .bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;max-width:1100px;margin:0 auto}
@@ -163,6 +163,14 @@
   .libbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 10px;padding:8px 10px;
           border:1px dashed var(--line);border-radius:6px;font-size:13px}
   .libbar span:first-child{flex:1;min-width:200px}
+  .libform{display:grid;gap:8px;margin:12px 0 0;padding:10px 12px;border:1px solid var(--line);
+           border-radius:8px;background:var(--bg)}
+  .libform textarea{width:100%;box-sizing:border-box;padding:6px 8px;border-radius:6px;resize:vertical;
+           border:1px solid var(--line);background:var(--panel);color:var(--ink);font:inherit}
+  .libform .acciones{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .libform .ok{color:var(--ok);font-weight:600} .libform .alerta{color:var(--warn);font-weight:600}
+  .scnpick{max-width:560px} .scnpick select{width:100%}
+  .scndesc{margin:6px 0 0}
   .libbar .ok{color:var(--ok);font-weight:600} .libbar .alerta{color:var(--warn);font-weight:600}
   button:disabled{opacity:.45;cursor:not-allowed}
   .sub.scn h3 small{font-weight:400;color:var(--muted)}
@@ -421,137 +429,271 @@ const SCENARIO_CADENCE = { CEM1: "measureMagneticField", TEMP1: "measureTemperat
 // dice su `expect`.
 const SCENARIO_FILE = {
   "_comentario": [
-    "Perfiles de escenario sintetico (tarjeta 22). FUENTE UNICA: el generador",
+    "Escenarios sinteticos de fabrica, UNO POR FUENTE (TEMP1 o CEM1): en el",
+    "generador se elige uno para cada fuente por separado (ej. temperatura",
+    "normal + campo inestable). FUENTE UNICA: el generador",
     "(tools/generador-config.html) embebe una copia y tools/test-generador.js",
     "falla si difieren; mega2560/test/test_scenario_runs simula cada perfil",
     "con el Detector y el lazo reales del Mega y verifica `expect` con varias",
-    "combinaciones de rangos de los menus. Si se cambia un perfil aca, los dos",
-    "lados lo vuelven a comprobar.",
+    "combinaciones de rangos de los menus. `expect` se comprueba con la OTRA",
+    "fuente en su perfil de `pairWith` (el normal): es lo que promete el",
+    "escenario solo; combinado con otro, el generador predice el final.",
+    "`enabled` = si la fuente queda vigilada por el Detector con este",
+    "escenario (es parte de lo que el escenario prueba).",
     "Niveles: 0 = centro del normal, +-1 = borde del normal, +-2 = borde del",
     "critico. points = [segundo, nivel], unidos por rectas; dos puntos en el",
     "mismo segundo son un salto. expect.at = segundo aproximado del corte."
   ],
-  "version": 1,
+  "version": 3,
+  "pairWith": {
+    "TEMP1": "tempNormal",
+    "CEM1": "campoNormal"
+  },
   "profiles": [
     {
-      "key": "normal",
-      "name": "Todo normal",
-      "description": "Las dos fuentes en el centro del rango normal, con ruido leve. CEM1 vigilada y regulada por el lazo.",
-      "expect": { "reason": "completed" },
+      "key": "tempNormal",
+      "source": "TEMP1",
+      "name": "Temperatura normal",
+      "description": "TEMP1 en el centro del rango normal, con ruido leve.",
+      "expect": {
+        "reason": "completed"
+      },
       "minDuration": 60,
-      "sources": {
-        "CEM1": { "enabled": true, "scenario": { "points": [], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0, "setpointDuty": 0.5 } },
-        "TEMP1": { "enabled": true, "scenario": { "points": [], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0 } }
+      "enabled": true,
+      "scenario": {
+        "points": [],
+        "noise": 0.1,
+        "oscAmp": 0,
+        "oscPeriod": 0,
+        "dropAt": 0
       }
     },
     {
       "key": "tempAlta",
+      "source": "TEMP1",
       "name": "Temperatura alta",
       "description": "TEMP1 salta a la zona critica (nivel 2,5) a los 60 s.",
-      "expect": { "reason": "critical", "source": "TEMP1", "type": "critical", "at": 75 },
+      "expect": {
+        "reason": "critical",
+        "source": "TEMP1",
+        "type": "critical",
+        "at": 75
+      },
       "minDuration": 120,
-      "sources": {
-        "CEM1": { "enabled": false, "scenario": { "points": [], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0, "setpointDuty": 0.5 } },
-        "TEMP1": { "enabled": true, "scenario": { "points": [[0, 0], [60, 0], [60, 2.5]], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0 } }
+      "enabled": true,
+      "scenario": {
+        "points": [[0, 0], [60, 0], [60, 2.5]],
+        "noise": 0.1,
+        "oscAmp": 0,
+        "oscPeriod": 0,
+        "dropAt": 0
       }
     },
     {
       "key": "tempSube",
+      "source": "TEMP1",
       "name": "Temperatura que sube",
       "description": "TEMP1 sube despacio: sale del normal a los ~70 s (alertas de racha) y pasa el critico a los ~110 s.",
-      "expect": { "reason": "critical", "source": "TEMP1", "type": "critical", "at": 125 },
+      "expect": {
+        "reason": "critical",
+        "source": "TEMP1",
+        "type": "critical",
+        "at": 125
+      },
       "minDuration": 180,
-      "sources": {
-        "CEM1": { "enabled": false, "scenario": { "points": [], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0, "setpointDuty": 0.5 } },
-        "TEMP1": { "enabled": true, "scenario": { "points": [[30, 0], [150, 3]], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0 } }
+      "enabled": true,
+      "scenario": {
+        "points": [[30, 0], [150, 3]],
+        "noise": 0.1,
+        "oscAmp": 0,
+        "oscPeriod": 0,
+        "dropAt": 0
       }
     },
     {
       "key": "tempBaja",
+      "source": "TEMP1",
       "name": "Temperatura baja",
       "description": "TEMP1 cae a la zona critica por debajo (nivel -2,5) a los 60 s: prueba el borde inferior.",
-      "expect": { "reason": "critical", "source": "TEMP1", "type": "critical", "at": 75 },
+      "expect": {
+        "reason": "critical",
+        "source": "TEMP1",
+        "type": "critical",
+        "at": 75
+      },
       "minDuration": 120,
-      "sources": {
-        "CEM1": { "enabled": false, "scenario": { "points": [], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0, "setpointDuty": 0.5 } },
-        "TEMP1": { "enabled": true, "scenario": { "points": [[0, 0], [60, 0], [60, -2.5]], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0 } }
+      "enabled": true,
+      "scenario": {
+        "points": [[0, 0], [60, 0], [60, -2.5]],
+        "noise": 0.1,
+        "oscAmp": 0,
+        "oscPeriod": 0,
+        "dropAt": 0
       }
     },
     {
       "key": "tempRecupera",
+      "source": "TEMP1",
       "name": "Temperatura que se recupera",
       "description": "TEMP1 entra en advertencia (nivel 1,5) por un minuto y vuelve al centro: alertas de racha, sin corte.",
-      "expect": { "reason": "completed", "alerts": ["streak"] },
+      "expect": {
+        "reason": "completed",
+        "alerts": ["streak"]
+      },
       "minDuration": 180,
-      "sources": {
-        "CEM1": { "enabled": false, "scenario": { "points": [], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0, "setpointDuty": 0.5 } },
-        "TEMP1": { "enabled": true, "scenario": { "points": [[30, 0], [60, 1.5], [100, 1.5], [130, 0]], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0 } }
+      "enabled": true,
+      "scenario": {
+        "points": [[30, 0], [60, 1.5], [100, 1.5], [130, 0]],
+        "noise": 0.1,
+        "oscAmp": 0,
+        "oscPeriod": 0,
+        "dropAt": 0
       }
     },
     {
       "key": "tempAdvertencia",
+      "source": "TEMP1",
       "name": "Temperatura en advertencia sostenida",
       "description": "TEMP1 queda en la franja de advertencia (nivel 1,5) sin llegar al critico: corta por acumular alertas de racha.",
-      "expect": { "reason": "critical", "source": "TEMP1", "type": "streak", "at": 145 },
+      "expect": {
+        "reason": "critical",
+        "source": "TEMP1",
+        "type": "streak",
+        "at": 145
+      },
       "minDuration": 240,
-      "sources": {
-        "CEM1": { "enabled": false, "scenario": { "points": [], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0, "setpointDuty": 0.5 } },
-        "TEMP1": { "enabled": true, "scenario": { "points": [[30, 0], [40, 1.5]], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0 } }
+      "enabled": true,
+      "scenario": {
+        "points": [[30, 0], [40, 1.5]],
+        "noise": 0.1,
+        "oscAmp": 0,
+        "oscPeriod": 0,
+        "dropAt": 0
+      }
+    },
+    {
+      "key": "tempCaido",
+      "source": "TEMP1",
+      "name": "Sensor de temperatura caido",
+      "description": "TEMP1 deja de dar lecturas a los 90 s: corta por silencio (3 lecturas de 5 s perdidas) con TEMP1 SIN LECTURAS.",
+      "expect": {
+        "reason": "critical",
+        "source": "TEMP1",
+        "type": "silence",
+        "at": 101
+      },
+      "minDuration": 180,
+      "enabled": true,
+      "scenario": {
+        "points": [],
+        "noise": 0.1,
+        "oscAmp": 0,
+        "oscPeriod": 0,
+        "dropAt": 90
+      }
+    },
+    {
+      "key": "campoNormal",
+      "source": "CEM1",
+      "name": "Campo normal",
+      "description": "CEM1 vigilada y regulada por el lazo: el campo queda en el centro del normal, con ruido leve.",
+      "expect": {
+        "reason": "completed"
+      },
+      "minDuration": 60,
+      "enabled": true,
+      "scenario": {
+        "points": [],
+        "noise": 0.1,
+        "oscAmp": 0,
+        "oscPeriod": 0,
+        "dropAt": 0,
+        "setpointDuty": 0.5
       }
     },
     {
       "key": "campoCompensado",
+      "source": "CEM1",
       "name": "Perturbacion compensada por el lazo",
       "description": "CEM1 recibe una perturbacion lenta (3 niveles en un minuto) y el lazo la compensa bajando el duty: el campo medido queda en el normal.",
-      "expect": { "reason": "completed" },
+      "expect": {
+        "reason": "completed"
+      },
       "minDuration": 180,
-      "sources": {
-        "CEM1": { "enabled": true, "scenario": { "points": [[60, 0], [120, 3]], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0, "setpointDuty": 0.5 } },
-        "TEMP1": { "enabled": true, "scenario": { "points": [], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0 } }
+      "enabled": true,
+      "scenario": {
+        "points": [[60, 0], [120, 3]],
+        "noise": 0.1,
+        "oscAmp": 0,
+        "oscPeriod": 0,
+        "dropAt": 0,
+        "setpointDuty": 0.5
       }
     },
     {
       "key": "campoInestable",
+      "source": "CEM1",
       "name": "Campo inestable",
       "description": "CEM1 sin planta oscila +-1,8 niveles cada 20 s: entra y sale del normal sin rachas largas ni critico, y corta por frecuencia de alertas.",
-      "expect": { "reason": "critical", "source": "CEM1", "type": "frequency", "at": 130 },
+      "expect": {
+        "reason": "critical",
+        "source": "CEM1",
+        "type": "frequency",
+        "at": 130
+      },
       "minDuration": 240,
-      "sources": {
-        "CEM1": { "enabled": true, "scenario": { "points": [], "noise": 0.1, "oscAmp": 1.8, "oscPeriod": 20, "dropAt": 0, "setpointDuty": 0 } },
-        "TEMP1": { "enabled": true, "scenario": { "points": [], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0 } }
+      "enabled": true,
+      "scenario": {
+        "points": [],
+        "noise": 0.1,
+        "oscAmp": 1.8,
+        "oscPeriod": 20,
+        "dropAt": 0,
+        "setpointDuty": 0
       }
     },
     {
       "key": "campoFuera",
+      "source": "CEM1",
       "name": "Campo fuera de rango",
       "description": "CEM1 sin planta (no responde al lazo) salta a la zona critica (nivel 2,5) a los 60 s.",
-      "expect": { "reason": "critical", "source": "CEM1", "type": "critical", "at": 68 },
+      "expect": {
+        "reason": "critical",
+        "source": "CEM1",
+        "type": "critical",
+        "at": 68
+      },
       "minDuration": 120,
-      "sources": {
-        "CEM1": { "enabled": true, "scenario": { "points": [[0, 0], [60, 0], [60, 2.5]], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0, "setpointDuty": 0 } },
-        "TEMP1": { "enabled": true, "scenario": { "points": [], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0 } }
-      }
-    },
-    {
-      "key": "sensorCaido",
-      "name": "Sensor de temperatura caido",
-      "description": "TEMP1 deja de dar lecturas a los 90 s: corta por silencio (3 lecturas de 5 s perdidas) con TEMP1 SIN LECTURAS.",
-      "expect": { "reason": "critical", "source": "TEMP1", "type": "silence", "at": 101 },
-      "minDuration": 180,
-      "sources": {
-        "CEM1": { "enabled": false, "scenario": { "points": [], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0, "setpointDuty": 0.5 } },
-        "TEMP1": { "enabled": true, "scenario": { "points": [], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 90 } }
+      "enabled": true,
+      "scenario": {
+        "points": [[0, 0], [60, 0], [60, 2.5]],
+        "noise": 0.1,
+        "oscAmp": 0,
+        "oscPeriod": 0,
+        "dropAt": 0,
+        "setpointDuty": 0
       }
     },
     {
       "key": "campoCaido",
+      "source": "CEM1",
       "name": "Sensor de campo caido",
       "description": "CEM1 deja de responder a los 90 s. Aunque CEM1 NO esta vigilada, el Mega corta porque el lazo seguiria excitando las bobinas a ciegas (CEM1 SIN LECTURAS).",
-      "expect": { "reason": "critical", "source": "CEM1", "type": "silence", "at": 95 },
+      "expect": {
+        "reason": "critical",
+        "source": "CEM1",
+        "type": "silence",
+        "at": 95
+      },
       "minDuration": 180,
-      "sources": {
-        "CEM1": { "enabled": false, "scenario": { "points": [], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 90, "setpointDuty": 0.5 } },
-        "TEMP1": { "enabled": true, "scenario": { "points": [], "noise": 0.1, "oscAmp": 0, "oscPeriod": 0, "dropAt": 0 } }
+      "enabled": false,
+      "scenario": {
+        "points": [],
+        "noise": 0.1,
+        "oscAmp": 0,
+        "oscPeriod": 0,
+        "dropAt": 90,
+        "setpointDuty": 0.5
       }
     }
   ]
@@ -629,33 +771,77 @@ function textToPoints(text){
 // hayan creado, editado o borrado); abierto con doble clic no hay biblioteca y
 // se ofrecen los de fabrica de SCENARIO_FILE. Solo un admin la modifica, y
 // las operaciones las hace el monitor (postMessage), no este archivo.
+//
+// Un escenario es de UNA fuente (TEMP1 o CEM1): se elige uno para cada una
+// por separado (ej. temperatura normal + campo inestable). En la base se
+// guarda como sources = {<fuente>: {enabled, scenario}} con una sola clave.
+const SCENARIO_SOURCES = [
+  {name: "TEMP1", label: "Temperatura", unit: "°C", real: "DS18B20"},
+  {name: "CEM1", label: "Campo magnetico", unit: "mT", real: "MLX90393"},
+];
+const SOURCE_LABEL = {TEMP1: "Temperatura", CEM1: "Campo"};
 let LIBRARY = null;        // null = sin monitor
 let LIB_ADMIN = false;
-let selectedScenario = null;   // key del ultimo elegido o guardado
-let libStatus = null;          // {ok, text}
-function scenarioList(){
-  if (!LIBRARY) return SCENARIO_PROFILES;
-  return LIBRARY.map(e => ({key: e.id, name: e.name, description: e.description || "", sources: e.sources,
-    reference: e.reference, expect: e.expect, minDuration: e.minDuration, factoryKey: e.factoryKey,
-    modificado: e.modificado, updatedBy: e.updatedBy}));
+let selectedScenario = {TEMP1: null, CEM1: null};  // ultimo elegido o guardado, por fuente
+let libStatus = null;          // {source (null = toda la biblioteca), ok, text}
+let libForm = null;            // {source, mode: "create"|"update", key, name, description}
+let libPendingSource = null;   // fuente de la ultima operacion mandada al monitor
+
+function scenarioList(source){
+  const all = !LIBRARY ? SCENARIO_PROFILES : LIBRARY.map(e => {
+    const src = e.source || Object.keys(e.sources || {})[0];
+    const def = (e.sources || {})[src] || {};
+    return {key: e.id, source: src, name: e.name, description: e.description || "",
+      enabled: def.enabled !== false, scenario: def.scenario, reference: e.reference, expect: e.expect,
+      minDuration: e.minDuration, factoryKey: e.factoryKey, modificado: e.modificado, updatedBy: e.updatedBy};
+  });
+  return source ? all.filter(p => p.source === source) : all;
 }
+function findScenario(key){ return scenarioList().find(p => p.key === key) || null; }
+function sourceOf(name){ return state.detector.sources.find(s => s.name === name); }
+function factoryKeyOf(prof){ return prof ? (prof.factoryKey || (LIBRARY ? null : prof.key)) : null; }
 
 function applyProfile(key){
-  const prof = scenarioList().find(p => p.key === key);
+  const prof = findScenario(key);
   if (!prof) return;
+  const s = sourceOf(prof.source);
+  if (!s) return;
   // Un escenario es una prueba de banco por definicion: un experimento no
   // puede simular sensores (enforceExperiment).
   state.runType = "test";
   runTypeNotice = null;
-  state.detector.sources.forEach(s => {
-    const def = prof.sources[s.name];
-    if (!def) return;
-    s.sensor = "scenario";
-    s.enabled = def.enabled;
-    s.scenario = clone(def.scenario);
-  });
-  selectedScenario = key;
+  s.sensor = "scenario";
+  s.enabled = prof.enabled;
+  s.scenario = clone(prof.scenario);
+  selectedScenario[prof.source] = key;
+  libForm = null;
   if (prof.reference) refFromValues(prof.reference);
+  render();
+}
+
+// La fuente vuelve a su sensor real.
+function realSensorFor(name){
+  const s = sourceOf(name);
+  if (!s) return;
+  s.sensor = REAL_SENSOR[name];
+  selectedScenario[name] = null;
+  if (libForm && libForm.source === name) libForm = null;
+  render();
+}
+
+// Escenario nuevo: la senal plana de fabrica (nivel 0, ruido leve), para
+// dibujarla y guardarla con "Guardar como nuevo".
+function blankScenarioFor(name){
+  const s = sourceOf(name);
+  const def = DEFAULTS.detector.sources.find(d => d.name === name);
+  if (!s || !def) return;
+  state.runType = "test";
+  runTypeNotice = null;
+  s.sensor = "scenario";
+  s.enabled = true;
+  s.scenario = clone(def.scenario);
+  selectedScenario[name] = null;
+  libForm = null;
   render();
 }
 
@@ -675,70 +861,54 @@ function refFromValues(v){
   if (v.mode === "x" || v.mode === "null") refRun.mode = v.mode;
 }
 
-// Lo que se guarda en la biblioteca: la senal de cada fuente SIMULADA (las
-// que estan en sensor real no son parte del escenario) y la corrida de
+// Lo que se guarda en la biblioteca: la senal de UNA fuente y la corrida de
 // referencia que se esta mirando.
-function scenarioFromForm(){
-  const sources = {};
-  state.detector.sources.forEach(s => {
-    if (s.sensor === "scenario" && s.scenario)
-      sources[s.name] = {enabled: s.enabled !== false, scenario: clone(normalizeScenario(s.scenario))};
-  });
-  return {sources, reference: refResolved()};
+function scenarioFromForm(name){
+  const s = sourceOf(name);
+  if (!s || s.sensor !== "scenario" || !s.scenario) return null;
+  return {sources: {[name]: {enabled: s.enabled !== false, scenario: clone(normalizeScenario(s.scenario))}},
+          reference: refResolved()};
 }
 
-// Que pasaria con un escenario de la lista, segun el simulador, contra su
-// corrida de referencia (o la que se esta mirando). Para los propios, que no
-// traen promesa comprobada.
-function predictText(prof){
-  const ref = prof.reference || refResolved();
-  if (!ref) return "";
-  const cfg = clone(state);
-  cfg.detector.sources.forEach(s => {
-    const def = prof.sources[s.name];
-    if (def) { s.sensor = "scenario"; s.enabled = def.enabled; s.scenario = clone(def.scenario); }
-  });
-  try {
-    const r = SIM.run(cfg, ref);
-    if (r.refused) return "no inicia (" + (r.refused === "nomap" ? "falta el mapa" : "balance") + ")";
-    return r.cut ? "prevision: corta por " + (TIPO_ALERTA[r.cut.type] || r.cut.type) + " de " + r.cut.source +
-                   " a los " + fmtT(r.cut.at)
-                 : "prevision: termina completa";
-  } catch (e) { return ""; }
-}
-
-// Que perfil describe una configuracion: la clave del perfil, "real" (los dos
-// sensores reales) o "custom" (cualquier otra cosa: un escenario editado a
-// mano, sim, TEMP1 en none...). Se DEDUCE de los valores en vez de recordar
-// el ultimo boton apretado: asi tambien acierta con un archivo cargado, con
-// la configuracion que trae la placa y despues de editar un numero (que
-// deja de ser el perfil, y tiene que dejar de verse como tal).
-function profileOf(cfg){
+// Que tiene una fuente en una configuracion: "real", "sim", "none", la clave
+// del escenario que coincide, o "custom" (un escenario que no es ninguno de
+// la lista: editado a mano). Se DEDUCE de los valores en vez de recordar el
+// ultimo elegido: asi tambien acierta con un archivo cargado, con la
+// configuracion que trae la placa y despues de editar un numero (que deja de
+// ser el escenario, y tiene que dejar de verse como tal).
+function profileOfSource(cfg, name){
   const sources = cfg && cfg.detector && Array.isArray(cfg.detector.sources) ? cfg.detector.sources : [];
-  const realOf = name => name === "CEM1" ? "mlx90393" : "ds18b20";
-  // Sin seccion (o sin clave sensor) rigen los compilados: sensores reales.
-  if (sources.every(s => s.sensor === undefined || s.sensor === realOf(s.name))) return "real";
-  const match = scenarioList().find(prof => sources.every(s => {
-    const def = prof.sources[s.name];
-    if (!def) return true;
-    if (s.sensor !== "scenario" || !s.scenario) return false;
-    // enabled ausente = el default compilado (CEM1 apagada, TEMP1 vigilada).
-    const enabled = s.enabled === undefined ? s.name !== "CEM1" : s.enabled;
-    if (enabled !== def.enabled) return false;
-    const sc = normalizeScenario(s.scenario);
-    const want = def.scenario;
-    return Object.keys(want).every(k => k === "points"
-      ? JSON.stringify(sc.points) === JSON.stringify(want.points)
-      : Number(sc[k]) === want[k]);
-  }));
+  const s = sources.find(x => x.name === name);
+  // Sin seccion (o sin clave sensor) rigen los compilados: sensor real.
+  if (!s || s.sensor === undefined || s.sensor === REAL_SENSOR[name]) return "real";
+  if (s.sensor !== "scenario") return s.sensor;
+  if (!s.scenario) return "custom";
+  // enabled ausente = el default compilado (CEM1 apagada, TEMP1 vigilada).
+  const enabled = s.enabled === undefined ? name !== "CEM1" : s.enabled;
+  const sc = normalizeScenario(s.scenario);
+  const match = scenarioList(name).find(prof => prof.enabled === enabled && prof.scenario &&
+    Object.keys(prof.scenario).every(k => k === "points"
+      ? JSON.stringify(sc.points) === JSON.stringify(prof.scenario.points)
+      : Number(sc[k]) === prof.scenario[k]));
   return match ? match.key : "custom";
 }
+function profileOf(cfg){
+  return {TEMP1: profileOfSource(cfg, "TEMP1"), CEM1: profileOfSource(cfg, "CEM1")};
+}
 
-function profileName(key){
-  if (key === "real") return "sensores reales";
-  if (key === "custom") return "personalizado (no coincide con ningun perfil)";
-  const p = scenarioList().find(x => x.key === key);
+function profileName(name, key){
+  if (key === "real") return "sensor real";
+  if (key === "sim") return "sim (entrada analogica)";
+  if (key === "none") return "sin sensor";
+  if (key === "custom") return "escenario personalizado";
+  const p = findScenario(key);
   return p ? p.name : key;
+}
+// Una linea por configuracion: "Temperatura: X · Campo: Y".
+function profileSummary(cfg){
+  const k = profileOf(cfg);
+  if (k.TEMP1 === "real" && k.CEM1 === "real") return "sensores reales";
+  return "Temperatura: " + profileName("TEMP1", k.TEMP1) + " · Campo: " + profileName("CEM1", k.CEM1);
 }
 
 // Las etapas que el monitor pasa cuando el generador esta embebido:
@@ -751,27 +921,21 @@ function profileName(key){
 // Abierto con doble clic no hay placa: solo existe la fila "Editando".
 let stages = {placa: null, enviado: null};
 
-// Marca el perfil que se esta editando y llena el bloque de etapas. Se llama
-// desde paint(), que corre en cada edicion: los cambios de valor no
-// re-renderizan.
+// Llena el bloque de etapas (placa / enviado / editando). Se llama desde
+// paint(), que corre en cada edicion: los cambios de valor no re-renderizan.
 function updateProfileMarks(){
   if (typeof document.querySelectorAll !== "function") return;
-  const form = profileOf(state);
-  document.querySelectorAll("button.prof").forEach(b => {
-    const key = b.dataset.real ? "real" : b.dataset.profile;
-    b.classList.toggle("on", key === form);
-    b.setAttribute("aria-pressed", key === form ? "true" : "false");
-  });
   const box = document.getElementById("profileStatus");
   if (!box) return;
+  const form = profileSummary(state);
 
   const row = (cls, label, value, note) =>
     '<span class="et ' + cls + '">' + label + '</span><span class="val">' + value + '</span>' +
     '<span class="nota">' + note + '</span>';
   const placa = stages.placa;
   const enviado = stages.enviado;
-  const placaProf = placa ? profileOf(placa.config || {}) : null;
-  const enviadoProf = enviado && enviado.config ? profileOf(enviado.config) : null;
+  const placaProf = placa ? profileSummary(placa.config || {}) : null;
+  const enviadoProf = enviado && enviado.config ? profileSummary(enviado.config) : null;
 
   let h = "";
   if (EMBEDDED) {
@@ -784,7 +948,7 @@ function updateProfileMarks(){
       ? (placa.configId === "default"
           ? row("placa", "En la placa", "Valores de fabrica",
                 motivo + ". De fabrica los sensores son los reales.")
-          : row("placa", "En la placa", esc(profileName(placaProf)),
+          : row("placa", "En la placa", esc(placaProf),
                 "config " + esc(placa.configId) + " · es lo que corre ahora"))
       : row("placa", "En la placa", '<span class="nada">sin informar</span>',
             "la placa todavia no publico su configuracion");
@@ -792,25 +956,20 @@ function updateProfileMarks(){
       h += row("enviado", "Enviado", '<span class="nada">nada pendiente</span>',
                "no hay ningun envio esperando aplicarse");
     else if (enviado.fase === "enviando")
-      h += row("enviado", "Enviado", enviadoProf ? esc(profileName(enviadoProf)) : "...",
+      h += row("enviado", "Enviado", enviadoProf ? esc(enviadoProf) : "...",
                "enviandose a la placa");
     else
-      h += row("enviado", "Enviado", enviadoProf ? esc(profileName(enviadoProf)) : "?",
+      h += row("enviado", "Enviado", enviadoProf ? esc(enviadoProf) : "?",
                "config " + esc(enviado.configId || "?") + " · la placa confirmo y la grabo en la SD; " +
                "se aplica cuando la placa vuelva a Principal (se reinicia sola)");
   }
   let nota;
   if (!EMBEDDED) nota = "queda en el archivo al descargarlo";
-  else if (enviado && enviadoProf === form) nota = "mismo perfil que lo enviado";
-  else if (!enviado && placa && placaProf === form) nota = "mismo perfil que la placa";
+  else if (enviado && enviadoProf === form) nota = "lo mismo que lo enviado";
+  else if (!enviado && placa && placaProf === form) nota = "lo mismo que la placa";
   else nota = "sin enviar: no corre en la placa hasta enviarlo";
-  h += row("form", "Editando", esc(profileName(form)), nota);
+  h += row("form", "Editando", esc(form), nota);
   box.innerHTML = h;
-}
-
-function realSensors(){
-  state.detector.sources.forEach(s => { s.sensor = s.name === "CEM1" ? "mlx90393" : "ds18b20"; });
-  render();
 }
 
 // Los dos unicos valores que ConfigLoader::loadRunType() entiende. Cualquier
@@ -1349,39 +1508,27 @@ const fmtT = s => {
 };
 
 function sScenarios(){
-  if (state.runType === "normal") return "";
-  const anyScenario = state.detector.sources.some(s => s.sensor === "scenario");
-  let h = '<section id="escenarios"><h2>5b · Escenarios de prueba (sensores simulados)</h2>' +
-    '<p class="hint">Para probar el equipo <b>sin sensores</b>: el Mega inventa las lecturas de CEM1 y/o ' +
-    'TEMP1 con la forma que se dibuja aca, y todo lo demas es real (alertas, cortes, pantallas y monitor). ' +
-    'Las corridas salen marcadas <b>PRUEBA</b> y, si CEM1 es simulado, <b>las bobinas no se energizan</b>.</p>' +
-    '<h3 class="paso"><span>1</span> Elegir una prueba</h3>' +
-    '<div class="etapas" id="profileStatus"></div>' + libraryBar() +
-    '<div class="perfiles">' +
-    scenarioList().map(p => {
-      // Un escenario que necesita mas tiempo que la duracion mas larga del
-      // menu no puede terminar como promete: se ofrece deshabilitado.
-      const maxDur = Math.max(0, ...(state.menus.duration || []).map(o => o.value / 1000).filter(isNum));
-      const corto = p.minDuration && maxDur && p.minDuration > maxDur;
-      const sub = corto ? "necesita " + Math.ceil(p.minDuration / 60) + " min y la duracion mas larga del menu es " +
-          Math.round(maxDur / 60) + " min"
-        : p.expect ? expectText(p) + " · " + Math.ceil(p.minDuration / 60) + " min o mas"
-        : (p.factoryKey ? "de fabrica, modificado · " : "propio · ") + predictText(p);
-      return '<button type="button" class="prof" data-profile="' + esc(p.key) + '"' + (corto ? " disabled" : "") +
-        ' title="' + esc(p.description) + '"><b data-profile="' + esc(p.key) + '">' + esc(p.name) +
-        '</b><small data-profile="' + esc(p.key) + '">' + esc(sub) + '</small></button>';
-    }).join("") +
-    '<button type="button" class="prof" data-real="1"><b data-real="1">Sensores reales</b>' +
-    '<small data-real="1">MLX90393 y DS18B20: nada simulado</small></button></div>';
-  if (!anyScenario) return h + '<p class="hint" style="margin-top:12px">Ninguna fuente usa ' +
-    '<code>scenario</code>. Elegir una prueba, o poner el sensor de una fuente en <code>scenario</code> ' +
-    '(seccion 5), para editar su senal.</p></section>';
+  let h = '<section id="escenarios"><h2>5b · Escenarios de prueba (sensores simulados)</h2>';
+  // En un experimento no hay escenarios (solo sensores reales), pero el paso
+  // se ve igual: si desapareciera, no habria forma de saber donde estan.
+  if (state.runType === "normal") return h +
+    '<div class="msg w">Esta configuracion es un <b>experimento</b>: corre solo con los sensores reales, ' +
+    'asi que no usa escenarios. Para probar el equipo con lecturas inventadas, la corrida tiene que ser ' +
+    'una <b>prueba</b> (paso 0).<div style="margin-top:8px"><button type="button" class="primary" ' +
+    'data-to-test="1">Pasar a prueba y elegir escenarios</button></div></div></section>';
+
+  h += '<p class="hint">Para probar el equipo <b>sin sensores</b>: el Mega inventa las lecturas de una fuente ' +
+    'con la forma que se elige o se dibuja aca, y todo lo demas es real (alertas, cortes, pantallas y ' +
+    'monitor). <b>Cada fuente se elige por separado</b>: por ejemplo temperatura normal y campo inestable. ' +
+    'Las corridas salen marcadas <b>PRUEBA</b> y, si el campo es simulado, <b>las bobinas no se ' +
+    'energizan</b>.</p>' +
+    '<div class="etapas" id="profileStatus"></div>' + libraryTop();
 
   const m = state.menus, r = refRun || (refRun = refDefaults());
   const opt = (key, list, labelOf) => '<label class="f"><span>' + key[1] + '</span><select data-ref="' +
     key[0] + '">' + (list || []).map((o, i) => '<option value="' + i + '"' + (i === r[key[0]] ? " selected" : "") +
     '>' + esc(labelOf(o)) + '</option>').join("") + '</select></label>';
-  h += '<h3 class="paso"><span>2</span> Contra que corrida mirarla</h3>' +
+  h += '<h3 class="paso"><span>1</span> Contra que corrida mirarlos</h3>' +
     '<p class="hint">Lo que se elegiria en la pantalla de la placa al iniciar. No se guarda en el archivo: ' +
     'la senal esta en <b>niveles</b> (0 = centro del normal, 1 = borde del normal, 2 = borde del critico), ' +
     'asi que el mismo escenario se adapta a cualquier rango; esto solo cambia en que unidades se dibuja.</p>' +
@@ -1403,77 +1550,171 @@ function sScenarios(){
     '<option value="x"' + (r.mode === "x" ? " selected" : "") + '>Campo X</option>' +
     '<option value="null"' + (r.mode === "null" ? " selected" : "") + '>Campo nulo</option></select></label>' +
     '</div>' +
-    '<h3 class="paso"><span>3</span> Resultado previsto</h3><div id="scnOutcome"></div>' +
-    '<h3 class="paso"><span>4</span> Dibujar la senal</h3>' +
-    '<p class="hint"><b>Arrastrar</b> un punto para moverlo · <b>clic</b> en un lugar vacio para agregar ' +
-    'uno (hasta 8) · <b>doble clic</b> en un punto para borrarlo. Dos puntos en el mismo segundo hacen un ' +
-    'salto. La linea es la senal dibujada; los puntos chicos, lo que leeria el Mega (con ruido y, en CEM1, ' +
-    'con el lazo de control corrigiendo).</p>';
-  state.detector.sources.forEach((s, i) => {
-    if (s.sensor !== "scenario" || !s.scenario) return;
-    const b = "detector.sources." + i + ".scenario.";
-    const unit = s.name === "CEM1" ? "mT" : "°C";
-    h += '<div class="sub scn"><h3>' + s.name + ' <small>' + (s.name === "CEM1" ? "campo magnetico" :
-      "temperatura") + ', en ' + unit + (s.enabled ? "" : ' · <span class="alerta">no vigilada: no ' +
-      'puede cortar</span>') + '</small></h3>' +
-      '<div class="chart" data-chart="' + s.name + '" data-src="' + i + '"></div>' +
-      '<div class="grid" style="margin-top:10px">' +
-      '<label class="f" style="grid-column:1/-1"><span>Puntos (segundo:nivel) — tambien se pueden ' +
-      'escribir, ej. <code>0:0  60:0  60:2,5</code></span><input type="text" data-path="' + b +
-      'points" data-kind="pts" placeholder="sin puntos: nivel 0 todo el tiempo" value="' +
-      esc(pointsToText(s.scenario.points)) + '"></label>' +
-      num(b + "noise", FLT, "Ruido ± (niveles, en cada lectura)") +
-      num(b + "oscAmp", FLT, "Oscilacion ± (niveles)") +
-      num(b + "oscPeriod", FLT, "Periodo de la oscilacion (s, 0 = no oscila)") +
-      num(b + "dropAt", FLT, "El sensor deja de responder a los (s, 0 = nunca)") +
-      (s.name === "CEM1" ? num(b + "setpointDuty", FLT,
-        "Duty con el que las bobinas dan el objetivo (0 = el campo no responde al lazo)") : "") +
-      '</div></div>';
-  });
+    '<h3 class="paso"><span>2</span> Que sensor lee cada fuente</h3>' +
+    '<p class="hint">En cada grafico: <b>arrastrar</b> un punto para moverlo · <b>clic</b> en un lugar vacio ' +
+    'para agregar uno (hasta 8) · <b>doble clic</b> en un punto para borrarlo. Dos puntos en el mismo segundo ' +
+    'hacen un salto. La linea es la senal dibujada; los puntos chicos, lo que leeria el Mega (con ruido y, ' +
+    'en el campo, con el lazo de control corrigiendo).</p>';
+  SCENARIO_SOURCES.forEach(src => { h += scenarioSourceBlock(src); });
+  h += '<h3 class="paso"><span>3</span> Resultado previsto de la combinacion</h3><div id="scnOutcome"></div>';
   return h + '</section>';
 }
 
-// Barra de la biblioteca: solo embebido. Las operaciones las ejecuta el
-// monitor (que pide confirmacion para borrar y restaurar).
-function libraryBar(){
-  if (!LIBRARY) return "";
-  const sel = scenarioList().find(p => p.key === selectedScenario);
-  const status = libStatus ? '<span class="' + (libStatus.ok ? "ok" : "alerta") + '">' + esc(libStatus.text) + '</span>' : "";
-  if (!LIB_ADMIN) return '<p class="hint">Biblioteca del monitor. Crear, editar y borrar escenarios es para ' +
-    'administradores. ' + status + '</p>';
-  return '<div class="libbar">' +
-    '<span>' + (sel ? 'Escenario elegido: <b>' + esc(sel.name) + '</b>' : 'Ningun escenario elegido') + '</span>' +
-    '<button type="button" class="mini" data-lib="update"' + (sel ? "" : " disabled") +
-      ' title="Guarda la senal del formulario en el escenario elegido">Guardar cambios</button>' +
-    '<button type="button" class="mini" data-lib="create">Guardar como nuevo…</button>' +
-    '<button type="button" class="mini" data-lib="delete"' + (sel ? "" : " disabled") + '>Borrar</button>' +
-    '<button type="button" class="mini" data-lib="restore" title="Vuelve los de fabrica a sus valores y ' +
-      'recrea los borrados; los propios no se tocan">Restaurar los de fabrica</button>' + status + '</div>';
+// Duracion mas larga del menu, en s (un escenario que necesita mas no puede
+// terminar como promete).
+function maxMenuDurationS(){
+  return Math.max(0, ...(state.menus.duration || []).map(o => o.value / 1000).filter(isNum));
 }
 
-function libraryAction(action){
-  const sel = scenarioList().find(p => p.key === selectedScenario);
+// Un bloque por fuente: que lee (sensor real o un escenario), y si es un
+// escenario, su grafico, sus parametros y la biblioteca.
+function scenarioSourceBlock(src){
+  const i = state.detector.sources.findIndex(x => x.name === src.name);
+  const s = state.detector.sources[i];
+  if (!s) return "";
+  const current = profileOfSource(state, src.name);
+  const list = scenarioList(src.name);
+  const maxDur = maxMenuDurationS();
+  const optionOf = p => {
+    const corto = p.minDuration && maxDur && p.minDuration > maxDur;
+    const sub = corto ? " — necesita " + Math.ceil(p.minDuration / 60) + " min (mas que el menu)"
+      : p.expect ? " — " + expectText(p) : "";
+    return '<option value="' + esc(p.key) + '"' + (p.key === current ? " selected" : "") + (corto ? " disabled" : "") +
+      '>' + esc(p.name) + esc(sub) + '</option>';
+  };
+  const fabrica = list.filter(p => p.factoryKey || !LIBRARY);
+  const propios = list.filter(p => !(p.factoryKey || !LIBRARY));
+  let pick = '<label class="f scnpick"><span>Lee</span><select data-scnpick="' + src.name + '">' +
+    '<option value="@real"' + (current === "real" ? " selected" : "") + '>Sensor real (' + src.real + ')</option>' +
+    (fabrica.length ? '<optgroup label="Escenarios de fabrica">' + fabrica.map(optionOf).join("") + '</optgroup>' : "") +
+    (propios.length ? '<optgroup label="Escenarios propios">' + propios.map(optionOf).join("") + '</optgroup>' : "") +
+    (current === "custom" ? '<option value="@custom" selected>Escenario personalizado (editado, sin guardar)</option>' : "") +
+    (current === "sim" || current === "none"
+      ? '<option value="@other" selected>' + esc(profileName(src.name, current)) + ' (elegido en el paso 5)</option>' : "") +
+    '<option value="@new">+ Escenario nuevo (senal plana para dibujar)</option>' +
+    '</select></label>';
+
+  let h = '<div class="sub scn"><h3>' + src.label + ' <small>' + src.name + ', en ' + src.unit +
+    (s.sensor === "scenario" && !s.enabled ? ' · <span class="alerta">no vigilada: no puede cortar</span>' : "") +
+    '</small></h3>' + pick;
+  const prof = findScenario(current);
+  if (prof) h += '<p class="hint scndesc">' + esc(prof.description || "") +
+    (prof.expect ? ' <b>Comprobado:</b> ' + esc(expectText(prof)) + ' con ' + esc(partnerName(src.name)) + '.' :
+     prof.factoryKey ? ' <i>De fabrica, modificado.</i>' : "") + '</p>';
+  if (s.sensor !== "scenario" || !s.scenario) {
+    if (current === "real") h += '<p class="hint">Lee el ' + src.real + ': no entra en la prediccion.</p>';
+    return h + '</div>';
+  }
+  const b = "detector.sources." + i + ".scenario.";
+  h += '<div style="margin:6px 0 8px">' + chk("detector.sources." + i + ".enabled",
+      "Vigilada por el Detector (sus alertas pueden cortar el experimento)") + '</div>' +
+    '<div class="chart" data-chart="' + s.name + '" data-src="' + i + '"></div>' +
+    '<div class="grid" style="margin-top:10px">' +
+    '<label class="f" style="grid-column:1/-1"><span>Puntos (segundo:nivel) — tambien se pueden ' +
+    'escribir, ej. <code>0:0  60:0  60:2,5</code></span><input type="text" data-path="' + b +
+    'points" data-kind="pts" placeholder="sin puntos: nivel 0 todo el tiempo" value="' +
+    esc(pointsToText(s.scenario.points)) + '"></label>' +
+    num(b + "noise", FLT, "Ruido ± (niveles, en cada lectura)") +
+    num(b + "oscAmp", FLT, "Oscilacion ± (niveles)") +
+    num(b + "oscPeriod", FLT, "Periodo de la oscilacion (s, 0 = no oscila)") +
+    num(b + "dropAt", FLT, "El sensor deja de responder a los (s, 0 = nunca)") +
+    (s.name === "CEM1" ? num(b + "setpointDuty", FLT,
+      "Duty con el que las bobinas dan el objetivo (0 = el campo no responde al lazo)") : "") +
+    '</div>' + libraryBar(src.name, current);
+  return h + '</div>';
+}
+
+// Con que se comprobo la promesa de un escenario de fabrica: el normal de
+// la otra fuente.
+function partnerName(name){
+  const other = name === "CEM1" ? "TEMP1" : "CEM1";
+  const fk = (SCENARIO_FILE.pairWith || {})[other];
+  const p = scenarioList(other).find(x => factoryKeyOf(x) === fk);
+  return p ? p.name.toLowerCase() : (SOURCE_LABEL[other] || other).toLowerCase() + " normal";
+}
+
+// Arriba de la seccion: restaurar los de fabrica (toda la biblioteca) y el
+// resultado de esa operacion.
+function libraryTop(){
+  if (!LIBRARY) return '<p class="hint">Abierto sin el monitor: se ofrecen los escenarios de fabrica. La ' +
+    'biblioteca para guardar escenarios propios esta en la seccion Configuracion del monitor.</p>';
+  const status = libStatus && libStatus.source === null
+    ? ' <span class="' + (libStatus.ok ? "ok" : "alerta") + '">' + esc(libStatus.text) + '</span>' : "";
+  if (!LIB_ADMIN) return '<p class="hint">Biblioteca del monitor: se pueden elegir y editar escenarios, pero ' +
+    'guardarlos, crearlos y borrarlos es para administradores.' + status + '</p>';
+  return '<div class="libbar"><span>Biblioteca del monitor: cada escenario se guarda, se crea o se borra ' +
+    'desde el bloque de su fuente.' + status + '</span>' +
+    '<button type="button" class="mini" data-lib="restore" data-lib-src="" title="Vuelve los de fabrica a sus ' +
+    'valores y recrea los borrados; los propios no se tocan">Restaurar los de fabrica</button></div>';
+}
+
+// Biblioteca de una fuente: guardar lo dibujado en el escenario elegido,
+// guardarlo como uno nuevo o borrar el elegido. Solo admin y embebido.
+function libraryBar(name, current){
+  if (!LIBRARY || !LIB_ADMIN) return "";
+  // A que escenario apuntan Guardar y Borrar: el que coincide con lo
+  // dibujado o, si se edito, el ultimo elegido de esta fuente.
+  const target = findScenario(current !== "custom" ? current : selectedScenario[name]);
+  const tgt = target && target.source === name ? target : null;
+  const status = libStatus && libStatus.source === name
+    ? '<span class="' + (libStatus.ok ? "ok" : "alerta") + '">' + esc(libStatus.text) + '</span>' : "";
+  if (libForm && libForm.source === name) {
+    return '<div class="libform"><b>' + (libForm.mode === "create" ? "Guardar como escenario nuevo"
+        : "Guardar cambios en «" + esc(tgt ? tgt.name : libForm.name) + "»") + '</b>' +
+      '<label class="f"><span>Nombre</span><input type="text" maxlength="60" data-libfield="name" value="' +
+        esc(libForm.name) + '"></label>' +
+      '<label class="f"><span>Descripcion (que prueba y que deberia pasar)</span><textarea maxlength="400" ' +
+        'rows="2" data-libfield="description">' + esc(libForm.description) + '</textarea></label>' +
+      '<div class="acciones"><button type="button" class="primary" data-lib="save" data-lib-src="' + name +
+        '">Guardar</button><button type="button" data-lib="cancel" data-lib-src="' + name +
+        '">Cancelar</button>' + status + '</div></div>';
+  }
+  const edited = current === "custom";
+  return '<div class="libbar">' +
+    '<span>' + (tgt ? (edited ? 'Editado a partir de <b>' + esc(tgt.name) + '</b>' : 'Escenario: <b>' +
+      esc(tgt.name) + '</b>') : 'Escenario sin guardar') + '</span>' +
+    (tgt ? '<button type="button" class="mini" data-lib="update" data-lib-src="' + name + '"' +
+      (edited ? "" : " disabled") + ' title="Guarda lo dibujado en este escenario">Guardar cambios</button>' : "") +
+    '<button type="button" class="mini" data-lib="create" data-lib-src="' + name + '">Guardar como nuevo…</button>' +
+    (tgt ? '<button type="button" class="mini" data-lib="delete" data-lib-src="' + name + '">Borrar</button>' : "") +
+    status + '</div>';
+}
+
+function libraryAction(action, name){
   const post = msg => window.parent.postMessage(msg, window.location.origin);
-  if (action === "restore") { post({type: "biosoft-scenario-restore"}); return; }
-  if (action === "delete") { if (sel) post({type: "biosoft-scenario-delete", id: sel.key, name: sel.name}); return; }
-  const data = scenarioFromForm();
-  if (!Object.keys(data.sources).length) {
-    libStatus = {ok: false, text: "Ninguna fuente esta en scenario: no hay senal para guardar."};
+  if (action === "restore") { libPendingSource = null; post({type: "biosoft-scenario-restore"}); return; }
+  const current = profileOfSource(state, name);
+  const target = findScenario(current !== "custom" ? current : selectedScenario[name]);
+  const tgt = target && target.source === name ? target : null;
+  if (action === "delete") {
+    if (tgt) { libPendingSource = name; post({type: "biosoft-scenario-delete", id: tgt.key, name: tgt.name}); }
+    return;
+  }
+  if (action === "cancel") { libForm = null; render(); return; }
+  if (action === "create" || action === "update") {
+    if (!scenarioFromForm(name)) {
+      libStatus = {source: name, ok: false, text: "Esta fuente no tiene un escenario: no hay senal para guardar."};
+      render(); return;
+    }
+    libForm = action === "update" && tgt
+      ? {source: name, mode: "update", key: tgt.key, name: tgt.name, description: tgt.description || ""}
+      : {source: name, mode: "create", key: null, name: "", description: ""};
+    libStatus = null;
     render(); return;
   }
-  const name = window.prompt("Nombre del escenario", action === "update" && sel ? sel.name : "");
-  if (name === null || !name.trim()) return;
-  const description = window.prompt("Descripcion (que prueba y que deberia pasar)",
-    action === "update" && sel ? sel.description : "");
-  if (description === null) return;
-  post({type: "biosoft-scenario-save", id: action === "update" && sel ? sel.key : null,
-        scenario: Object.assign({name: name.trim(), description: description.trim()}, data)});
+  if (action === "save" && libForm && libForm.source === name) {
+    const data = scenarioFromForm(name);
+    if (!libForm.name.trim()) { libStatus = {source: name, ok: false, text: "Falta el nombre."}; render(); return; }
+    if (!data) return;
+    libPendingSource = name;
+    post({type: "biosoft-scenario-save", id: libForm.mode === "update" ? libForm.key : null,
+          scenario: Object.assign({name: libForm.name.trim(), description: libForm.description.trim()}, data)});
+  }
 }
 
 function outcomeHtml(res){
   if (!res) return '<div class="msg w">No se puede simular: hay puntos mal escritos (ver los errores).</div>';
   const {sim, ref} = res;
-  const prof = scenarioList().find(p => p.key === profileOf(state) && p.expect);
   if (sim.refused) return '<div class="msg e"><b>No inicia.</b> ' + (sim.refused === "nomap"
     ? "En campo nulo el Mega necesita un punto del mapa (seccion 3) para esta intensidad y frecuencia."
     : "El balance del punto del mapa supera balanceMax.") + '</div>';
@@ -1496,14 +1737,32 @@ function outcomeHtml(res){
   if (notSim.length) h += '<br><small>' + notSim.join(" y ") + ' con sensor real: no entra en la prediccion.</small>';
   if (state.detector.enabled === false) h += '<br><small>Detector apagado: ninguna fuente puede cortar.</small>';
   h += '</div>';
-  if (prof) {
+  // La promesa de un escenario de fabrica esta comprobada con la otra fuente
+  // en su normal. Con esa pareja, si la prediccion no la cumple es un aviso
+  // (casi siempre, una duracion corta); con otra combinacion manda la
+  // prediccion de arriba y la promesa se cita como referencia.
+  const keys = profileOf(state);
+  ["TEMP1", "CEM1"].forEach(name => {
+    const prof = findScenario(keys[name]);
+    if (!prof || !prof.expect) return;
+    const other = name === "CEM1" ? "TEMP1" : "CEM1";
+    const otherProf = findScenario(keys[other]);
+    const paired = otherProf && otherProf.expect &&
+      factoryKeyOf(otherProf) === (SCENARIO_FILE.pairWith || {})[other];
     const e = prof.expect;
     const matches = e.reason === "completed" ? !sim.cut
       : sim.cut && sim.cut.source === e.source && sim.cut.type === e.type;
-    if (!matches) h += '<div class="msg w">El perfil "' + esc(prof.name) + '" promete: ' + esc(expectText(prof)) +
-      '.' + (ref.durationS < prof.minDuration ? " La duracion elegida (" + fmtT(ref.durationS) +
-      ") es mas corta que la que necesita (" + fmtT(prof.minDuration) + ")." : "") + '</div>';
-  }
+    if (matches) return;
+    // Si corta la OTRA fuente, la diferencia es obvia: no se comenta.
+    if (!paired && sim.cut && sim.cut.source !== name) return;
+    h += paired
+      ? '<div class="msg w">"' + esc(prof.name) + '" promete: ' + esc(expectText(prof)) + '.' +
+        (ref.durationS < prof.minDuration ? " La duracion elegida (" + fmtT(ref.durationS) +
+        ") es mas corta que la que necesita (" + fmtT(prof.minDuration) + ")." : "") + '</div>'
+      : '<p class="hint">"' + esc(prof.name) + '" solo, con ' + esc(partnerName(name)) + ', ' +
+        esc(expectText(prof)) + '; combinado con "' + esc(profileName(other, keys[other])) +
+        '" el resultado es el de arriba.</p>';
+  });
   return h;
 }
 
@@ -2216,6 +2475,17 @@ function limitNote(el, text){
 
 function onEdit(e){
   const el = e.target;
+  // Formulario de la biblioteca (nombre y descripcion): no es configuracion.
+  if (el.dataset && el.dataset.libfield) { if (libForm) libForm[el.dataset.libfield] = el.value; return; }
+  // Que lee cada fuente en el paso 5b: sensor real, un escenario o uno nuevo.
+  if (el.dataset && el.dataset.scnpick) {
+    if (e.type !== "change") return;
+    const name = el.dataset.scnpick, v = el.value;
+    if (v === "@real") realSensorFor(name);
+    else if (v === "@new") blankScenarioFor(name);
+    else if (v.charAt(0) !== "@") applyProfile(v);
+    return;
+  }
   const path = el.dataset && el.dataset.path;
   if (!path) return;
   const kind = el.dataset.kind;
@@ -2260,6 +2530,8 @@ function onEdit(e){
   // Cambiar el sensor de una fuente cambia que campos tiene (escenario,
   // direccion del DS18B20): es estructural, se vuelve a dibujar.
   if (/^detector\.sources\.\d+\.sensor$/.test(path)) { render(); return; }
+  // Vigilada o no cambia el aviso del titulo del bloque del escenario.
+  if (/^detector\.sources\.\d+\.enabled$/.test(path) && e.type === "change") { render(); return; }
   validate();
 }
 
@@ -2293,11 +2565,11 @@ document.addEventListener("click", e => {
   } else if (e.target.dataset && e.target.dataset.undoRuntype){
     undoExperiment();
   } else if (e.target.dataset && e.target.dataset.lib){
-    libraryAction(e.target.dataset.lib);
-  } else if (e.target.dataset && e.target.dataset.profile){
-    applyProfile(e.target.dataset.profile);
-  } else if (e.target.dataset && e.target.dataset.real){
-    realSensors();
+    libraryAction(e.target.dataset.lib, e.target.dataset.libSrc || null);
+  } else if (e.target.dataset && e.target.dataset.toTest){
+    state.runType = "test";
+    runTypeNotice = null;
+    render();
   }
 });
 
@@ -3043,12 +3315,17 @@ if (EMBEDDED) {
     if (ev.data.type === "biosoft-scenarios" && Array.isArray(ev.data.items)) {
       LIBRARY = ev.data.items;
       LIB_ADMIN = !!ev.data.admin;
-      if (selectedScenario && !LIBRARY.some(e => e.id === selectedScenario)) selectedScenario = null;
+      Object.keys(selectedScenario).forEach(n => {
+        if (selectedScenario[n] && !LIBRARY.some(e => e.id === selectedScenario[n])) selectedScenario[n] = null;
+      });
       render();
     }
     if (ev.data.type === "biosoft-scenario-result") {
-      libStatus = {ok: !!ev.data.ok, text: String(ev.data.text || "")};
-      if (ev.data.selectId !== undefined) selectedScenario = ev.data.selectId;
+      libStatus = {source: libPendingSource, ok: !!ev.data.ok, text: String(ev.data.text || "")};
+      if (ev.data.ok && libPendingSource) {
+        libForm = null;
+        if (ev.data.selectId !== undefined) selectedScenario[libPendingSource] = ev.data.selectId;
+      }
       render();
     }
     // Un usuario de solo lectura ve y edita (para descargar o mirar), pero no

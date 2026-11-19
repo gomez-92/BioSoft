@@ -30,6 +30,10 @@ using namespace fakeit;
 // El simulador del generador (fase 2) reproduce esta misma corrida en JS y
 // se compara contra el mismo archivo: si uno de los dos cambia, falla.
 //
+// Los perfiles son POR FUENTE (uno de TEMP1 o uno de CEM1). La promesa de
+// cada uno se comprueba con la otra fuente en su perfil de `pairWith` (el
+// normal); cualquier otra combinacion la predice el generador.
+//
 // Lo que NO reproduce: el Timer real (las tareas se modelan como periodos
 // exactos con un desfase) y el envio por serie.
 
@@ -145,9 +149,9 @@ static constexpr unsigned long TempIntervalMs = 5000;   // Intervals::MeasureTem
 static constexpr unsigned long SettlingMs = 10000;      // Intervals::SettlingTime
 static constexpr unsigned long StepMs = 50;
 
-static Outcome run(JsonObjectConst profile, const Ranges& r, unsigned long cemPhaseMs, unsigned long tempPhaseMs) {
-    JsonObjectConst cemJ = profile["sources"]["CEM1"];
-    JsonObjectConst tempJ = profile["sources"]["TEMP1"];
+// cemJ / tempJ: el perfil de cada fuente ({enabled, scenario}).
+static Outcome run(JsonObjectConst cemJ, JsonObjectConst tempJ, float minDurationS, const Ranges& r,
+                   unsigned long cemPhaseMs, unsigned long tempPhaseMs) {
     ScenarioSignal cemSignal = signalOf(cemJ["scenario"]);
     ScenarioSignal tempSignal = signalOf(tempJ["scenario"]);
 
@@ -200,7 +204,7 @@ static Outcome run(JsonObjectConst profile, const Ranges& r, unsigned long cemPh
     bool settling = true;
     unsigned long nextCem = CemIntervalMs + cemPhaseMs;
     unsigned long nextTemp = TempIntervalMs + tempPhaseMs;
-    unsigned long durationMs = (unsigned long)(profile["minDuration"].as<float>() * 1000.0f) + 120000UL;
+    unsigned long durationMs = (unsigned long)(minDurationS * 1000.0f) + 120000UL;
 
     for (nowMs = 0; nowMs <= durationMs && !listener.outcome.cut; nowMs += StepMs) {
         if (settling && nowMs >= SettlingMs) {
@@ -254,15 +258,25 @@ static const unsigned long Phases[][2] = { {250, 1100}, {900, 2600}, {1650, 4300
 
 static constexpr float AtToleranceSeconds = 15.0f;
 
+static JsonDocument profilesDoc;
+static JsonObjectConst profileByKey(const char* key);
+
 static void checkProfile(JsonObjectConst profile) {
     const char* key = profile["key"];
     JsonObjectConst expect = profile["expect"];
     const char* reason = expect["reason"];
     char msg[200];
 
+    // La otra fuente, en su perfil de pareja (el normal).
+    bool isCem = strcmp(profile["source"] | "", "CEM1") == 0;
+    JsonObjectConst partner = profileByKey(profilesDoc["pairWith"][isCem ? "TEMP1" : "CEM1"] | "");
+    JsonObjectConst cemJ = isCem ? profile : partner;
+    JsonObjectConst tempJ = isCem ? partner : profile;
+    float minDurationS = profile["minDuration"].as<float>();
+
     for (const Ranges& r : Combos) {
         for (const auto& ph : Phases) {
-            Outcome o = run(profile, r, ph[0], ph[1]);
+            Outcome o = run(cemJ, tempJ, minDurationS, r, ph[0], ph[1]);
             snprintf(msg, sizeof(msg), "%s (%.0f mT %d%%, temp %.0f~%.0f/%.0f~%.0f, fase %lu/%lu): %s %s %s a los %.1f s",
                      key, r.intensity, r.tolerance, r.tempNormalMin, r.tempNormalMax, r.tempCriticalMin,
                      r.tempCriticalMax, ph[0], ph[1], o.cut ? "corto" : "completo",
@@ -287,8 +301,6 @@ static void checkProfile(JsonObjectConst profile) {
     }
 }
 
-static JsonDocument profilesDoc;
-
 static JsonObjectConst profileByKey(const char* key) {
     for (JsonObjectConst p : profilesDoc["profiles"].as<JsonArrayConst>()) {
         if (strcmp(p["key"] | "", key) == 0) return p;
@@ -306,23 +318,38 @@ void test_profiles_file_is_readable(void) {
 void test_every_profile_is_checked(void);
 
 #define PROFILE_TEST(KEY) void test_profile_##KEY(void) { checkProfile(profileByKey(#KEY)); }
-PROFILE_TEST(normal)
+PROFILE_TEST(tempNormal)
 PROFILE_TEST(tempAlta)
 PROFILE_TEST(tempSube)
+PROFILE_TEST(tempBaja)
 PROFILE_TEST(tempRecupera)
 PROFILE_TEST(tempAdvertencia)
+PROFILE_TEST(tempCaido)
+PROFILE_TEST(campoNormal)
 PROFILE_TEST(campoCompensado)
 PROFILE_TEST(campoInestable)
 PROFILE_TEST(campoFuera)
-PROFILE_TEST(sensorCaido)
-PROFILE_TEST(tempBaja)
 PROFILE_TEST(campoCaido)
 
 static const char* const CheckedProfiles[] = {
-    "normal", "tempAlta", "tempSube", "tempRecupera", "tempAdvertencia",
-    "campoCompensado", "campoInestable", "campoFuera", "sensorCaido",
-    "tempBaja", "campoCaido",
+    "tempNormal", "tempAlta", "tempSube", "tempBaja", "tempRecupera", "tempAdvertencia", "tempCaido",
+    "campoNormal", "campoCompensado", "campoInestable", "campoFuera", "campoCaido",
 };
+
+// Cada perfil es de UNA fuente, y la pareja de cada fuente existe y es de
+// esa misma fuente (si no, checkProfile mezclaria las senales).
+void test_profiles_are_per_source(void) {
+    for (JsonObjectConst p : profilesDoc["profiles"].as<JsonArrayConst>()) {
+        const char* src = p["source"] | "";
+        TEST_ASSERT_TRUE_MESSAGE(strcmp(src, "CEM1") == 0 || strcmp(src, "TEMP1") == 0, p["key"] | "(sin key)");
+        TEST_ASSERT_TRUE_MESSAGE(p["scenario"].is<JsonObjectConst>(), p["key"] | "(sin key)");
+        TEST_ASSERT_TRUE_MESSAGE(p["enabled"].is<bool>(), p["key"] | "(sin key)");
+    }
+    for (const char* src : {"CEM1", "TEMP1"}) {
+        JsonObjectConst partner = profileByKey(profilesDoc["pairWith"][src] | "");
+        TEST_ASSERT_EQUAL_STRING_MESSAGE(src, partner["source"] | "", "pairWith");
+    }
+}
 
 void test_every_profile_is_checked(void) {
     for (JsonObjectConst p : profilesDoc["profiles"].as<JsonArrayConst>()) {
@@ -336,12 +363,12 @@ void test_every_profile_is_checked(void) {
 // planta, un escenario que vigila CEM1 corta a los pocos segundos de la
 // estabilizacion por el arranque del lazo, no por lo que el escenario dice.
 void test_plant_starting_at_zero_duty_cuts_early(void) {
-    JsonObjectConst normal = profileByKey("normal");
+    JsonObjectConst normal = profileByKey("campoNormal");
     JsonDocument copy;
     copy.set(normal);
-    copy["sources"]["CEM1"]["scenario"]["setpointDuty"] = 0.5f;
+    copy["scenario"]["setpointDuty"] = 0.5f;
     // Simula el firmware viejo: preload(0) en vez del duty de la planta.
-    ScenarioSignal s = signalOf(copy["sources"]["CEM1"]["scenario"]);
+    ScenarioSignal s = signalOf(copy["scenario"]);
     TEST_ASSERT_EQUAL_FLOAT(0.5f, s.setpointDuty);
     FieldController controller(makeFieldControllerConfig(CemIntervalMs));
     controller.reset();
@@ -374,16 +401,18 @@ int main(int argc, char** argv) {
     RUN_TEST(test_profiles_file_is_readable);
     if (loaded) {
         RUN_TEST(test_every_profile_is_checked);
-        RUN_TEST(test_profile_normal);
+        RUN_TEST(test_profiles_are_per_source);
+        RUN_TEST(test_profile_tempNormal);
         RUN_TEST(test_profile_tempAlta);
         RUN_TEST(test_profile_tempSube);
+        RUN_TEST(test_profile_tempBaja);
         RUN_TEST(test_profile_tempRecupera);
         RUN_TEST(test_profile_tempAdvertencia);
+        RUN_TEST(test_profile_tempCaido);
+        RUN_TEST(test_profile_campoNormal);
         RUN_TEST(test_profile_campoCompensado);
         RUN_TEST(test_profile_campoInestable);
         RUN_TEST(test_profile_campoFuera);
-        RUN_TEST(test_profile_sensorCaido);
-        RUN_TEST(test_profile_tempBaja);
         RUN_TEST(test_profile_campoCaido);
         RUN_TEST(test_plant_starting_at_zero_duty_cuts_early);
     }

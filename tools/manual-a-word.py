@@ -274,7 +274,7 @@ def _estilo(sid, nombre, basado, ppr, rpr, siguiente=None):
             % (sid, nombre, basado, siguiente or "Normal", ppr, rpr))
 
 
-SERIF = '<w:rFonts w:ascii="Georgia" w:hAnsi="Georgia"/>'
+SERIF = '<w:rFonts w:ascii="Segoe UI" w:hAnsi="Segoe UI"/>'
 SANS = '<w:rFonts w:ascii="Segoe UI" w:hAnsi="Segoe UI"/>'
 
 

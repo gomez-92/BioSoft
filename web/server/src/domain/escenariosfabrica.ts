@@ -1,52 +1,48 @@
 // GENERADO por `npm run sync:generador` desde tools/escenarios.json. No editar a mano.
 export const ESCENARIOS_FABRICA = {
   "_comentario": [
-    "Perfiles de escenario sintetico (tarjeta 22). FUENTE UNICA: el generador",
+    "Escenarios sinteticos de fabrica, UNO POR FUENTE (TEMP1 o CEM1): en el",
+    "generador se elige uno para cada fuente por separado (ej. temperatura",
+    "normal + campo inestable). FUENTE UNICA: el generador",
     "(tools/generador-config.html) embebe una copia y tools/test-generador.js",
     "falla si difieren; mega2560/test/test_scenario_runs simula cada perfil",
     "con el Detector y el lazo reales del Mega y verifica `expect` con varias",
-    "combinaciones de rangos de los menus. Si se cambia un perfil aca, los dos",
-    "lados lo vuelven a comprobar.",
+    "combinaciones de rangos de los menus. `expect` se comprueba con la OTRA",
+    "fuente en su perfil de `pairWith` (el normal): es lo que promete el",
+    "escenario solo; combinado con otro, el generador predice el final.",
+    "`enabled` = si la fuente queda vigilada por el Detector con este",
+    "escenario (es parte de lo que el escenario prueba).",
     "Niveles: 0 = centro del normal, +-1 = borde del normal, +-2 = borde del",
     "critico. points = [segundo, nivel], unidos por rectas; dos puntos en el",
     "mismo segundo son un salto. expect.at = segundo aproximado del corte."
   ],
-  "version": 1,
+  "version": 3,
+  "pairWith": {
+    "TEMP1": "tempNormal",
+    "CEM1": "campoNormal"
+  },
   "profiles": [
     {
-      "key": "normal",
-      "name": "Todo normal",
-      "description": "Las dos fuentes en el centro del rango normal, con ruido leve. CEM1 vigilada y regulada por el lazo.",
+      "key": "tempNormal",
+      "source": "TEMP1",
+      "name": "Temperatura normal",
+      "description": "TEMP1 en el centro del rango normal, con ruido leve.",
       "expect": {
         "reason": "completed"
       },
       "minDuration": 60,
-      "sources": {
-        "CEM1": {
-          "enabled": true,
-          "scenario": {
-            "points": [],
-            "noise": 0.1,
-            "oscAmp": 0,
-            "oscPeriod": 0,
-            "dropAt": 0,
-            "setpointDuty": 0.5
-          }
-        },
-        "TEMP1": {
-          "enabled": true,
-          "scenario": {
-            "points": [],
-            "noise": 0.1,
-            "oscAmp": 0,
-            "oscPeriod": 0,
-            "dropAt": 0
-          }
-        }
+      "enabled": true,
+      "scenario": {
+        "points": [],
+        "noise": 0.1,
+        "oscAmp": 0,
+        "oscPeriod": 0,
+        "dropAt": 0
       }
     },
     {
       "key": "tempAlta",
+      "source": "TEMP1",
       "name": "Temperatura alta",
       "description": "TEMP1 salta a la zona critica (nivel 2,5) a los 60 s.",
       "expect": {
@@ -56,45 +52,31 @@ export const ESCENARIOS_FABRICA = {
         "at": 75
       },
       "minDuration": 120,
-      "sources": {
-        "CEM1": {
-          "enabled": false,
-          "scenario": {
-            "points": [],
-            "noise": 0.1,
-            "oscAmp": 0,
-            "oscPeriod": 0,
-            "dropAt": 0,
-            "setpointDuty": 0.5
-          }
-        },
-        "TEMP1": {
-          "enabled": true,
-          "scenario": {
-            "points": [
-              [
-                0,
-                0
-              ],
-              [
-                60,
-                0
-              ],
-              [
-                60,
-                2.5
-              ]
-            ],
-            "noise": 0.1,
-            "oscAmp": 0,
-            "oscPeriod": 0,
-            "dropAt": 0
-          }
-        }
+      "enabled": true,
+      "scenario": {
+        "points": [
+          [
+            0,
+            0
+          ],
+          [
+            60,
+            0
+          ],
+          [
+            60,
+            2.5
+          ]
+        ],
+        "noise": 0.1,
+        "oscAmp": 0,
+        "oscPeriod": 0,
+        "dropAt": 0
       }
     },
     {
       "key": "tempSube",
+      "source": "TEMP1",
       "name": "Temperatura que sube",
       "description": "TEMP1 sube despacio: sale del normal a los ~70 s (alertas de racha) y pasa el critico a los ~110 s.",
       "expect": {
@@ -104,41 +86,27 @@ export const ESCENARIOS_FABRICA = {
         "at": 125
       },
       "minDuration": 180,
-      "sources": {
-        "CEM1": {
-          "enabled": false,
-          "scenario": {
-            "points": [],
-            "noise": 0.1,
-            "oscAmp": 0,
-            "oscPeriod": 0,
-            "dropAt": 0,
-            "setpointDuty": 0.5
-          }
-        },
-        "TEMP1": {
-          "enabled": true,
-          "scenario": {
-            "points": [
-              [
-                30,
-                0
-              ],
-              [
-                150,
-                3
-              ]
-            ],
-            "noise": 0.1,
-            "oscAmp": 0,
-            "oscPeriod": 0,
-            "dropAt": 0
-          }
-        }
+      "enabled": true,
+      "scenario": {
+        "points": [
+          [
+            30,
+            0
+          ],
+          [
+            150,
+            3
+          ]
+        ],
+        "noise": 0.1,
+        "oscAmp": 0,
+        "oscPeriod": 0,
+        "dropAt": 0
       }
     },
     {
       "key": "tempBaja",
+      "source": "TEMP1",
       "name": "Temperatura baja",
       "description": "TEMP1 cae a la zona critica por debajo (nivel -2,5) a los 60 s: prueba el borde inferior.",
       "expect": {
@@ -148,45 +116,31 @@ export const ESCENARIOS_FABRICA = {
         "at": 75
       },
       "minDuration": 120,
-      "sources": {
-        "CEM1": {
-          "enabled": false,
-          "scenario": {
-            "points": [],
-            "noise": 0.1,
-            "oscAmp": 0,
-            "oscPeriod": 0,
-            "dropAt": 0,
-            "setpointDuty": 0.5
-          }
-        },
-        "TEMP1": {
-          "enabled": true,
-          "scenario": {
-            "points": [
-              [
-                0,
-                0
-              ],
-              [
-                60,
-                0
-              ],
-              [
-                60,
-                -2.5
-              ]
-            ],
-            "noise": 0.1,
-            "oscAmp": 0,
-            "oscPeriod": 0,
-            "dropAt": 0
-          }
-        }
+      "enabled": true,
+      "scenario": {
+        "points": [
+          [
+            0,
+            0
+          ],
+          [
+            60,
+            0
+          ],
+          [
+            60,
+            -2.5
+          ]
+        ],
+        "noise": 0.1,
+        "oscAmp": 0,
+        "oscPeriod": 0,
+        "dropAt": 0
       }
     },
     {
       "key": "tempRecupera",
+      "source": "TEMP1",
       "name": "Temperatura que se recupera",
       "description": "TEMP1 entra en advertencia (nivel 1,5) por un minuto y vuelve al centro: alertas de racha, sin corte.",
       "expect": {
@@ -196,49 +150,35 @@ export const ESCENARIOS_FABRICA = {
         ]
       },
       "minDuration": 180,
-      "sources": {
-        "CEM1": {
-          "enabled": false,
-          "scenario": {
-            "points": [],
-            "noise": 0.1,
-            "oscAmp": 0,
-            "oscPeriod": 0,
-            "dropAt": 0,
-            "setpointDuty": 0.5
-          }
-        },
-        "TEMP1": {
-          "enabled": true,
-          "scenario": {
-            "points": [
-              [
-                30,
-                0
-              ],
-              [
-                60,
-                1.5
-              ],
-              [
-                100,
-                1.5
-              ],
-              [
-                130,
-                0
-              ]
-            ],
-            "noise": 0.1,
-            "oscAmp": 0,
-            "oscPeriod": 0,
-            "dropAt": 0
-          }
-        }
+      "enabled": true,
+      "scenario": {
+        "points": [
+          [
+            30,
+            0
+          ],
+          [
+            60,
+            1.5
+          ],
+          [
+            100,
+            1.5
+          ],
+          [
+            130,
+            0
+          ]
+        ],
+        "noise": 0.1,
+        "oscAmp": 0,
+        "oscPeriod": 0,
+        "dropAt": 0
       }
     },
     {
       "key": "tempAdvertencia",
+      "source": "TEMP1",
       "name": "Temperatura en advertencia sostenida",
       "description": "TEMP1 queda en la franja de advertencia (nivel 1,5) sin llegar al critico: corta por acumular alertas de racha.",
       "expect": {
@@ -248,165 +188,27 @@ export const ESCENARIOS_FABRICA = {
         "at": 145
       },
       "minDuration": 240,
-      "sources": {
-        "CEM1": {
-          "enabled": false,
-          "scenario": {
-            "points": [],
-            "noise": 0.1,
-            "oscAmp": 0,
-            "oscPeriod": 0,
-            "dropAt": 0,
-            "setpointDuty": 0.5
-          }
-        },
-        "TEMP1": {
-          "enabled": true,
-          "scenario": {
-            "points": [
-              [
-                30,
-                0
-              ],
-              [
-                40,
-                1.5
-              ]
-            ],
-            "noise": 0.1,
-            "oscAmp": 0,
-            "oscPeriod": 0,
-            "dropAt": 0
-          }
-        }
+      "enabled": true,
+      "scenario": {
+        "points": [
+          [
+            30,
+            0
+          ],
+          [
+            40,
+            1.5
+          ]
+        ],
+        "noise": 0.1,
+        "oscAmp": 0,
+        "oscPeriod": 0,
+        "dropAt": 0
       }
     },
     {
-      "key": "campoCompensado",
-      "name": "Perturbacion compensada por el lazo",
-      "description": "CEM1 recibe una perturbacion lenta (3 niveles en un minuto) y el lazo la compensa bajando el duty: el campo medido queda en el normal.",
-      "expect": {
-        "reason": "completed"
-      },
-      "minDuration": 180,
-      "sources": {
-        "CEM1": {
-          "enabled": true,
-          "scenario": {
-            "points": [
-              [
-                60,
-                0
-              ],
-              [
-                120,
-                3
-              ]
-            ],
-            "noise": 0.1,
-            "oscAmp": 0,
-            "oscPeriod": 0,
-            "dropAt": 0,
-            "setpointDuty": 0.5
-          }
-        },
-        "TEMP1": {
-          "enabled": true,
-          "scenario": {
-            "points": [],
-            "noise": 0.1,
-            "oscAmp": 0,
-            "oscPeriod": 0,
-            "dropAt": 0
-          }
-        }
-      }
-    },
-    {
-      "key": "campoInestable",
-      "name": "Campo inestable",
-      "description": "CEM1 sin planta oscila +-1,8 niveles cada 20 s: entra y sale del normal sin rachas largas ni critico, y corta por frecuencia de alertas.",
-      "expect": {
-        "reason": "critical",
-        "source": "CEM1",
-        "type": "frequency",
-        "at": 130
-      },
-      "minDuration": 240,
-      "sources": {
-        "CEM1": {
-          "enabled": true,
-          "scenario": {
-            "points": [],
-            "noise": 0.1,
-            "oscAmp": 1.8,
-            "oscPeriod": 20,
-            "dropAt": 0,
-            "setpointDuty": 0
-          }
-        },
-        "TEMP1": {
-          "enabled": true,
-          "scenario": {
-            "points": [],
-            "noise": 0.1,
-            "oscAmp": 0,
-            "oscPeriod": 0,
-            "dropAt": 0
-          }
-        }
-      }
-    },
-    {
-      "key": "campoFuera",
-      "name": "Campo fuera de rango",
-      "description": "CEM1 sin planta (no responde al lazo) salta a la zona critica (nivel 2,5) a los 60 s.",
-      "expect": {
-        "reason": "critical",
-        "source": "CEM1",
-        "type": "critical",
-        "at": 68
-      },
-      "minDuration": 120,
-      "sources": {
-        "CEM1": {
-          "enabled": true,
-          "scenario": {
-            "points": [
-              [
-                0,
-                0
-              ],
-              [
-                60,
-                0
-              ],
-              [
-                60,
-                2.5
-              ]
-            ],
-            "noise": 0.1,
-            "oscAmp": 0,
-            "oscPeriod": 0,
-            "dropAt": 0,
-            "setpointDuty": 0
-          }
-        },
-        "TEMP1": {
-          "enabled": true,
-          "scenario": {
-            "points": [],
-            "noise": 0.1,
-            "oscAmp": 0,
-            "oscPeriod": 0,
-            "dropAt": 0
-          }
-        }
-      }
-    },
-    {
-      "key": "sensorCaido",
+      "key": "tempCaido",
+      "source": "TEMP1",
       "name": "Sensor de temperatura caido",
       "description": "TEMP1 deja de dar lecturas a los 90 s: corta por silencio (3 lecturas de 5 s perdidas) con TEMP1 SIN LECTURAS.",
       "expect": {
@@ -416,32 +218,122 @@ export const ESCENARIOS_FABRICA = {
         "at": 101
       },
       "minDuration": 180,
-      "sources": {
-        "CEM1": {
-          "enabled": false,
-          "scenario": {
-            "points": [],
-            "noise": 0.1,
-            "oscAmp": 0,
-            "oscPeriod": 0,
-            "dropAt": 0,
-            "setpointDuty": 0.5
-          }
-        },
-        "TEMP1": {
-          "enabled": true,
-          "scenario": {
-            "points": [],
-            "noise": 0.1,
-            "oscAmp": 0,
-            "oscPeriod": 0,
-            "dropAt": 90
-          }
-        }
+      "enabled": true,
+      "scenario": {
+        "points": [],
+        "noise": 0.1,
+        "oscAmp": 0,
+        "oscPeriod": 0,
+        "dropAt": 90
+      }
+    },
+    {
+      "key": "campoNormal",
+      "source": "CEM1",
+      "name": "Campo normal",
+      "description": "CEM1 vigilada y regulada por el lazo: el campo queda en el centro del normal, con ruido leve.",
+      "expect": {
+        "reason": "completed"
+      },
+      "minDuration": 60,
+      "enabled": true,
+      "scenario": {
+        "points": [],
+        "noise": 0.1,
+        "oscAmp": 0,
+        "oscPeriod": 0,
+        "dropAt": 0,
+        "setpointDuty": 0.5
+      }
+    },
+    {
+      "key": "campoCompensado",
+      "source": "CEM1",
+      "name": "Perturbacion compensada por el lazo",
+      "description": "CEM1 recibe una perturbacion lenta (3 niveles en un minuto) y el lazo la compensa bajando el duty: el campo medido queda en el normal.",
+      "expect": {
+        "reason": "completed"
+      },
+      "minDuration": 180,
+      "enabled": true,
+      "scenario": {
+        "points": [
+          [
+            60,
+            0
+          ],
+          [
+            120,
+            3
+          ]
+        ],
+        "noise": 0.1,
+        "oscAmp": 0,
+        "oscPeriod": 0,
+        "dropAt": 0,
+        "setpointDuty": 0.5
+      }
+    },
+    {
+      "key": "campoInestable",
+      "source": "CEM1",
+      "name": "Campo inestable",
+      "description": "CEM1 sin planta oscila +-1,8 niveles cada 20 s: entra y sale del normal sin rachas largas ni critico, y corta por frecuencia de alertas.",
+      "expect": {
+        "reason": "critical",
+        "source": "CEM1",
+        "type": "frequency",
+        "at": 130
+      },
+      "minDuration": 240,
+      "enabled": true,
+      "scenario": {
+        "points": [],
+        "noise": 0.1,
+        "oscAmp": 1.8,
+        "oscPeriod": 20,
+        "dropAt": 0,
+        "setpointDuty": 0
+      }
+    },
+    {
+      "key": "campoFuera",
+      "source": "CEM1",
+      "name": "Campo fuera de rango",
+      "description": "CEM1 sin planta (no responde al lazo) salta a la zona critica (nivel 2,5) a los 60 s.",
+      "expect": {
+        "reason": "critical",
+        "source": "CEM1",
+        "type": "critical",
+        "at": 68
+      },
+      "minDuration": 120,
+      "enabled": true,
+      "scenario": {
+        "points": [
+          [
+            0,
+            0
+          ],
+          [
+            60,
+            0
+          ],
+          [
+            60,
+            2.5
+          ]
+        ],
+        "noise": 0.1,
+        "oscAmp": 0,
+        "oscPeriod": 0,
+        "dropAt": 0,
+        "setpointDuty": 0
       }
     },
     {
       "key": "campoCaido",
+      "source": "CEM1",
       "name": "Sensor de campo caido",
       "description": "CEM1 deja de responder a los 90 s. Aunque CEM1 NO esta vigilada, el Mega corta porque el lazo seguiria excitando las bobinas a ciegas (CEM1 SIN LECTURAS).",
       "expect": {
@@ -451,28 +343,14 @@ export const ESCENARIOS_FABRICA = {
         "at": 95
       },
       "minDuration": 180,
-      "sources": {
-        "CEM1": {
-          "enabled": false,
-          "scenario": {
-            "points": [],
-            "noise": 0.1,
-            "oscAmp": 0,
-            "oscPeriod": 0,
-            "dropAt": 90,
-            "setpointDuty": 0.5
-          }
-        },
-        "TEMP1": {
-          "enabled": true,
-          "scenario": {
-            "points": [],
-            "noise": 0.1,
-            "oscAmp": 0,
-            "oscPeriod": 0,
-            "dropAt": 0
-          }
-        }
+      "enabled": false,
+      "scenario": {
+        "points": [],
+        "noise": 0.1,
+        "oscAmp": 0,
+        "oscPeriod": 0,
+        "dropAt": 90,
+        "setpointDuty": 0.5
       }
     }
   ]

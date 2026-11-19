@@ -256,59 +256,75 @@ check("los perfiles del generador son identicos a tools/escenarios.json",
       JSON.stringify(ctx.__t.SCENARIO_FILE) === JSON.stringify(archivoPerfiles),
       "correr node tools/sincronizar-escenarios.js");
 
-// Cada perfil: las dos fuentes en escenario, con la senal y la vigilancia que
-// dice el archivo, y sin errores -- un perfil que no se puede descargar no sirve.
-const profileOf = key => {
-  reset();
-  ctx.applyProfile(key);
-  T.validate();
-  return T.state.detector.sources;
-};
+// Los escenarios son POR FUENTE: cada uno deja SU fuente en escenario, con
+// la senal y la vigilancia que dice el archivo, no toca la otra, y no deja
+// errores -- un escenario que no se puede descargar no sirve.
+const srcOf = name => T.state.detector.sources.find(s => s.name === name);
+const otherOf = name => name === "CEM1" ? "TEMP1" : "CEM1";
 let perfilesSinError = true;
 T.SCENARIO_PROFILES.forEach(prof => {
-  const src = profileOf(prof.key);
+  reset();
+  const antes = JSON.stringify(srcOf(otherOf(prof.source)));
+  ctx.applyProfile(prof.key);
+  T.validate();
   if (T.errors.length) { perfilesSinError = false; console.log("       " + prof.key + ": " + T.errors.join(" | ")); }
-  src.forEach(s => {
-    const def = prof.sources[s.name];
-    if (s.sensor !== "scenario" || s.enabled !== def.enabled ||
-        JSON.stringify(s.scenario) !== JSON.stringify(def.scenario)) {
-      perfilesSinError = false; console.log("       " + prof.key + "/" + s.name + " no quedo como el archivo");
-    }
-  });
+  const s = srcOf(prof.source);
+  if (s.sensor !== "scenario" || s.enabled !== prof.enabled ||
+      JSON.stringify(s.scenario) !== JSON.stringify(prof.scenario)) {
+    perfilesSinError = false; console.log("       " + prof.key + " no quedo como el archivo");
+  }
+  if (JSON.stringify(srcOf(otherOf(prof.source))) !== antes) {
+    perfilesSinError = false; console.log("       " + prof.key + " toco la otra fuente");
+  }
 });
-check("cada perfil deja las fuentes como dice el archivo, sin errores", perfilesSinError);
-let src = profileOf("tempAlta");
-check("perfil temperatura alta: TEMP1 salta a +2,5 a los 60 s",
-      JSON.stringify(src[1].scenario.points) === "[[0,0],[60,0],[60,2.5]]");
-src = profileOf("campoFuera");
-check("perfil campo fuera de rango: CEM1 sin planta y vigilada",
-      src[0].scenario.setpointDuty === 0 && src[0].enabled === true);
-reset();
-ctx.applyProfile("tempAlta");
-ctx.realSensors();
-check("volver a sensores reales restaura mlx90393 / ds18b20",
-      T.state.detector.sources[0].sensor === "mlx90393" && T.state.detector.sources[1].sensor === "ds18b20");
+check("cada escenario deja SU fuente como dice el archivo y no toca la otra, sin errores", perfilesSinError);
+check("cada escenario es de una sola fuente (TEMP1 o CEM1)",
+      T.SCENARIO_PROFILES.every(p => p.source === "TEMP1" || p.source === "CEM1"));
+check("la pareja de cada fuente existe y es de esa fuente",
+      ["TEMP1", "CEM1"].every(n => (T.SCENARIO_PROFILES.find(p => p.key === T.SCENARIO_FILE.pairWith[n]) || {}).source === n));
+reset(); ctx.applyProfile("tempAlta");
+check("temperatura alta: TEMP1 salta a +2,5 a los 60 s",
+      JSON.stringify(srcOf("TEMP1").scenario.points) === "[[0,0],[60,0],[60,2.5]]");
+reset(); ctx.applyProfile("campoFuera");
+check("campo fuera de rango: CEM1 sin planta y vigilada",
+      srcOf("CEM1").scenario.setpointDuty === 0 && srcOf("CEM1").enabled === true);
+// La combinacion que pidio el usuario: cada fuente por su lado.
+reset(); ctx.applyProfile("tempNormal"); ctx.applyProfile("campoInestable");
+check("se combinan: temperatura normal + campo inestable",
+      ctx.profileOfSource(T.state, "TEMP1") === "tempNormal" && ctx.profileOfSource(T.state, "CEM1") === "campoInestable");
+ctx.realSensorFor("CEM1");
+check("volver una fuente a su sensor real no toca la otra",
+      srcOf("CEM1").sensor === "mlx90393" && ctx.profileOfSource(T.state, "TEMP1") === "tempNormal");
+reset(); ctx.blankScenarioFor("TEMP1");
+check("escenario nuevo: TEMP1 en escenario con la senal plana, como prueba",
+      srcOf("TEMP1").sensor === "scenario" && JSON.stringify(srcOf("TEMP1").scenario.points) === "[]" &&
+      T.state.runType === "test");
 
-// El perfil marcado se deduce de los valores: tiene que reconocer cada
-// perfil recien aplicado, dejar de reconocerlo apenas se edita un numero, y
+// El escenario de cada fuente se deduce de los valores: tiene que reconocer
+// cada uno recien aplicado, dejar de reconocerlo apenas se edita un numero, y
 // reconocer los sensores reales (incluida una config sin seccion detector,
 // que es como corre una placa sin tarjeta).
 let perfilesOk = true;
 T.SCENARIO_PROFILES.forEach(prof => {
   reset(); ctx.applyProfile(prof.key);
-  if (ctx.profileOf(T.state) !== prof.key) { perfilesOk = false; console.log("       no reconoce " + prof.key); }
+  if (ctx.profileOfSource(T.state, prof.source) !== prof.key) { perfilesOk = false; console.log("       no reconoce " + prof.key); }
 });
-check("cada perfil aplicado se reconoce como tal", perfilesOk);
-reset(); ctx.applyProfile("tempAlta"); T.state.detector.sources[1].scenario.points[2][1] = 3;
-check("un perfil editado a mano pasa a personalizado", ctx.profileOf(T.state) === "custom");
+check("cada escenario aplicado se reconoce como tal", perfilesOk);
+reset(); ctx.applyProfile("tempAlta"); srcOf("TEMP1").scenario.points[2][1] = 3;
+check("un escenario editado a mano pasa a personalizado", ctx.profileOfSource(T.state, "TEMP1") === "custom");
 reset();
-check("los defaults son sensores reales", ctx.profileOf(T.state) === "real");
-check("una config sin detector (valores de fabrica) son sensores reales", ctx.profileOf({}) === "real");
-reset(); T.state.detector.sources[1].sensor = "none";
-check("TEMP1 en none no es ningun perfil", ctx.profileOf(T.state) === "custom");
-reset(); ctx.applyProfile("campoInestable"); T.state.detector.sources[0].enabled = false;
-check("campo inestable con CEM1 sin vigilar no se marca como ese perfil",
-      ctx.profileOf(T.state) !== "campoInestable");
+check("los defaults son sensores reales",
+      ctx.profileOfSource(T.state, "TEMP1") === "real" && ctx.profileOfSource(T.state, "CEM1") === "real" &&
+      ctx.profileSummary(T.state) === "sensores reales");
+check("una config sin detector (valores de fabrica) son sensores reales", ctx.profileSummary({}) === "sensores reales");
+reset(); srcOf("TEMP1").sensor = "none";
+check("TEMP1 en none se informa como sin sensor", ctx.profileOfSource(T.state, "TEMP1") === "none");
+reset(); ctx.applyProfile("campoInestable"); srcOf("CEM1").enabled = false;
+check("campo inestable con CEM1 sin vigilar no se marca como ese escenario",
+      ctx.profileOfSource(T.state, "CEM1") !== "campoInestable");
+reset(); ctx.applyProfile("tempAlta"); ctx.applyProfile("campoInestable");
+check("el resumen nombra el escenario de cada fuente",
+      ctx.profileSummary(T.state) === "Temperatura: Temperatura alta · Campo: Campo inestable");
 
 // El simulador del editor (SIM) es una copia en JS de lo que hace el Mega.
 // Se corre con EXACTAMENTE las combinaciones de mega2560/test/test_scenario_runs
@@ -319,8 +335,9 @@ console.log("\n== Simulador del editor vs. el Mega (tools/escenarios.json) ==");
 const COMBOS = [[1, 5, 30, 40, 25, 45], [1, 10, 28, 42, 23, 47], [2, 5, 26, 44, 20, 50],
                 [2, 10, 30, 40, 20, 50], [1, 5, 26, 44, 25, 45]];
 const PHASES = [[250, 1100], [900, 2600], [1650, 4300]];
+// Como en el Mega: cada escenario con la otra fuente en su pareja (el normal).
 T.SCENARIO_PROFILES.forEach(prof => {
-  reset(); ctx.applyProfile(prof.key);
+  reset(); ctx.applyProfile(T.SCENARIO_FILE.pairWith[otherOf(prof.source)]); ctx.applyProfile(prof.key);
   const fallas = [];
   COMBOS.forEach(([i, tol, nmin, nmax, cmin, cmax]) => PHASES.forEach(([cp, tp]) => {
     const r = T.SIM.run(T.state, {intensity: i, frequency: 10, tolerance: tol,
@@ -419,7 +436,11 @@ expectError("un archivo de experimento con el Detector apagado no se puede envia
 reset(); ctx.applyProfile("tempAlta");
 check("elegir un escenario pasa la corrida a prueba", T.state.runType === "test");
 reset(); T.state.runType = "normal";
-check("en experimento el paso Escenarios no existe", ctx.sScenarios() === "");
+check("en experimento el paso Escenarios avisa que hace falta una prueba y no ofrece escenarios",
+      /data-to-test/.test(ctx.sScenarios()) && !/data-scnpick/.test(ctx.sScenarios()));
+reset(); T.state.runType = "test";
+check("en prueba el paso Escenarios ofrece un selector por fuente",
+      (ctx.sScenarios().match(/data-scnpick="/g) || []).length === 2);
 // Cada error/aviso queda asociado a su paso (la pestaña se marca).
 reset(); T.state.detector.sources[1].bufferSize = 99; T.validate();
 check("un error de Fuentes marca el paso 5", (ctx.secCountFor("5") || {}).e > 0);
