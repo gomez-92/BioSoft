@@ -147,10 +147,13 @@ export function Historial() {
 
       {error && <p className="aviso panel-aviso">{error}</p>}
 
+      {/* Las corridas van en un panel con alto minimo: con pocas, la pagina
+          no queda con un bloque chico arriba y un hueco abajo. */}
+      <section className="panel panel-lleno panel-corridas">
       {cargando && items.length === 0 ? (
-        <p className="empty panel">Cargando...</p>
+        <p className="empty">Cargando...</p>
       ) : items.length === 0 ? (
-        <p className="empty panel">
+        <p className="empty">
           {tipo === 'test' ? 'No hay pruebas guardadas que coincidan.' : 'No hay corridas que coincidan.'}
           {tipo === '' && cuentas && cuentas.test > 0 && (
             <> Hay {cuentas.test} prueba{cuentas.test === 1 ? '' : 's'} guardada{cuentas.test === 1 ? '' : 's'}:{' '}
@@ -190,6 +193,7 @@ export function Historial() {
           </button>
         </nav>
       )}
+      </section>
     </>
   );
 }

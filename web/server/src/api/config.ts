@@ -9,7 +9,9 @@ import { PedidoInvalido, enviarConfiguracion, pedidoEnCurso } from '../domain/co
 export const configRouter = Router();
 
 /** La ultima configuracion que la placa informo como vigente. */
-configRouter.get('/config/current', asincrono(async (_req, res) => {
+// Leer la configuracion es solo para administradores: trae los nombres de
+// las redes WiFi y los datos del broker (nunca contrasenas).
+configRouter.get('/config/current', requireAdmin, asincrono(async (_req, res) => {
   const snapshot = await ConfigSnapshot.findOne().sort({ lastReportedAt: -1 }).lean();
   if (!snapshot) { res.json({ configId: null }); return; }
   res.json({
@@ -17,6 +19,7 @@ configRouter.get('/config/current', asincrono(async (_req, res) => {
     reportedAt: snapshot.lastReportedAt ?? null,
     content: snapshot.content ?? null,
     loadStatus: snapshot.loadStatus ?? null,
+    effective: snapshot.effective ?? null,
   });
 }));
 
@@ -27,11 +30,18 @@ configRouter.get('/config/snapshots/:id', asincrono(async (req, res) => {
   res.json({
     configId: snapshot.configId,
     reportedAt: snapshot.lastReportedAt ?? null,
-    content: snapshot.content ?? null,
+    // El detalle de una corrida solo necesita bobinas y umbrales: sin wifi
+    // ni broker, que lo lee cualquier usuario.
+    content: snapshot.content ? sinConectividad(snapshot.content as Record<string, unknown>) : null,
   });
 }));
 
-configRouter.get('/config/requests', asincrono(async (_req, res) => {
+function sinConectividad(content: Record<string, unknown>): Record<string, unknown> {
+  const { wifi: _w, broker: _b, ...resto } = content;
+  return resto;
+}
+
+configRouter.get('/config/requests', requireAdmin, asincrono(async (_req, res) => {
   const items: Array<Record<string, unknown>> = await ConfigRequest.find().sort({ createdAt: -1 })
     .limit(20).select('-text').lean();
   // El ULTIMO envio lleva su contenido: el generador lo muestra como

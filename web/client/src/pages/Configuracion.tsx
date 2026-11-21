@@ -3,6 +3,7 @@ import { authFetch } from '../lib/auth.js';
 import { motivoConfig } from '../lib/format.js';
 import { useEsAdmin } from '../lib/sesion.js';
 import { temaEfectivo, useTema } from '../lib/tema.js';
+import type { PlacaStatus } from '../lib/types.js';
 
 // Configuracion de la placa (tarjeta 24): ver la vigente y mandar una nueva.
 //
@@ -17,6 +18,8 @@ import { temaEfectivo, useTema } from '../lib/tema.js';
 
 interface Vigente {
   configId: string | null; reportedAt?: string | null; content?: unknown; loadStatus?: string | null;
+  /** Redes y broker que la placa usa de verdad, sin contrasenas. */
+  effective?: unknown;
 }
 interface Pedido {
   requestId: string; user?: string; state: string; message?: string | null;
@@ -36,6 +39,8 @@ const NOMBRE_ESTADO: Record<string, string> = {
   incompleta: 'Interrumpida: faltaron bloques',
   error: 'Error en la placa',
   no_entregada: 'La placa no respondio',
+  revertida: 'Revertida: la placa no llego al broker y volvio a la anterior',
+  red_conservada: 'Aplicada, pero la placa conservo la red en uso',
 };
 
 // Que decir del ultimo envio, en el banner de la pagina y en la cabecera del
@@ -53,6 +58,15 @@ export function estadoEnvio(pedido: Pedido | undefined, vigenteId: string | null
       kind: 'progress',
       text: `Enviando a la placa... bloque ${pedido.sentChunks ?? 0} de ${pedido.chunks ?? '?'}`,
       detail: 'Cada bloque espera la confirmacion de la placa antes del siguiente.',
+    };
+  }
+  // Se aplico; solo la red en uso que se quito sigue, porque las otras no
+  // conectaron.
+  if (pedido.state === 'red_conservada') {
+    return {
+      kind: 'ok',
+      text: NOMBRE_ESTADO.red_conservada,
+      detail: [pedido.message, `Enviada ${hora}. El resto de la configuracion ya corre en la placa.`].filter(Boolean).join('. '),
     };
   }
   if (pedido.state === 'aceptada') {
@@ -76,7 +90,7 @@ export function estadoEnvio(pedido: Pedido | undefined, vigenteId: string | null
   };
 }
 
-export function Configuracion() {
+export function Configuracion({ placa }: { placa?: PlacaStatus | null } = {}) {
   const esAdmin = useEsAdmin();
   const marco = useRef<HTMLIFrameElement>(null);
   const [vigente, setVigente] = useState<Vigente | null>(null);
@@ -123,12 +137,15 @@ export function Configuracion() {
 
   // Le pasa al generador la configuracion vigente para cargarla en el
   // formulario, una sola vez: repetirlo pisaria lo que se esta editando.
+  // Va aunque la placa corra con los valores de fabrica (content null): la
+  // vista Conexion necesita igual las redes y el broker EFECTIVOS.
   const cargadaEnFormulario = useRef(false);
   useEffect(() => {
-    if (!generadorListo || !vigente?.content || cargadaEnFormulario.current) return;
+    if (!generadorListo || !vigente?.configId || cargadaEnFormulario.current) return;
     cargadaEnFormulario.current = true;
     marco.current?.contentWindow?.postMessage(
-      { type: 'biosoft-load', config: vigente.content }, window.location.origin,
+      { type: 'biosoft-load', config: vigente.content ?? null, efectivo: vigente.effective ?? null },
+      window.location.origin,
     );
   }, [generadorListo, vigente]);
 
@@ -147,6 +164,8 @@ export function Configuracion() {
       ? { config: vigente.content ?? null, configId: vigente.configId, ...motivoConfig(vigente.configId, vigente.loadStatus) }
       : null,
     enviado,
+    // La red por la que esta conectada la placa: el generador no deja quitarla.
+    redEnUso: placa?.network ?? null,
   });
   useEffect(() => {
     if (!generadorListo) return;
@@ -229,6 +248,15 @@ export function Configuracion() {
     function alRecibir(ev: MessageEvent) {
       if (ev.origin !== window.location.origin || ev.source !== marco.current?.contentWindow) return;
       if (ev.data?.type === 'biosoft-ready') setGeneradorListo(true);
+      if (ev.data?.type === 'biosoft-altura' && typeof ev.data.h === 'number') {
+        setAlturaGenerador(Math.ceil(ev.data.h));
+      }
+      // Cambio de paso (o de vista) en el generador: se vuelve al comienzo del
+      // marco, que es donde empieza lo que se esta mirando.
+      if (ev.data?.type === 'biosoft-arriba' && marco.current) {
+        const tope = marco.current.getBoundingClientRect().top + window.scrollY - 12;
+        if (window.scrollY > tope) window.scrollTo({ top: Math.max(0, tope) });
+      }
       if (ev.data?.type === 'biosoft-send') void enviar(ev.data.config);
       if (ev.data?.type === 'biosoft-scenario-save') void guardarEscenario(ev.data.id ?? null, ev.data.scenario);
       if (ev.data?.type === 'biosoft-scenario-delete') void borrarEscenario(String(ev.data.id), String(ev.data.name ?? ''));
@@ -268,14 +296,11 @@ export function Configuracion() {
     marco.current?.contentWindow?.postMessage({ type: 'biosoft-tema', tema: efectivo }, window.location.origin);
   }, [generadorListo, efectivo]);
 
-  // UNA sola barra de desplazamiento (fase 3): la pagina no scrollea, la
-  // franja de arriba es compacta y el generador ocupa el resto del alto con su
-  // propio scroll. Antes la pagina y el marco scrolleaban por separado y no se
-  // sabia cual movia que. Ver .pagina-config en styles.css.
-  useEffect(() => {
-    document.body.classList.add('pagina-config');
-    return () => document.body.classList.remove('pagina-config');
-  }, []);
+  // UNA sola barra de desplazamiento, la de la pagina: el marco del
+  // generador toma el alto de su contenido (lo informa con "biosoft-altura")
+  // y nunca scrollea por su cuenta. Antes la pagina quedaba fija y el marco
+  // tenia su propio scroll: eran dos, y no se sabia cual movia que.
+  const [alturaGenerador, setAlturaGenerador] = useState<number | null>(null);
 
   return (
     <div className="config-pagina">
@@ -346,6 +371,8 @@ export function Configuracion() {
           src={srcGenerador.current}
           title="Generador de configuracion"
           className="generador"
+          scrolling="no"
+          style={alturaGenerador ? { height: alturaGenerador } : undefined}
         />
       </section>
     </div>

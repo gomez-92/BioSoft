@@ -217,3 +217,14 @@ export function motivoConfig(
   }
   return { texto: 'cargada desde config.json de la tarjeta', aviso: false };
 }
+
+/**
+ * Intensidad de la senal WiFi de la placa (RSSI, en dBm) en palabras. Los
+ * cortes del broker en medio de una corrida suelen ser esto: por debajo de
+ * -80 dBm el enlace pierde paquetes, y la telemetria va sin cola (QoS 0).
+ */
+export function calidadSenal(rssi: number | null | undefined): { texto: string; debil: boolean } | null {
+  if (rssi === null || rssi === undefined || !Number.isFinite(rssi) || rssi >= 0) return null;
+  const texto = rssi >= -55 ? 'excelente' : rssi >= -67 ? 'buena' : rssi >= -75 ? 'regular' : rssi >= -82 ? 'debil' : 'muy debil';
+  return { texto, debil: rssi < -82 };
+}

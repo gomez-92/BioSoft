@@ -62,7 +62,7 @@ export function Usuarios() {
       {enlace && <EnlaceGenerado enlace={enlace} onCerrar={() => setEnlace(null)} />}
 
       <div className="columnas-usuarios">
-        <section className="panel">
+        <section className="panel panel-lleno">
           <h3>Usuarios ({usuarios.length})</h3>
           <div className="tabla-scroll">
             <table className="tabla tabla-usuarios">
@@ -163,7 +163,7 @@ function NuevoUsuario({ correo, onCreado }: {
   }
 
   return (
-    <form className="panel formulario" onSubmit={crear}>
+    <form className="panel formulario panel-lleno" onSubmit={crear}>
       <h3>Nuevo usuario</h3>
       <label htmlFor="nu-usuario">Usuario</label>
       <input id="nu-usuario" value={username} onChange={(e) => setUsername(e.target.value)}

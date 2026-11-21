@@ -19,8 +19,16 @@ constexpr bool DEBUG_REMOTECONFIG = true;
 //   - rechaza el pedido si hay un experimento en curso;
 //   - valida antes de tocar config.json y respalda el anterior en
 //     config.prev.json;
-//   - wifi y broker no viajan nunca (ni de ida ni de vuelta) y se conservan
-//     del archivo vigente al grabar;
+//   - las contrasenas (WiFi y broker) viajan SOLO de ida (2026-11-19): la
+//     placa publica sus redes y su broker sin contrasenas; el monitor puede
+//     mandar una lista de redes nueva y otro broker. Una red o un broker sin
+//     contrasena conserva la que ya tenia la placa, y la red en uso no se
+//     puede quitar (ConfigLoader::mergeRemoteWifi). Sin seccion wifi o
+//     broker, se conservan las del archivo vigente;
+//   - y como un broker mal escrito no tiene red de respaldo, lo recibido se
+//     aplica A PRUEBA: si tras reiniciar la placa no llega al broker en
+//     ConfigTrialMs, vuelve sola a config.prev.json (MySystem::_checkConfigTrial)
+//     y al reconectar le avisa al monitor ("revertida");
 //   - no hay comandos remotos (start/stop/reset) ni reinicio remoto.
 // No hay confirmacion en pantalla: requiere abrir SquareLine y quedo como
 // mejora (tarjeta 26). Consecuencia: lo aceptado se aplica en el proximo
@@ -50,6 +58,13 @@ namespace RemoteConfig {
 
   constexpr const char* NewPath  = "/biosoft/config.new";
   constexpr const char* PrevPath = "/biosoft/config.prev.json";
+  // Marca de "configuracion a prueba": la escribe el receptor al grabar
+  // (contiene el id del pedido) y la borra la placa cuando, ya reiniciada,
+  // llega al broker. Si en ConfigTrialMs no llego, se restaura PrevPath y se
+  // deja RevertedPath (mismo id) para avisarle al monitor al reconectar.
+  constexpr const char* TrialPath    = "/biosoft/config.trial";
+  constexpr const char* RevertedPath = "/biosoft/config.reverted";
+  constexpr unsigned long ConfigTrialMs = 5UL * 60UL * 1000UL;
 
   // Tope de un bloque, en caracteres escapados. Con el envoltorio del
   // mensaje y el topic queda holgado debajo de los 512 del buffer.
@@ -73,8 +88,45 @@ namespace RemoteConfig {
       // La configuracion nueva quedo grabada en la SD. MySystem programa el
       // reinicio que la aplica (ver MySystem::_rebootForConfigIfIdle).
       virtual void onConfigAccepted() {}
+      // La red por la que la placa esta conectada (no se deja quitar). false
+      // si no hay ninguna.
+      virtual bool inUseNetwork(char* ssid, size_t ssidSize, char* password, size_t passwordSize) {
+        return false;
+      }
+      // Las redes que la placa usa DE VERDAD (las de la tarjeta, o las de
+      // secrets.h si la tarjeta no trae seccion wifi), con contrasena: son
+      // las "conocidas" para mergeRemoteWifi. Sin ellas, una red compilada
+      // no se podria conservar sin volver a escribir su contrasena.
+      virtual uint8_t effectiveNetworks(ConfigLoader::WifiNetworkConfig* out, uint8_t max) { return 0; }
+      // Agrega a la meta de la configuracion vigente las redes y el broker
+      // EFECTIVOS, sin contrasenas: con la tarjeta sin esas secciones son
+      // los compilados, y es la unica forma de que el monitor los muestre.
+      virtual void describeConnection(JsonDocument& meta) {}
       virtual ~Output() {}
   };
+
+  // La red en uso se quito, pero la placa solo pudo conectarse por ella:
+  // la conserva (lo publica MySystem al confirmar la configuracion).
+  inline size_t buildNetworkKept(const char* request, const char* ssid, char* buffer, size_t length) {
+    JsonDocument doc;
+    doc["r"] = request;
+    doc["st"] = "red_conservada";
+    char message[120];
+    snprintf(message, sizeof(message), "las otras redes no conectaron: la placa conserva \"%s\"", ssid);
+    doc["msg"] = message;
+    if (measureJson(doc) >= length) return 0;
+    return serializeJson(doc, buffer, length);
+  }
+
+  // Aviso de vuelta atras para el monitor (lo publica MySystem al reconectar).
+  inline size_t buildReverted(const char* request, char* buffer, size_t length) {
+    JsonDocument doc;
+    doc["r"] = request;
+    doc["st"] = "revertida";
+    doc["msg"] = "con esa configuracion la placa no llego al broker en 5 minutos; volvio a la anterior";
+    if (measureJson(doc) >= length) return 0;
+    return serializeJson(doc, buffer, length);
+  }
 
   // Cuantos caracteres ocupa `c` dentro de un string JSON.
   inline size_t escapedLength(char c) {
@@ -170,6 +222,9 @@ namespace RemoteConfig {
         doc["n"] = _total;
         doc["len"] = _length;
         doc["src"] = ConfigLoader::loadStatus();
+        out.describeConnection(doc);
+        // Si con lo efectivo no entra, sale sin: la meta es lo que importa.
+        if (measureJson(doc) >= sizeof(payload)) { doc.remove("ew"); doc.remove("eb"); }
         serializeJson(doc, payload, sizeof(payload));
         if (!out.publishConfigMessage(TopicCurrentMeta, payload, true)) return;
         _active = false;
@@ -261,11 +316,100 @@ namespace RemoteConfig {
           return;
         }
 
-        // El id se informa sobre lo que se va a cargar, sin credenciales:
-        // es exactamente el configId que la placa va a publicar al reiniciar.
+        // Broker: el que venga reemplaza clave por clave al del archivo (las
+        // claves que no vengan quedan en el valor compilado, igual que en la
+        // tarjeta); sin contrasena conserva la del archivo. Sin seccion, se
+        // conserva el del archivo entero.
+        char brokerPassword[ConfigLoader::MaxBrokerPassLength] = "";
+        const ConfigLoader::BrokerConfig& fileBroker = ConfigLoader::brokerConfig();
+        if (doc["broker"].is<JsonObject>()) {
+          JsonObject broker = doc["broker"].as<JsonObject>();
+          const char* tooLong = nullptr;
+          if (strlen(broker["server"] | "") >= ConfigLoader::MaxBrokerHostLength) tooLong = "broker.server es demasiado largo";
+          if (strlen(broker["user"] | "") >= ConfigLoader::MaxBrokerUserLength) tooLong = "broker.user es demasiado largo";
+          if (strlen(broker["clientId"] | "") >= ConfigLoader::MaxBrokerClientIdLength) tooLong = "broker.clientId es demasiado largo";
+          if (strlen(broker["password"] | "") >= ConfigLoader::MaxBrokerPassLength) tooLong = "broker.password es demasiado larga";
+          if (!broker["port"].isNull() && !(broker["port"].is<uint16_t>() && broker["port"].as<uint16_t>() > 0))
+            tooLong = "broker.port tiene que ser un entero de 1 a 65535";
+          if (tooLong != nullptr) {
+            _status(out, _requestId, "invalida", -1, tooLong);
+            _abort();
+            return;
+          }
+          const char* password = broker["password"].is<const char*>() ? broker["password"].as<const char*>()
+                                                                      : fileBroker.password;
+          strncpy(brokerPassword, password, sizeof(brokerPassword) - 1);
+          broker.remove("password");
+        } else if (!doc["broker"].isNull()) {
+          _status(out, _requestId, "invalida", -1, "broker tiene que ser un objeto");
+          _abort();
+          return;
+        } else {
+          ConfigLoader::addBroker(doc);
+          strncpy(brokerPassword, fileBroker.password, sizeof(brokerPassword) - 1);
+          if (doc["broker"].is<JsonObject>()) doc["broker"].remove("password");
+        }
+
+        // Redes WiFi: la lista final (con contrasenas) va al documento.
+        ConfigLoader::WifiNetworkConfig networks[ConfigLoader::MaxWifiNetworks];
+        uint8_t networkCount = 0;
+        bool hasWifi = doc["wifi"].is<JsonArray>();
+        if (!hasWifi && !doc["wifi"].isNull()) {
+          _status(out, _requestId, "invalida", -1, "wifi tiene que ser una lista de redes");
+          _abort();
+          return;
+        }
+        if (hasWifi) {
+          char inUseSsid[ConfigLoader::MaxSsidLength] = "";
+          char inUsePassword[ConfigLoader::MaxWifiPassLength] = "";
+          out.inUseNetwork(inUseSsid, sizeof(inUseSsid), inUsePassword, sizeof(inUsePassword));
+          // Conocidas = las que la placa usa de verdad (tarjeta o secrets.h).
+          ConfigLoader::WifiNetworkConfig known[ConfigLoader::MaxWifiNetworks];
+          uint8_t knownCount = out.effectiveNetworks(known, ConfigLoader::MaxWifiNetworks);
+          if (knownCount == 0) {
+            knownCount = ConfigLoader::fileWifiNetworkCount();
+            memcpy(known, ConfigLoader::fileWifiNetworks(), sizeof(known[0]) * knownCount);
+          }
+          bool droppedInUse = false;
+          const char* reason = ConfigLoader::mergeRemoteWifi(
+            doc["wifi"].as<JsonArrayConst>(), known, knownCount,
+            inUseSsid, inUsePassword, networks, networkCount, droppedInUse);
+          if (reason != nullptr) {
+            _status(out, _requestId, "invalida", -1, reason);
+            _abort();
+            return;
+          }
+          // La red en uso se quito: queda de respaldo hasta confirmar otra.
+          // Si no se quito, un respaldo viejo sobra (o esta en la lista, o se
+          // quito una red que no era la de uso).
+          if (droppedInUse) {
+            if (!ConfigLoader::writeWifiFallback(_storage, inUseSsid, inUsePassword)) {
+              _status(out, _requestId, "error", -1, "no se pudo guardar la red en uso como respaldo; no se toco nada");
+              _abort();
+              return;
+            }
+          } else {
+            _storage.remove(ConfigLoader::FallbackPath);
+          }
+        } else {
+          networkCount = ConfigLoader::fileWifiNetworkCount();
+          memcpy(networks, ConfigLoader::fileWifiNetworks(), sizeof(networks[0]) * networkCount);
+        }
+
+        // El id se informa sobre lo que se va a cargar (sin contrasenas ni
+        // broker): es exactamente el configId que la placa va a publicar al
+        // reiniciar. Por eso se calcula con la lista final de redes y antes de
+        // ponerles la contrasena.
+        if (networkCount > 0) {
+          JsonArray wifi = doc["wifi"].to<JsonArray>();
+          for (uint8_t i = 0; i < networkCount; i++) wifi.add<JsonObject>()["ssid"] = networks[i].ssid;
+        } else {
+          doc.remove("wifi");
+        }
         char newId[ConfigLoader::ConfigIdLength];
         ConfigLoader::configIdOf(doc, newId, sizeof(newId));
-        ConfigLoader::addCredentials(doc);
+        if (networkCount > 0) ConfigLoader::writeWifi(doc, networks, networkCount);
+        if (brokerPassword[0] != '\0' && doc["broker"].is<JsonObject>()) doc["broker"]["password"] = brokerPassword;
 
         // ConfigLoader lee con un buffer de 8 KB: un archivo mas grande se
         // grabaria bien y despues se descartaria entero en el arranque. Por
@@ -278,12 +422,17 @@ namespace RemoteConfig {
           return;
         }
 
-        // Respaldo: el config.json vigente pasa a config.prev.json.
-        if (_storage.exists(ConfigLoader::ConfigPath)
-            && !_storage.copyFile(ConfigLoader::ConfigPath, PrevPath)) {
-          _status(out, _requestId, "error", -1, "no se pudo respaldar config.json; no se toco nada");
-          _abort();
-          return;
+        // Respaldo: el config.json vigente pasa a config.prev.json. Sin
+        // config.json, un prev de antes quedaria como "lo anterior" y la
+        // vuelta atras restauraria un archivo viejo: se borra.
+        if (_storage.exists(ConfigLoader::ConfigPath)) {
+          if (!_storage.copyFile(ConfigLoader::ConfigPath, PrevPath)) {
+            _status(out, _requestId, "error", -1, "no se pudo respaldar config.json; no se toco nada");
+            _abort();
+            return;
+          }
+        } else {
+          _storage.remove(PrevPath);
         }
 
         File output = _storage.openWrite(ConfigLoader::ConfigPath);
@@ -295,6 +444,9 @@ namespace RemoteConfig {
           return;
         }
 
+        // A prueba: si tras reiniciar no llega al broker, vuelve sola.
+        _storage.writeFile(TrialPath, _requestId);
+        _storage.remove(RevertedPath);
         _status(out, _requestId, "aceptada", -1, "la placa se reinicia sola en la pantalla principal", newId);
         out.onConfigAccepted();
         strncpy(_doneRequestId, _requestId, MaxRequestIdLength);

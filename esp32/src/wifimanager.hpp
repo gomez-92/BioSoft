@@ -108,6 +108,8 @@ public:
     WiFiManager();
 
     void begin(const WiFiConfig& config);
+    // Las redes con las que arranco (de la tarjeta o de secrets.h).
+    const WiFiConfig& config() const { return _config; }
     void update();
 
     void setListener(WiFiListener* listener);

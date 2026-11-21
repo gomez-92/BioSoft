@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { authFetch } from '../lib/auth.js';
-import { duracion, horaCorta, motivoConfig } from '../lib/format.js';
+import { calidadSenal, duracion, horaCorta, motivoConfig } from '../lib/format.js';
 import type { PlacaStatus } from '../lib/types.js';
 
 // Estado de la placa segun el ping (server/src/domain/boardping.ts). Va al
@@ -15,6 +15,11 @@ const NOMBRE_APP: Record<string, string> = {
 function detalle(placa: PlacaStatus): string {
   const lineas: string[] = [];
   if (placa.appState) lineas.push(`Estado: ${NOMBRE_APP[placa.appState] ?? placa.appState}`);
+  if (placa.network) {
+    const senal = calidadSenal(placa.rssi);
+    lineas.push(`Red WiFi: ${placa.network}`);
+    if (senal) lineas.push(`Senal: ${placa.rssi} dBm (${senal.texto})`);
+  }
   if (placa.mega !== null) lineas.push(`Placa de control (Mega): ${placa.mega ? 'conectada' : 'NO conectada'}`);
   if (placa.configId) {
     lineas.push(`Configuracion: ${placa.configId === 'default' ? 'valores de fabrica' : placa.configId}`);
@@ -50,6 +55,13 @@ export function EstadoPlaca({ placa, brokerOk }: { placa: PlacaStatus | null; br
     clase = actual.mega === false ? 'punto-aviso' : 'punto-ok';
     texto = `conectada${actual.latenciaMs !== null ? ` · ${actual.latenciaMs} ms` : ''}`;
     if (actual.mega === false) texto += ' · sin Mega';
+    // La red por la que esta y su senal: en la pantalla de la placa solo se
+    // ve si hay WiFi o no.
+    if (actual.network) {
+      const senal = calidadSenal(actual.rssi);
+      texto += ` · ${actual.network}${senal ? ` (senal ${senal.texto}, ${actual.rssi} dBm)` : ''}`;
+      if (senal?.debil) clase = 'punto-aviso';
+    }
     // Una configuracion ignorada (o sin tarjeta) tambien se avisa aca: la
     // placa contesta, pero no corre lo que se le grabo.
     if (motivoConfig(actual.configId, actual.configStatus).aviso) {

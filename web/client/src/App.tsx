@@ -11,6 +11,7 @@ import { Historial } from './pages/Historial.js';
 import { Live } from './pages/Live.js';
 import { Login } from './pages/Login.js';
 import { Restablecer } from './pages/Restablecer.js';
+import { BotonArriba } from './components/BotonArriba.js';
 
 // El detalle carga aparte: los graficos (recharts) son mas de la mitad del
 // bundle y solo se usan ahi y en el grafico de En curso, que tambien los pide
@@ -112,16 +113,20 @@ function Contenido({ sesion, onSalir }: { sesion: Perfil; onSalir: () => void })
       <nav className="navegacion">
         <NavLink to="/" end><Icono nombre="vivo" />En curso</NavLink>
         <NavLink to="/historial"><Icono nombre="historial" />Historial</NavLink>
-        <NavLink to="/configuracion"><Icono nombre="config" />Configuracion</NavLink>
+        {/* Configuracion muestra redes WiFi y broker de la placa: solo admin. */}
+        {sesion.role === 'admin' && <NavLink to="/configuracion"><Icono nombre="config" />Configuracion</NavLink>}
         {sesion.role === 'admin' && <NavLink to="/usuarios"><Icono nombre="usuarios" />Usuarios</NavLink>}
       </nav>
 
+      <BotonArriba />
       <Suspense fallback={<p className="empty panel">Cargando...</p>}>
         <Routes>
           <Route path="/" element={<Live estado={estado} onVerCorrida={(id) => navigate(`/corrida/${id}`)} />} />
           <Route path="/historial" element={<Historial />} />
           <Route path="/corrida/:id" element={<DetalleCorrida />} />
-          <Route path="/configuracion" element={<Configuracion />} />
+          <Route path="/configuracion" element={sesion.role === 'admin'
+            ? <Configuracion placa={estado.placa} />
+            : <p className="empty panel">Solo los administradores ven y cambian la configuracion de la placa.</p>} />
           <Route path="/usuarios" element={sesion.role === 'admin'
             ? <Usuarios />
             : <p className="empty panel">Solo los administradores gestionan usuarios.</p>} />

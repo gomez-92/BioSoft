@@ -13,7 +13,10 @@
 //
 //   monitor -> placa  biosoft/ping  {"r":"<id>"}
 //   placa -> monitor  biosoft/pong  {"r":"<id>","st":"ready","cfg":"<configId>",
-//                                    "cfgst":"ok","mega":true,"up":1234}
+//                                    "cfgst":"ok","mega":true,"up":1234,"net":"<ssid>","rssi":-62}
+// "net" es la red WiFi por la que esta conectada y "rssi" la intensidad de
+// su senal en dBm: el monitor las muestra (en la pantalla de la placa solo se
+// ve si hay WiFi o no), y el generador marca esa red como "en uso".
 //   (cfgst = ConfigLoader::loadStatus(): por que corre esa configuracion)
 //
 // Ninguno de los dos va retenido: un pong retenido le diria a un monitor
@@ -43,7 +46,7 @@ namespace RemotePing {
   // Arma la respuesta en `buffer`. Devuelve los bytes escritos (0 si no entra).
   inline size_t buildPong(const Request& request, const char* state, const char* configId,
                           const char* configStatus, bool megaConnected, unsigned long uptimeSeconds,
-                          char* buffer, size_t length) {
+                          const char* network, int rssi, char* buffer, size_t length) {
     JsonDocument doc;
     doc["r"] = request.id;
     doc["st"] = state;
@@ -51,6 +54,10 @@ namespace RemotePing {
     doc["cfgst"] = configStatus;
     doc["mega"] = megaConnected;
     doc["up"] = uptimeSeconds;
+    if (network != nullptr && network[0] != '\0') {
+      doc["net"] = network;
+      doc["rssi"] = rssi;
+    }
     if (measureJson(doc) >= length) return 0;
     return serializeJson(doc, buffer, length);
   }

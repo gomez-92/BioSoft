@@ -3,6 +3,11 @@ node_modules
 **/dist
 .env
 **/.env
+# El archivo que arma tools/generador-despliegue.html: credenciales de Atlas,
+# del broker y el JWT_SECRET. Se cargan con `flyctl secrets import`; con
+# `COPY . .` viajaria al builder remoto y quedaria en la capa de build.
+*.env
+**/*.env
 *.log
 mosquitto
 docker-compose.yml

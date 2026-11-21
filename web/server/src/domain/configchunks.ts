@@ -61,12 +61,61 @@ export function crc32(text: string): string {
   return ((crc ^ 0xFFFFFFFF) >>> 0).toString(16).padStart(8, '0');
 }
 
+// Topes de la placa (ConfigLoader: MaxSsidLength, MaxBroker*Length...), sin
+// el terminador.
+export const MAX_REDES = 5;
+const TOPE = { ssid: 32, clave: 63, host: 63, usuario: 31, claveBroker: 63, clientId: 31 };
+
 /**
- * Lo que se le manda a la placa: la configuracion SIN wifi ni broker. Las
- * credenciales no viajan nunca por MQTT; la placa conserva las del archivo
- * vigente al grabar.
+ * WiFi y broker viajan a la placa desde 2026-11-19 (antes no viajaban nunca).
+ * Las contrasenas van SOLO de ida: una red o un broker sin `password`
+ * conserva la que ya tiene la placa. Devuelve el motivo si algo no entra en
+ * la placa, o null. La placa vuelve a validar (y no deja quitar la red en
+ * uso).
  */
-export function sinCredenciales(config: Record<string, unknown>): Record<string, unknown> {
-  const { wifi: _wifi, broker: _broker, ...resto } = config;
-  return resto;
+export function problemaDeCredenciales(config: Record<string, unknown>): string | null {
+  const texto = (v: unknown) => typeof v === 'string';
+  if (config.wifi !== undefined) {
+    if (!Array.isArray(config.wifi)) return 'wifi tiene que ser una lista de redes';
+    if (config.wifi.length > MAX_REDES) return `no entran mas de ${MAX_REDES} redes WiFi`;
+    for (const red of config.wifi as Array<Record<string, unknown>>) {
+      if (!red || typeof red !== 'object' || !texto(red.ssid) || !(red.ssid as string).trim()) {
+        return 'hay una red WiFi sin nombre (ssid)';
+      }
+      if ((red.ssid as string).length > TOPE.ssid) return `el nombre de red "${red.ssid}" pasa de ${TOPE.ssid} caracteres`;
+      if (red.password !== undefined && (!texto(red.password) || (red.password as string).length > TOPE.clave)) {
+        return `la contrasena de "${red.ssid}" tiene que ser texto de hasta ${TOPE.clave} caracteres`;
+      }
+    }
+  }
+  if (config.broker !== undefined) {
+    const b = config.broker as Record<string, unknown>;
+    if (!b || typeof b !== 'object' || Array.isArray(b)) return 'broker tiene que ser un objeto';
+    const largo = (k: string, max: number) => b[k] !== undefined && (!texto(b[k]) || (b[k] as string).length > max);
+    if (largo('server', TOPE.host)) return `broker.server tiene que ser texto de hasta ${TOPE.host} caracteres`;
+    if (largo('user', TOPE.usuario)) return `broker.user tiene que ser texto de hasta ${TOPE.usuario} caracteres`;
+    if (largo('password', TOPE.claveBroker)) return `broker.password tiene que ser texto de hasta ${TOPE.claveBroker} caracteres`;
+    if (largo('clientId', TOPE.clientId)) return `broker.clientId tiene que ser texto de hasta ${TOPE.clientId} caracteres`;
+    if (b.port !== undefined && !(Number.isInteger(b.port) && (b.port as number) >= 1 && (b.port as number) <= 65535)) {
+      return 'broker.port tiene que ser un entero de 1 a 65535';
+    }
+  }
+  return null;
+}
+
+/**
+ * La misma configuracion SIN contrasenas: es lo que se guarda en la base
+ * (el pedido) y lo unico que vuelve de la placa. Las contrasenas solo pasan
+ * por el monitor camino a la placa.
+ */
+export function sinContrasenas(config: Record<string, unknown>): Record<string, unknown> {
+  const copia: Record<string, unknown> = { ...config };
+  if (Array.isArray(config.wifi)) {
+    copia.wifi = (config.wifi as Array<Record<string, unknown>>).map(({ password: _p, ...red }) => red);
+  }
+  if (config.broker && typeof config.broker === 'object') {
+    const { password: _p, ...broker } = config.broker as Record<string, unknown>;
+    copia.broker = broker;
+  }
+  return copia;
 }

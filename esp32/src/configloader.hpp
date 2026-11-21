@@ -1092,13 +1092,27 @@ namespace ConfigLoader {
         uint32_t value() const { return ~crc; }
     };
 
-    // Va despues de cargar todas las secciones: saca wifi y broker del
+    // Lo que entra en el id y en el texto publicado: wifi y broker SIN
+    // contrasenas. Las contrasenas no salen nunca de la placa (el texto se
+    // publica RETENIDO en el broker); el resto si, para que el monitor
+    // muestre que redes y que broker tiene, y para que cambiarlos desde la
+    // web cambie el id -- si no, el monitor veria "vigente" una
+    // configuracion que solo cambia redes antes de que la placa reinicie.
+    inline void stripCredentials(JsonDocument& doc) {
+      JsonObject broker = doc["broker"].as<JsonObject>();
+      if (broker.isNull()) doc.remove("broker");
+      else broker.remove("password");
+      JsonArray wifi = doc["wifi"].as<JsonArray>();
+      if (wifi.isNull()) { doc.remove("wifi"); return; }
+      for (JsonObject network : wifi) network.remove("password");
+    }
+
+    // Va despues de cargar todas las secciones: saca las credenciales del
     // documento (ya se copiaron a sus buffers), lo serializa en una linea y
     // hashea ESE texto. Mismo firmware, misma serializacion, mismo id -- y el
     // texto publicado tiene exactamente ese CRC, que el monitor verifica.
     inline void computeConfigId(JsonDocument& doc) {
-      doc.remove("wifi");
-      doc.remove("broker");
+      stripCredentials(doc);
       size_t length = serializeJson(doc, _currentText, MaxFileSize);
       if (length >= MaxFileSize - 1) {
         // No deberia pasar (el archivo entero entro en MaxFileSize y esto es
@@ -1252,7 +1266,14 @@ namespace ConfigLoader {
       _loadStatus = "experiment";
       DEBUG_PRINT(DEBUG_CONFIGLOADER, F("[CONFIG] "));
       DEBUG_PRINT(DEBUG_CONFIGLOADER, incoherence);
-      DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F(": se descarta el archivo entero, se usan los defaults"));
+      DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F(": se descarta la configuracion, se usan los defaults"));
+      // La red y el broker SI se toman del archivo: son conectividad, no
+      // condicion experimental. Descartarlos dejaba la placa con los de
+      // secrets.h -- sin conexion si esos no sirven -- y entonces ni podia
+      // avisarle al monitor por que corre con los valores de fabrica.
+      DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] la red y el broker del archivo se respetan igual"));
+      loadWifi(doc["wifi"]);
+      loadBroker(doc["broker"]);
       return false;
     }
 
@@ -1314,27 +1335,140 @@ namespace ConfigLoader {
   // la configuracion remota (remoteconfig.hpp) para informarle al monitor el
   // id que va a tener la configuracion que acaba de grabar.
   inline void configIdOf(JsonDocument& doc, char* out, size_t size) {
-    doc.remove("wifi");
-    doc.remove("broker");
+    stripCredentials(doc);
     Crc32Print crc;
     serializeJson(doc, crc);
     snprintf(out, size, "%08lx", (unsigned long)crc.value());
   }
 
-  // Agrega al documento las secciones wifi y broker TAL COMO LAS TRAIA el
-  // archivo vigente (las que no traia no se inventan: siguen saliendo de
-  // secrets.h). La configuracion remota nunca las transporta -- no viajan
-  // credenciales por MQTT -- asi que al grabar el archivo nuevo hay que
-  // volver a ponerlas, o la placa perderia la red en el proximo reinicio.
-  inline void addCredentials(JsonDocument& doc) {
-    if (_wifiNetworkCount > 0) {
-      JsonArray wifi = doc["wifi"].to<JsonArray>();
-      for (uint8_t i = 0; i < _wifiNetworkCount; i++) {
-        JsonObject network = wifi.add<JsonObject>();
-        network["ssid"] = _wifiNetworks[i].ssid;
-        network["password"] = _wifiNetworks[i].password;
+  // Redes WiFi que llegan desde el monitor web (configuracion remota) ->
+  // la lista que se graba. Reglas:
+  //  - Una red sin "password" conserva la que ya tiene la placa: las
+  //    contrasenas no vuelven nunca al monitor, asi que una red que no se
+  //    toco llega sin ella. Si la placa no la conoce, es un error (no se
+  //    puede adivinar). "password": "" es una red abierta.
+  //  - La red por la que la placa esta conectada SE PUEDE quitar, pero no
+  //    de una: `droppedInUse` avisa que falta, y el receptor la guarda como
+  //    RESPALDO (FallbackPath), que la placa suma al final de su lista hasta
+  //    confirmar que llego al broker por OTRA red. Recien ahi la borra; si
+  //    solo pudo conectarse por ella, la conserva y lo avisa. Asi un envio con
+  //    redes mal escritas nunca deja a la placa incomunicada. Por eso, si se
+  //    quita, tiene que quedar al menos otra red y un lugar libre para ella.
+  //  - Una red repetida se descarta (la segunda nunca se probaria).
+  // Pura (sin WiFi ni globales) para poder probarla en la PC. Devuelve el
+  // motivo del rechazo, o nullptr si quedo bien.
+  inline const char* mergeRemoteWifi(JsonArrayConst incoming,
+                                     const WifiNetworkConfig* known, uint8_t knownCount,
+                                     const char* inUseSsid, const char* inUsePassword,
+                                     WifiNetworkConfig* out, uint8_t& outCount, bool& droppedInUse) {
+    static char reason[112];
+    outCount = 0;
+    droppedInUse = false;
+    for (JsonObjectConst network : incoming) {
+      const char* ssid = network["ssid"] | "";
+      if (ssid[0] == '\0') return "hay una red WiFi sin nombre (ssid)";
+      if (strlen(ssid) >= MaxSsidLength) return "un nombre de red WiFi pasa de 32 caracteres";
+      bool repeated = false;
+      for (uint8_t i = 0; i < outCount; i++) repeated = repeated || strcmp(out[i].ssid, ssid) == 0;
+      if (repeated) continue;
+      if (outCount >= MaxWifiNetworks) return "hay mas de 5 redes WiFi";
+
+      const char* password = nullptr;
+      if (network["password"].is<const char*>()) {
+        password = network["password"];
+      } else {
+        for (uint8_t i = 0; i < knownCount && password == nullptr; i++) {
+          if (strcmp(known[i].ssid, ssid) == 0) password = known[i].password;
+        }
+        if (password == nullptr && inUseSsid != nullptr && strcmp(inUseSsid, ssid) == 0) password = inUsePassword;
+        if (password == nullptr) {
+          snprintf(reason, sizeof(reason), "falta la contrasena de la red \"%s\" (la placa no la conoce)", ssid);
+          return reason;
+        }
+      }
+      if (strlen(password) >= MaxWifiPassLength) return "una contrasena de WiFi pasa de 63 caracteres";
+      strcpy(out[outCount].ssid, ssid);
+      strcpy(out[outCount].password, password);
+      outCount++;
+    }
+
+    if (inUseSsid != nullptr && inUseSsid[0] != '\0') {
+      bool present = false;
+      for (uint8_t i = 0; i < outCount; i++) present = present || strcmp(out[i].ssid, inUseSsid) == 0;
+      if (!present) {
+        if (outCount == 0) {
+          snprintf(reason, sizeof(reason), "para quitar la red en uso (\"%s\") tiene que quedar al menos otra red", inUseSsid);
+          return reason;
+        }
+        if (outCount >= MaxWifiNetworks) {
+          snprintf(reason, sizeof(reason), "hasta confirmar otra red, la red en uso (\"%s\") ocupa un lugar: entran 4 redes", inUseSsid);
+          return reason;
+        }
+        droppedInUse = true;
       }
     }
+    return nullptr;
+  }
+
+  // Red de respaldo: la red en uso que se quito desde la web, hasta que la
+  // placa confirme otra (ver mergeRemoteWifi). {"ssid": ..., "password": ...}
+  constexpr const char* FallbackPath = "/biosoft/wifi.fallback.json";
+  inline WifiNetworkConfig _fallbackNetwork;
+  inline bool _hasFallback = false;
+  inline const WifiNetworkConfig* fallbackNetwork() { return _hasFallback ? &_fallbackNetwork : nullptr; }
+
+  // La lee setup(), despues de load(): el .ino la suma al final de la lista.
+  inline void loadWifiFallback(SdStorage& storage) {
+    _hasFallback = false;
+    if (!storage.isReady() || !storage.exists(FallbackPath)) return;
+    char text[160];
+    if (!storage.readFile(FallbackPath, text, sizeof(text))) return;
+    JsonDocument doc;
+    if (deserializeJson(doc, (const char*)text)) return;
+    const char* ssid = doc["ssid"] | "";
+    const char* password = doc["password"] | "";
+    if (ssid[0] == '\0' || strlen(ssid) >= MaxSsidLength || strlen(password) >= MaxWifiPassLength) return;
+    strcpy(_fallbackNetwork.ssid, ssid);
+    strcpy(_fallbackNetwork.password, password);
+    _hasFallback = true;
+    DEBUG_PRINT(DEBUG_CONFIGLOADER, F("[CONFIG] red de respaldo (en uso, pendiente de quitar): "));
+    DEBUG_PRINTLN(DEBUG_CONFIGLOADER, _fallbackNetwork.ssid);
+  }
+
+  inline bool writeWifiFallback(SdStorage& storage, const char* ssid, const char* password) {
+    JsonDocument doc;
+    doc["ssid"] = ssid;
+    doc["password"] = password;
+    char text[160];
+    if (serializeJson(doc, text, sizeof(text)) >= sizeof(text) - 1) return false;
+    return storage.writeFile(FallbackPath, text);
+  }
+
+  // Las redes que ya tiene la placa (las del archivo vigente; sin seccion
+  // wifi, ninguna: corre con las de secrets.h).
+  inline const WifiNetworkConfig* fileWifiNetworks() { return _wifiNetworks; }
+  inline uint8_t fileWifiNetworkCount() { return _wifiNetworkCount; }
+
+  // Escribe una lista de redes en el documento (reemplaza la que hubiera).
+  inline void writeWifi(JsonDocument& doc, const WifiNetworkConfig* networks, uint8_t count) {
+    JsonArray wifi = doc["wifi"].to<JsonArray>();
+    for (uint8_t i = 0; i < count; i++) {
+      JsonObject network = wifi.add<JsonObject>();
+      network["ssid"] = networks[i].ssid;
+      network["password"] = networks[i].password;
+    }
+  }
+
+  // Agrega al documento las secciones wifi y broker TAL COMO LAS TRAIA el
+  // archivo vigente (las que no traia no se inventan: siguen saliendo de
+  // secrets.h). Es lo que se graba cuando la configuracion remota no trae
+  // wifi; el broker no viaja nunca desde la web, asi que va siempre.
+  inline void addBroker(JsonDocument& doc);
+  inline void addCredentials(JsonDocument& doc) {
+    if (_wifiNetworkCount > 0) writeWifi(doc, _wifiNetworks, _wifiNetworkCount);
+    addBroker(doc);
+  }
+  inline void addBroker(JsonDocument& doc) {
     bool hasBroker = _brokerConfig.server[0] != '\0' || _brokerConfig.port != 0
       || _brokerConfig.user[0] != '\0' || _brokerConfig.password[0] != '\0'
       || _brokerConfig.clientId[0] != '\0';

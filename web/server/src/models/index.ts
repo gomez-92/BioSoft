@@ -168,6 +168,11 @@ const configSnapshotSchema = new Schema({
   // en "default", que junta cinco causas. Es el del ULTIMO reporte; null si
   // la placa es anterior a este dato.
   loadStatus: { type: String, default: null },
+  // Redes y broker que la placa usa DE VERDAD, sin contrasenas
+  // ({wifi: [ssid], broker: {server, port, user, clientId}}): con la tarjeta
+  // sin esas secciones son los compilados en secrets.h, que no estan en
+  // `content`. null si la placa es anterior a este dato.
+  effective: { type: Schema.Types.Mixed, default: null },
 }, { timestamps: true });
 
 export const ConfigSnapshot = model('ConfigSnapshot', configSnapshotSchema);

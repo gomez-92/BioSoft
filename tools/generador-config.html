@@ -48,8 +48,14 @@
   .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
   label.f{display:block}
   label.f > span:first-child{display:block;font-size:12px;color:var(--muted);margin-bottom:3px}
-  input[type=text],input[type=number],select{width:100%;padding:6px 8px;border-radius:5px;
+  input[type=text],input[type=number],input[type=password],select{width:100%;padding:6px 8px;border-radius:5px;
     border:1px solid var(--line);background:var(--bg);color:var(--ink);font:inherit}
+  input:disabled{opacity:.65;cursor:not-allowed}
+  /* `hidden` tiene que ganarle a los display:flex de los bloques (indice...). */
+  [hidden]{display:none !important}
+  .conn-acciones{display:flex;gap:12px;align-items:center;justify-content:flex-end;flex-wrap:wrap}
+  .conn-acciones span{flex:1;min-width:220px;color:var(--muted)}
+  #btnConexion.on{background:var(--accent);border-color:var(--accent);color:#fff}
   .row{display:flex;gap:10px;align-items:flex-end;padding:8px 0;border-bottom:1px dashed var(--line)}
   .row:last-of-type{border-bottom:0}
   .row .grow{flex:1}
@@ -57,7 +63,9 @@
   .chk{display:flex;gap:7px;align-items:center;white-space:nowrap}
   .sub{border:1px solid var(--line);border-radius:6px;padding:12px 14px;margin-top:12px}
   .sub h3{font-size:13.5px;margin:0 0 10px}
-  .tablewrap{overflow-x:auto}
+  /* Un solo scroll, el de la pagina: las tablas entran enteras. Solo en
+     pantallas angostas pueden correrse de costado. */
+  @media (max-width:700px){ .tablewrap{overflow-x:auto} }
   table{width:100%;border-collapse:collapse;font-size:13px}
   th,td{text-align:left;padding:5px 8px 5px 0;vertical-align:bottom}
   th{color:var(--muted);font-weight:500;font-size:12px}
@@ -70,7 +78,8 @@
      para recorrer el formulario. */
   /* Indice de secciones: el formulario es largo y sin esto habia que bajar
      a ciegas buscando "Escenarios" o "Fuentes" (fase 3). */
-  .indice{display:flex;gap:4px;overflow-x:auto;max-width:1100px;margin:10px auto 0;scrollbar-width:none}
+  /* Los pasos van en las lineas que hagan falta: sin scroll de costado. */
+  .indice{display:flex;flex-wrap:wrap;gap:4px;max-width:1100px;margin:10px auto 0}
   .indice::-webkit-scrollbar{display:none}
   /* Embebido en un celular la cabecera fija se come media pantalla: se
      compacta (sin subtitulo, botones chicos en una fila). */
@@ -197,7 +206,19 @@
   .chart .cp{fill:var(--panel);stroke:var(--accent);stroke-width:2.5;cursor:grab}
   .chart .cp:hover{fill:var(--accent)}
   pre{background:var(--code);border:1px solid var(--line);border-radius:6px;
-      padding:12px;overflow:auto;max-height:340px;font-size:12px}
+      padding:12px;font-size:12px;white-space:pre-wrap;word-break:break-word}
+  /* Un paso con poco contenido no queda como una tarjeta chica arriba y un
+     hueco abajo. En px y no en vh: embebido, el alto del marco sale del
+     contenido, y un vh lo haria crecer sin fin. */
+  #app > section{min-height:460px}
+  /* Embebido no scrollea nunca: el marco toma el alto del contenido y el
+     unico scroll es el de la pagina del monitor. */
+  html.embebido, html.embebido body{overflow:hidden}
+  html.embebido header{position:static}
+  .boton-arriba{position:fixed;right:20px;bottom:20px;z-index:30;width:44px;height:44px;border-radius:50%;
+      border:1px solid var(--line);background:var(--panel);color:var(--ink);font-size:20px;cursor:pointer;
+      box-shadow:0 8px 24px rgba(0,0,0,.2)}
+  .boton-arriba:hover{border-color:var(--accent);color:var(--accent)}
 </style>
 </head>
 <body>
@@ -207,6 +228,7 @@
     <h1>Generador de <code>config.json</code>
       <small>BioSoft — esquema v1 · destino <code>/biosoft/config.json</code> en la SD del CYD</small></h1>
     <input type="file" id="file" accept=".json,application/json" hidden>
+    <button id="btnConexion" hidden title="Redes WiFi y broker: se cambian y se envian aparte, sin recorrer los pasos">Conexion (WiFi y broker)</button>
     <button id="btnLoad">Cargar archivo…</button>
     <button id="btnReset">Restaurar defaults</button>
     <button class="primary" id="dl">Descargar config.json</button>
@@ -224,7 +246,9 @@
 <main>
   <div class="msgs" id="msgs"></div>
   <div id="app"></div>
+  <div id="conexion" hidden></div>
 </main>
+<button type="button" class="boton-arriba" id="arriba" hidden title="Volver arriba" aria-label="Volver arriba">↑</button>
 
 <script>
 "use strict";
@@ -1962,12 +1986,135 @@ if (typeof document.querySelectorAll === "function") {
   });
 }
 
+/* ===========================================================================
+ * WiFi y broker DESDE EL MONITOR (2026-11-19). Embebido, el generador recibe
+ * de la placa sus redes y su broker SIN contrasenas, y lo que envia puede
+ * traerlos de vuelta. Reglas (las mismas que aplica la placa,
+ * ConfigLoader::mergeRemoteWifi):
+ *  - una red o un broker con la contrasena vacia CONSERVA la que ya tiene la
+ *    placa (las contrasenas nunca vuelven al monitor); en una red nueva,
+ *    vacia es una red abierta;
+ *  - la red por la que la placa esta conectada (REMOTE.inUse, del ping) SE
+ *    PUEDE quitar, pero la placa la guarda de respaldo y la borra recien
+ *    cuando confirma que se conecto por otra; si no puede, la conserva;
+ *  - el ORDEN de las filas es la prioridad: la placa se conecta a la primera
+ *    de la lista que ve, y si quedo en una de mas abajo reintenta subir cada
+ *    10 min (nunca durante un experimento).
+ *  - si no se toca nada, wifi y broker no se envian y la placa conserva los
+ *    suyos tal cual.
+ * Abierto con doble clic nada de esto aplica: el archivo lleva todo.
+ * =========================================================================== */
+// wifiSource / brokerSource: "archivo" (la seccion esta en la tarjeta),
+// "firmware" (la tarjeta no la trae: son los compilados en secrets.h, que la
+// placa informa como EFECTIVOS) o null (no se sabe: placa anterior).
+const REMOTE = {active: false, ssids: new Set(), inUse: null, mark: null, boardConfig: null,
+                wifiSource: null, brokerSource: null};
+// Vista Conexion (WiFi y broker) en vez del recorrido por pasos.
+let CONN_VIEW = false;
+
+// Lo llama el monitor (biosoft-load); los tests tambien. `config` es la
+// configuracion vigente de la placa (null si corre con los valores de
+// fabrica); `efectivo`, las redes y el broker que usa de verdad, sin
+// contrasenas ({wifi: [ssid], broker: {...}}).
+function setBoardCredentials(config, efectivo){
+  REMOTE.active = true;
+  REMOTE.boardConfig = config ? clone(config) : null;
+  const eff = efectivo && typeof efectivo === "object" ? efectivo : {};
+  const fileWifi = (Array.isArray(config && config.wifi) ? config.wifi : [])
+    .map(n => String((n && n.ssid) || "").trim()).filter(Boolean);
+  const effWifi = (Array.isArray(eff.wifi) ? eff.wifi : []).map(x => String(x).trim()).filter(Boolean);
+  const lista = fileWifi.length ? fileWifi : effWifi;
+  REMOTE.wifiSource = fileWifi.length ? "archivo" : (effWifi.length ? "firmware" : null);
+  REMOTE.ssids = new Set(lista);
+  state.wifi = lista.slice(0, MAX_WIFI_NETWORKS).map(ssid => ({ssid, password: ""}));
+  while (state.wifi.length < MAX_WIFI_NETWORKS) state.wifi.push({ssid: "", password: ""});
+
+  const fileBroker = config && config.broker && typeof config.broker === "object" ? config.broker : null;
+  const effBroker = eff.broker && typeof eff.broker === "object" ? eff.broker : null;
+  REMOTE.brokerSource = fileBroker ? "archivo" : (effBroker ? "firmware" : null);
+  // Solo lo que informa la placa: loadParsed completa con los valores de
+  // ejemplo de DEFAULTS, y la contrasena de ejemplo se enviaria como si se la
+  // hubiera escrito. La contrasena real nunca viene: vacia = conservar.
+  const b = fileBroker || effBroker || {};
+  state.broker = {server: String(b.server || ""), port: isInt(b.port) ? b.port : 0, user: String(b.user || ""),
+                  password: "", clientId: String(b.clientId || "")};
+  ensureInUse();
+  REMOTE.mark = credentialsMark();
+}
+
+// Lo que manda "Enviar solo la conexion": la configuracion que la placa ya
+// tiene, tal cual, con las redes y el broker cambiados. Asi cambiar una red
+// no obliga a recorrer los pasos (ni arrastra cambios a medio hacer de ellos).
+function connectionJson(){
+  const base = REMOTE.boardConfig ? clone(REMOTE.boardConfig) : {schemaVersion: 1};
+  if (!base.schemaVersion) base.schemaVersion = 1;
+  delete base.wifi;
+  delete base.broker;
+  return Object.assign(base, remoteCredentials());
+}
+function credentialsChanged(){ return REMOTE.mark !== null && credentialsMark() !== REMOTE.mark; }
+function credentialErrors(){ return ((secCount["8"] || {}).e || 0) + ((secCount["9"] || {}).e || 0); }
+function setInUseNetwork(ssid){
+  REMOTE.active = true;
+  REMOTE.inUse = ssid ? String(ssid) : null;
+  const before = credentialsMark();
+  ensureInUse();
+  // Agregar la red en uso no es un cambio: la placa ya la usa.
+  if (REMOTE.mark !== null && before === REMOTE.mark) REMOTE.mark = credentialsMark();
+}
+// Para los tests: vuelve al modo "abierto con doble clic".
+function resetRemoteCredentials(){
+  REMOTE.active = false; REMOTE.ssids = new Set(); REMOTE.inUse = null; REMOTE.mark = null;
+  REMOTE.boardConfig = null; REMOTE.wifiSource = null; REMOTE.brokerSource = null; CONN_VIEW = false;
+}
+function credentialsMark(){ return JSON.stringify({wifi: state.wifi, broker: state.broker}); }
+
+// La red en uso tiene que estar en la lista: si falta (la placa la tomo de
+// secrets.h, o se cargo otro archivo), ocupa la primera fila libre.
+function ensureInUse(){
+  if (!REMOTE.inUse) return;
+  REMOTE.ssids.add(REMOTE.inUse);
+  if (state.wifi.some(n => n.ssid.trim() === REMOTE.inUse)) return;
+  const libre = state.wifi.find(n => !n.ssid.trim() && !n.password);
+  if (libre) { libre.ssid = REMOTE.inUse; libre.password = ""; }
+}
+
+// Lo que viaja: sin contrasena = conservar la que tiene la placa.
+function wifiForSend(){
+  return state.wifi.filter(n => n.ssid.trim()).map(n => {
+    const ssid = n.ssid.trim();
+    return (REMOTE.ssids.has(ssid) && n.password === "") ? {ssid} : {ssid, password: n.password};
+  });
+}
+function brokerForSend(){
+  const b = {};
+  ["server", "user", "clientId"].forEach(k => { if (String(state.broker[k] || "").trim()) b[k] = state.broker[k].trim(); });
+  if (isInt(state.broker.port) && state.broker.port > 0) b.port = state.broker.port;
+  if (state.broker.password) b.password = state.broker.password;
+  return b;
+}
+// Embebido: wifi y broker van solo si cambiaron respecto de lo que trajo la placa.
+function remoteCredentials(){
+  if (REMOTE.mark !== null && credentialsMark() === REMOTE.mark) return {};
+  const out = {};
+  const mark = REMOTE.mark ? JSON.parse(REMOTE.mark) : {wifi: null, broker: null};
+  if (JSON.stringify(state.wifi) !== JSON.stringify(mark.wifi)) out.wifi = wifiForSend();
+  if (JSON.stringify(state.broker) !== JSON.stringify(mark.broker)) out.broker = brokerForSend();
+  return out;
+}
+
 function render(){
+  // Embebido, WiFi y broker no son pasos: van en la vista Conexion, que se
+  // envia aparte (cambiar una red no obliga a recorrer todo).
   document.getElementById("app").innerHTML =
     sRunType() + sMenus() + sIntervals() + sControl() + sCoils() + sDetector() + sScenarios() + sCurrent() + sTelemetry() +
-    (EMBEDDED ? "" : sWifi() + sBroker()) + sPreview();
+    (REMOTE.active ? "" : sWifi() + sBroker()) + sPreview();
+  const conexion = document.getElementById("conexion");
+  if (conexion) conexion.innerHTML = REMOTE.active ? sConexion() : "";
   buildIndex();
   validate();
+  // Al final: buildIndex() vuelve a mostrar el indice de pasos.
+  applyView();
 }
 
 // Indice: un enlace por seccion, armado de sus <h2> ("5b · Escenarios ...").
@@ -2074,7 +2221,9 @@ function fullyReviewed(){
 // Llamada en cada paint(): si el estado cambio, la frontera vuelve al paso
 // donde se hizo el cambio.
 function trackChanges(){
-  const mark = JSON.stringify(state);
+  // Embebido, WiFi y broker no son pasos (vista Conexion): editarlos no hace
+  // recorrer de nuevo la configuracion.
+  const mark = JSON.stringify(REMOTE.active ? Object.assign({}, state, {wifi: null, broker: null}) : state);
   if (stateMark !== null && mark !== stateMark && frontier > currentStep) frontier = currentStep;
   stateMark = mark;
 }
@@ -2143,7 +2292,7 @@ function goToStep(i, focusSection){
   currentStep = i;
   buildIndex();
   updateStepBadges();
-  if (typeof window !== "undefined" && window.scrollTo) window.scrollTo(0, 0);
+  irArriba();
   if (focusSection && focusSection.scrollIntoView) focusSection.scrollIntoView({block: "start"});
 }
 
@@ -2412,6 +2561,7 @@ function sTelemetry(){
 }
 
 function sWifi(){
+  if (REMOTE.active) return sWifiRemote();
   let h = '<section><h2>8 &middot; Redes WiFi</h2>' +
     '<p class="hint"><b>Este archivo va a llevar contrasenas en texto plano</b> en una tarjeta que ' +
     'entra y sale de la PC. Tenelo presente antes de dejarla en cualquier lado. Las redes de aca ' +
@@ -2427,7 +2577,114 @@ function sWifi(){
   return h + '</table></div></section>';
 }
 
+function sConexion(){
+  return '<section><h2>Conexion de la placa</h2><p class="hint">Las redes WiFi y el broker se cambian y se ' +
+    'envian <b>aparte</b> de la configuracion por pasos: <b>Enviar solo la conexion</b> manda la configuracion que ' +
+    'la placa ya tiene, sin tocarla, con las redes y el broker de aca. La placa se reinicia sola para aplicarla ' +
+    '(en Principal y sin experimento) y, si con lo nuevo no llega al broker en 5 minutos, vuelve sola a lo anterior.</p>' +
+    '<div class="conn-acciones"><span id="connResumen"></span>' +
+    '<button type="button" class="primary" id="connSend" data-conn-send="1">Enviar solo la conexion</button></div></section>' +
+    sWifi() + sBroker();
+}
+
+// Muestra el recorrido por pasos o la vista Conexion.
+function applyView(){
+  if (typeof document.querySelectorAll !== "function") return;
+  const enConexion = REMOTE.active && CONN_VIEW;
+  const toggle = (id, hidden) => { const el = document.getElementById(id); if (el) el.hidden = hidden; };
+  toggle("app", enConexion);
+  toggle("indice", enConexion);
+  toggle("pasosPendientes", enConexion);
+  toggle("conexion", !enConexion);
+  ["dl", "btnLoad", "btnReset"].forEach(id => { const el = document.getElementById(id); if (el && enConexion) el.hidden = true; });
+  if (!enConexion) { toggle("btnLoad", false); toggle("btnReset", false); }
+  const send = document.getElementById("send");
+  if (send && EMBEDDED && send.dataset.readonly !== "1") send.hidden = enConexion;
+  const b = document.getElementById("btnConexion");
+  if (b) {
+    b.hidden = !REMOTE.active;
+    b.textContent = enConexion ? "← Volver a la configuracion" : "Conexion (WiFi y broker)";
+    b.classList.toggle("on", enConexion);
+  }
+}
+
+// Estado del boton "Enviar solo la conexion" (desde paint()).
+function paintConnection(){
+  const btn = document.getElementById("connSend");
+  const resumen = document.getElementById("connResumen");
+  if (!btn || !resumen) return;
+  const cambios = [];
+  if (credentialsChanged()) {
+    const c = remoteCredentials();
+    if (c.wifi) cambios.push("redes WiFi");
+    if (c.broker) cambios.push("broker");
+  }
+  const errores = credentialErrors();
+  btn.disabled = errores > 0 || cambios.length === 0;
+  resumen.textContent = errores > 0 ? "Hay errores en las redes o el broker (ver arriba)."
+    : cambios.length ? "Se envia: " + cambios.join(" y ") + ". El resto de la configuracion de la placa no cambia."
+    : "Sin cambios respecto de lo que tiene la placa.";
+}
+
+// Embebido: las redes que tiene la placa, sin contrasenas. La red en uso,
+// fija; las conocidas muestran "(sin cambios)" en vez de su contrasena.
+function sWifiRemote(){
+  let h = '<section><h2>Redes WiFi</h2>' +
+    (REMOTE.wifiSource === "firmware" ? '<p class="hint"><b>La tarjeta de la placa no tiene redes:</b> estas son las ' +
+      'compiladas en el firmware (secrets.h), que la placa informa. Si se cambian, se escriben en la tarjeta y desde ' +
+      'ahi mandan ellas.</p>' : '') +
+    '<p class="hint"><b>El orden es la prioridad:</b> la placa se conecta a la primera red de la lista que ve ' +
+    '(la 1 es la preferida); si quedo en una de mas abajo, cada 10 minutos -- nunca durante un experimento -- ' +
+    'vuelve a buscar una mejor. Las flechas cambian el orden.</p>' +
+    '<p class="hint"><b>Las contrasenas no se muestran nunca</b>: viajan solo hacia la placa y el monitor no las ' +
+    'guarda. En una red que la placa ya tiene, dejar la contrasena vacia la conserva; en una red nueva, vacia es ' +
+    'una red abierta. ' +
+    (REMOTE.inUse ? '<b>La red en uso (' + esc(REMOTE.inUse) + ') se puede quitar, pero no de una:</b> la placa ' +
+      'la guarda de respaldo (ultima en la lista) y la borra recien cuando confirma que se conecto por otra. Si ' +
+      'no puede, la conserva y el monitor lo avisa. '
+      : 'Todavia no se sabe por que red esta conectada la placa (ver Placa arriba). ') +
+    'Si con la configuracion nueva la placa no llega al broker en 5 minutos, vuelve sola a la anterior.</p>' +
+    '<div class="tablewrap"><table><tr><th>#</th><th>SSID</th><th>Contrasena</th><th>Orden</th><th></th></tr>';
+  for (let i = 0; i < MAX_WIFI_NETWORKS; i++) {
+    const n = state.wifi[i];
+    const ssid = n.ssid.trim();
+    const enUso = REMOTE.inUse && ssid === REMOTE.inUse;
+    const conocida = REMOTE.ssids.has(ssid);
+    const ultima = i === MAX_WIFI_NETWORKS - 1 || !state.wifi.slice(i + 1).some(x => x.ssid.trim());
+    h += '<tr><td>' + (i + 1) + (i === 0 && ssid ? ' <span style="color:var(--muted)">(preferida)</span>' : '') + '</td>' +
+      '<td style="width:260px"><label class="f"><input type="text" maxlength="' + MAX_SSID + '" data-path="wifi.' + i +
+        '.ssid" data-kind="str" value="' + esc(n.ssid) + '"></label></td>' +
+      '<td style="width:260px"><label class="f"><input type="password" autocomplete="new-password" maxlength="' +
+        MAX_WIFI_PASS + '" data-path="wifi.' + i + '.password" data-kind="str" value="' + esc(n.password) + '"' +
+        (conocida ? ' placeholder="(sin cambios)"' : '') + '></label></td>' +
+      '<td style="white-space:nowrap">' + (ssid ?
+        '<button type="button" class="mini" data-wifi-move="' + i + '" data-dir="-1"' + (i === 0 ? ' disabled' : '') +
+          ' title="Subir (mas prioridad)">↑</button> ' +
+        '<button type="button" class="mini" data-wifi-move="' + i + '" data-dir="1"' + (ultima ? ' disabled' : '') +
+          ' title="Bajar (menos prioridad)">↓</button>' : '') + '</td>' +
+      '<td>' + (enUso ? '<span style="color:var(--muted)">en uso</span>' : '') + '</td></tr>';
+  }
+  return h + '</table></div></section>';
+}
+
 function sBroker(){
+  if (REMOTE.active) return '<section><h2>Broker MQTT</h2>' +
+    '<p class="hint">El broker por el que la placa publica y recibe esta configuracion. <b>Cambiarlo mal deja ' +
+    'a la placa sin contacto</b>: por eso, si con el broker nuevo no se conecta en 5 minutos, vuelve sola a la ' +
+    'configuracion anterior y el monitor lo informa como <b>revertida</b>. La contrasena no se muestra: vacia, ' +
+    'conserva la que tiene la placa. ' + (REMOTE.brokerSource === "firmware" ? '<b>La tarjeta no tiene broker:</b> ' +
+    'estos son los datos compilados en el firmware (secrets.h), que la placa informa. ' : REMOTE.brokerSource === null
+      ? 'La placa no informo su broker (firmware anterior): lo que se deje vacio sigue saliendo del compilado. ' : '') +
+    'El Client ID tiene que ser distinto del del monitor. El certificado sigue compilado en el firmware.</p>' +
+    '<div class="grid">' +
+      txt("broker.server", "Host" + (REMOTE.brokerSource === null ? " (vacio = el compilado)" : ""), MAX_BROKER_HOST) +
+      num("broker.port", INT, "Puerto (0 = el compilado)") +
+      txt("broker.user", "Usuario", MAX_BROKER_USER) +
+      '<label class="f"><span>Contrasena</span><input type="password" autocomplete="new-password" maxlength="' +
+        MAX_BROKER_PASS + '" data-path="broker.password" data-kind="str" value="' + esc(state.broker.password) +
+        '" placeholder="(sin cambios)"></label>' +
+      txt("broker.clientId", "Client ID", MAX_BROKER_CLIENTID) +
+    '</div></section>';
   return '<section><h2>9 &middot; Broker MQTT</h2>' +
     '<p class="hint">Conexion al broker por donde sale la telemetria. A diferencia de las redes, ' +
     'aca <b>cada clave pisa por separado</b> a la de <code>secrets.h</code>: lo que se deje vacio se ' +
@@ -2566,6 +2823,16 @@ document.addEventListener("click", e => {
     undoExperiment();
   } else if (e.target.dataset && e.target.dataset.lib){
     libraryAction(e.target.dataset.lib, e.target.dataset.libSrc || null);
+  } else if (e.target.dataset && e.target.dataset.wifiMove !== undefined){
+    // Subir o bajar una red: el orden es la prioridad con que la placa las prueba.
+    const i = parseInt(e.target.dataset.wifiMove, 10), j = i + parseInt(e.target.dataset.dir, 10);
+    if (j >= 0 && j < state.wifi.length) {
+      const t = state.wifi[i]; state.wifi[i] = state.wifi[j]; state.wifi[j] = t;
+      render();
+    }
+  } else if (e.target.dataset && e.target.dataset.connSend){
+    if (e.target.disabled || credentialErrors() > 0 || !credentialsChanged()) return;
+    window.parent.postMessage({type: "biosoft-send", config: connectionJson()}, window.location.origin);
   } else if (e.target.dataset && e.target.dataset.toTest){
     state.runType = "test";
     runTypeNotice = null;
@@ -2573,7 +2840,57 @@ document.addEventListener("click", e => {
   }
 });
 
-document.getElementById("btnReset").addEventListener("click", () => { state = clone(DEFAULTS); restartSteps(); render(); });
+document.getElementById("btnConexion").addEventListener("click", () => {
+  CONN_VIEW = !CONN_VIEW;
+  applyView();
+  irArriba();
+});
+
+/* ---------- un solo scroll ----------
+ * Embebido, el generador no scrollea: le informa al monitor su alto (el del
+ * contenido, no el de la ventana, o nunca podria achicarse) y el monitor se
+ * lo da al marco. Abierto solo, el boton flotante vuelve arriba. */
+function irArriba(){
+  if (typeof window === "undefined") return;
+  if (EMBEDDED) window.parent.postMessage({type: "biosoft-arriba"}, window.location.origin);
+  else if (window.scrollTo) window.scrollTo(0, 0);
+}
+if (typeof document.querySelector === "function" && typeof window !== "undefined") {
+  if (EMBEDDED) {
+    document.documentElement.classList.add("embebido");
+    let ultimaAltura = 0;
+    const informarAltura = () => {
+      const header = document.querySelector("header"), main = document.querySelector("main");
+      if (!header || !main) return;
+      const alto = Math.ceil(header.offsetHeight + main.offsetHeight);
+      if (alto !== ultimaAltura) {
+        ultimaAltura = alto;
+        window.parent.postMessage({type: "biosoft-altura", h: alto}, window.location.origin);
+      }
+    };
+    if (typeof ResizeObserver === "function") {
+      const obs = new ResizeObserver(informarAltura);
+      obs.observe(document.querySelector("header"));
+      obs.observe(document.querySelector("main"));
+    }
+    window.addEventListener("load", informarAltura);
+    setTimeout(informarAltura, 0);
+  } else {
+    const arriba = document.getElementById("arriba");
+    const revisar = () => { arriba.hidden = window.scrollY < 400; };
+    window.addEventListener("scroll", revisar, {passive: true});
+    arriba.addEventListener("click", () => window.scrollTo({top: 0, behavior: "smooth"}));
+  }
+}
+document.getElementById("btnReset").addEventListener("click", () => {
+  // Embebido, las redes y el broker son los de la placa (vista Conexion):
+  // los defaults de ejemplo no los pisan.
+  const conexion = REMOTE.active ? {wifi: clone(state.wifi), broker: clone(state.broker)} : null;
+  state = clone(DEFAULTS);
+  if (conexion) Object.assign(state, conexion);
+  restartSteps();
+  render();
+});
 document.getElementById("btnLoad").addEventListener("click", () => document.getElementById("file").click());
 document.getElementById("dl").addEventListener("click", download);
 
@@ -2976,8 +3293,20 @@ function validate(){
   /* --- 8. wifi --- */
   vsec = "8";
   const redes = state.wifi.filter(n => n.ssid.trim());
-  if (redes.length === 0) {
+  if (redes.length === 0 && !REMOTE.active) {
     warn("Ninguna red WiFi cargada: la seccion no se escribe y quedan las compiladas en secrets.h.");
+  }
+  // Quitar la red en uso: la placa la guarda de respaldo hasta confirmar otra.
+  // Para eso tiene que quedar otra red, y un lugar libre para el respaldo.
+  if (REMOTE.active && REMOTE.inUse && !redes.some(n => n.ssid.trim() === REMOTE.inUse)) {
+    if (redes.length === 0)
+      err('Para quitar la red en uso ("' + REMOTE.inUse + '") tiene que quedar al menos otra red.');
+    else if (redes.length >= MAX_WIFI_NETWORKS)
+      err('Hasta que la placa confirme otra red, la red en uso ("' + REMOTE.inUse + '") ocupa un lugar de ' +
+          'respaldo: entran ' + (MAX_WIFI_NETWORKS - 1) + ' redes.');
+    else
+      warn('Se quita la red en uso ("' + REMOTE.inUse + '"): la placa la conserva de respaldo y la borra recien ' +
+           'cuando confirme que se conecto por otra. Si ninguna de las otras conecta, la conserva y lo avisa.');
   }
   state.wifi.forEach((n, i) => {
     const tag = "Red WiFi " + (i + 1);
@@ -2990,7 +3319,7 @@ function validate(){
     if (n.ssid.length > MAX_SSID) err(tag + ': el SSID no puede pasar de ' + MAX_SSID + " caracteres.");
     if (n.password.length > MAX_WIFI_PASS)
       err(tag + ": la contrasena no puede pasar de " + MAX_WIFI_PASS + " caracteres (tope de WPA2).");
-    if (!n.password.trim())
+    if (!n.password.trim() && !REMOTE.ssids.has(n.ssid.trim()))
       warn(tag + ' ("' + n.ssid + '"): sin contrasena, se conectaria como red abierta.');
   });
   const ssids = redes.map(n => n.ssid.trim());
@@ -3003,12 +3332,14 @@ function validate(){
 
   /* --- 9. broker --- */
   vsec = "9";
-  if (!state.broker.server.trim())
-    warn("Broker sin host: se usa el compilado en secrets.h.");
+  if (!state.broker.server.trim()) {
+    if (!REMOTE.active) warn("Broker sin host: se usa el compilado en secrets.h.");
+  }
   else if (state.broker.server.length > MAX_BROKER_HOST)
     err("El host del broker no puede pasar de " + MAX_BROKER_HOST + " caracteres.");
-  if (!isInt(state.broker.port) || state.broker.port <= 0 || state.broker.port > 65535)
-    err("El puerto del broker tiene que ser un entero entre 1 y 65535.");
+  // Embebido, 0 es "el compilado" (no se envia).
+  if (!isInt(state.broker.port) || state.broker.port < (REMOTE.active ? 0 : 1) || state.broker.port > 65535)
+    err("El puerto del broker tiene que ser un entero entre 1 y 65535" + (REMOTE.active ? " (0 = el compilado)." : "."));
   // El dashboard esta fuera de la red del equipo: sin TLS las credenciales y
   // los datos del experimento viajan en claro por internet.
   else if (state.broker.port === 1883)
@@ -3020,6 +3351,10 @@ function validate(){
     err("La contrasena del broker no puede pasar de " + MAX_BROKER_PASS + " caracteres.");
   if (state.broker.clientId.length > MAX_BROKER_CLIENTID)
     err("El clientId no puede pasar de " + MAX_BROKER_CLIENTID + " caracteres.");
+  if (REMOTE.active && REMOTE.mark !== null &&
+      JSON.stringify(state.broker) !== JSON.stringify(JSON.parse(REMOTE.mark).broker))
+    warn("Cambia el broker de la placa: si con el nuevo no se conecta en 5 minutos, vuelve sola a la " +
+         "configuracion anterior.");
 
   /* --- 7. telemetry --- */
   vsec = "7";
@@ -3145,8 +3480,9 @@ function buildJson(){
     telemetry: state.telemetry,
     // Las filas sin SSID son lugares vacios del formulario, no redes: se
     // descartan en vez de escribir entradas que el firmware ignoraria.
-    // Embebido no van: las credenciales no viajan por MQTT.
-    ...(EMBEDDED ? {} : {
+    // Embebido van solo si cambiaron, y sin las contrasenas que no se
+    // tocaron (ver remoteCredentials).
+    ...(REMOTE.active ? remoteCredentials() : {
       wifi: state.wifi.filter(n => n.ssid.trim()),
       broker: state.broker
     })
@@ -3157,6 +3493,7 @@ function paint(){
   document.getElementById("preview").textContent = JSON.stringify(buildJson(), null, 2);
   document.getElementById("dl").disabled = errors.length > 0;
   document.getElementById("send").disabled = errors.length > 0;
+  paintConnection();
 
   const li = arr => "<ul>" + arr.map(m => "<li>" + esc(m) + "</li>").join("") + "</ul>";
   let h = "";
@@ -3303,9 +3640,15 @@ if (EMBEDDED) {
   // Solo se aceptan mensajes del monitor que lo embebe (mismo origen).
   window.addEventListener("message", ev => {
     if (ev.origin !== window.location.origin || !ev.data) return;
-    if (ev.data.type === "biosoft-load" && ev.data.config) loadParsed(ev.data.config);
+    if (ev.data.type === "biosoft-load") {
+      if (ev.data.config) loadParsed(ev.data.config);
+      setBoardCredentials(ev.data.config || null, ev.data.efectivo || null);
+      render();
+    }
     if (ev.data.type === "biosoft-board") {
       stages = {placa: ev.data.placa || null, enviado: ev.data.enviado || null};
+      const inUse = ev.data.redEnUso || null;
+      if (inUse !== REMOTE.inUse) { setInUseNetwork(inUse); render(); }
       updateProfileMarks();
     }
     if (ev.data.type === "biosoft-status") showSendStatus(ev.data.status);
@@ -3332,6 +3675,7 @@ if (EMBEDDED) {
     // envia: el servidor lo rechazaria igual, mejor no ofrecer el boton.
     if (ev.data.type === "biosoft-readonly") {
       document.getElementById("send").hidden = true;
+      document.getElementById("send").dataset.readonly = "1";
       document.getElementById("readonlyNote").hidden = false;
       document.getElementById("dl").hidden = false;
     }

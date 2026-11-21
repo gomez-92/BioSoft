@@ -197,6 +197,19 @@
         <span class="que">Enviar con la placa en Resultado: no se reinicia, REPETIR desaparece; al tocar Volver se reinicia</span>
         <span class="det">Lo mismo en Configuraciones (al volver a Principal). Con un experimento en curso
           el envío se rechaza: "Rechazada: hay un experimento en curso".</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f1-wifi-remoto">
+        <span class="que">Cambiar el WiFi desde el monitor (vista Conexión)</span>
+        <span class="det">En Configuración → Conexión agregar una red y «Enviar solo la conexión». Tras el
+          reinicio el log dice <code>[CONFIG] llego al broker: configuracion remota confirmada</code> y el
+          indicador Placa del monitor muestra la red y la señal. Probar quitar la red en uso dejando otra que
+          ande: <code>[CONFIG] conecto por &lt;otra&gt;: se quita la red &lt;en uso&gt;</code>. Y quitarla dejando
+          solo una red inexistente: <code>solo conecto por ...: se conserva</code> y el envío figura
+          «Aplicada, pero la placa conservó la red en uso».</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f1-broker-revertido">
+        <span class="que">Broker mal escrito: vuelve solo a la configuración anterior</span>
+        <span class="det">Enviar un host de broker inexistente. Tras el reinicio la placa no conecta; a los
+          5 minutos el log dice <code>[CONFIG] sin broker en 5 min: se vuelve a la configuracion anterior</code>,
+          reinicia, conecta y el envío pasa a <b>Revertida</b> en el monitor.</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f1-experimento-sd">
         <span class="que">Tarjeta con un experimento que simula un sensor: la placa la descarta entera</span>
         <span class="det">Copiar a mano un <code>config.json</code> con <code>"runType": "normal"</code> y TEMP1 en

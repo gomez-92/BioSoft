@@ -1,0 +1,69 @@
+{
+  "_ayuda": "Datos que el script no puede deducir. Para actualizar el anexo: correr la fecha 'fin', agregar un periodo si hace falta y volver a correr python tools/informe-tiempo.py. Las horas con rastro se recalculan solas.",
+
+  "titulo": "Anexo: Tiempo de desarrollo del software",
+  "proyecto": "BioSoft · Proyecto final de Bioingeniería, Facultad de Ingeniería UNER",
+  "autor": "Mario Ariel Gómez",
+
+  "inicio": "2025-05-09",
+  "corte": "2026-08-19T18:20",
+  "fin": "2026-10-13",
+
+  "etapas": [
+    {
+      "id": "propio",
+      "nombre": "Código propio, con apoyo de ChatGPT",
+      "corto": "Código propio",
+      "ritmo": 10,
+      "texto": "El autor escribió el código y usó la versión gratuita de ChatGPT como apoyo y para revisarlo. El anteproyecto planificaba de octubre de 2025 a febrero de 2026, con una arquitectura de app web, API REST, Mongo y ESP8266. Los rastros muestran que el trabajo empezó antes por esa API, que luego se descartó, y que el diseño cambió por el camino."
+    },
+    {
+      "id": "claude",
+      "nombre": "Con Claude Code",
+      "corto": "Con Claude Code",
+      "ritmo": 20,
+      "texto": "A partir del código anterior, llevado a PlatformIO, Claude Code escribió código bajo la dirección del autor."
+    }
+  ],
+
+  "periodos": [
+    {"etapa": "propio", "desde": "2025-05-09", "hasta": "2025-06-30", "nombre": "May a jun 2025",
+     "trabajo": "API REST en Node y Mongo (experimentos, muestras, usuarios) y cliente en ESP8266. Es parte del proyecto, pero se descartó al final."},
+    {"etapa": "propio", "desde": "2025-07-01", "hasta": "2025-10-31", "nombre": "Jul a oct 2025",
+     "trabajo": "Primeros sketches: pantalla táctil, sensores, protocolo serie, detector de alertas y pruebas por módulo."},
+    {"etapa": "propio", "desde": "2025-11-01", "hasta": "2026-01-31", "nombre": "Nov 2025 a ene 2026",
+     "trabajo": "Prototipos Proto1Mega y Proto1Esp32: arquitectura por módulos, control de campo, LVGL, pantallas y MQTT."},
+    {"etapa": "propio", "desde": "2026-02-01", "hasta": "2026-04-30", "nombre": "Feb a abr 2026",
+     "trabajo": "AvanceFebrero2026, comunicación serie unificada, sensores simulados, pruebas del magnetómetro y exportaciones de interfaz."},
+    {"etapa": "propio", "desde": "2026-05-01", "hasta": "2026-08-19", "nombre": "May a ago 2026",
+     "trabajo": "Pruebas de hardware (campo, generador, corriente), VersionAbril2026 y VersionFinal, la base que se migró."},
+    {"etapa": "claude", "desde": "2026-08-19", "hasta": "2026-08-31", "nombre": "Ago 2026",
+     "trabajo": "Migración a PlatformIO, funciones de punta a punta, auditoría de código y tests nativos."},
+    {"etapa": "claude", "desde": "2026-09-01", "hasta": "2026-09-30", "nombre": "Sep 2026",
+     "trabajo": "Configuración por SD, generador de configuración, manual, interfaz nueva y monitor web."},
+    {"etapa": "claude", "desde": "2026-10-01", "hasta": "2026-10-13", "nombre": "Oct 2026",
+     "trabajo": "Escenarios sintéticos, corte por sensor sin lecturas, medición RMS, configuración remota y puesta en marcha del enlace entre placas."}
+  ],
+
+  "generaciones": [
+    {"nombre": "API REST y ESP8266", "carpetas": "proyecto_todo, API, 8866", "patrones": ["/proyecto_todo/", "c:/API/", "c:/8866/"]},
+    {"nombre": "Sketches iniciales", "carpetas": "Documentos/Arduino", "patrones": ["/OneDrive/"]},
+    {"nombre": "Módulos 2025", "carpetas": "Proyecto, Codigo2560, CodigoEsp32", "patrones": ["Repositorio/Proyecto/", "Repositorio/Codigo2560/", "Repositorio/CodigoEsp32/"]},
+    {"nombre": "Prototipo 1", "carpetas": "Proto1Mega, Proto1Esp32, ProyTest1Esp32, esp32Display", "patrones": ["Repositorio/Proto1Mega/", "Repositorio/Proto1Esp32/", "Repositorio/ProyTest1Esp32/", "Repositorio/esp32Display/"]},
+    {"nombre": "Avance 2026", "carpetas": "AvanceFebrero2026, CommSerial2Proyect", "patrones": ["Repositorio/AvanceFebrero2026/", "Repositorio/CommSerial2Proyect/"]}
+  ],
+
+  "_excluir": "Rutas del historial de VS Code que no son de BioSoft (otros proyectos, configuracion del editor). El repo actual se cuenta por otras fuentes.",
+  "excluir": ["backCristo", "LuchoStudio", "vscode-userdata", "/AppData/", "workspace.json", "play.svg", "MigracionProyectoFinal"],
+
+  "recientes": ["CodigoEsp32", "ESP32_DISPLAY", "Senoidal", "SerialProtocol", "demoMega", "ui_events", "Proyecto.lnk", "Bioingenieria", "Arduino.lnk"],
+
+  "limitaciones": [
+    "**No incluye** la redacción de la tesis, el diseño electrónico, el montaje físico ni la gestión en Trello.",
+    "**Trabajo pendiente.** Tampoco cuenta lo que falta en banco, como calibrar el lazo de control y verificar la medición RMS.",
+    "**La API de mayo y junio de 2025** está incluida: es parte del proyecto aunque se descartó al final. Representa unas {p1_est} de las {e1_est} horas de la primera etapa.",
+    "**El punto de corte** separa quién escribió el código, no el uso de IA. El apoyo de ChatGPT en la primera etapa no deja rastros que permitan medirlo.",
+    "**Carpetas excluidas.** Se dejaron afuera las carpetas ajenas a BioSoft que aparecían en el historial de VS Code.",
+    "**Las carpetas de C:\\Repositorio** ya no están en disco. Se reconstruyeron desde el historial de VS Code y las compilaciones de Arduino."
+  ]
+}

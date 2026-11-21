@@ -467,19 +467,12 @@ h3 .h3-nota { font-weight: 400; color: var(--muted); font-size: 0.8rem; margin-l
 .salir:hover { color: var(--text); border-color: var(--muted); }
 
 /* Configuracion de la placa (tarjeta 24). El generador embebido trae su
-   propio estilo; el marco solo le da lugar. */
-.panel-generador { padding: 0; overflow: hidden; }
-.generador { width: 100%; height: calc(100vh - 110px); min-height: 640px; border: 0; display: block; }
-
-/* Configuracion con UNA sola barra de desplazamiento: la pagina queda fija al
-   alto de la ventana y el generador llena lo que sobra con su propio scroll
-   (que es el que mantiene fija su barra de Enviar y su indice). 100dvh y no
-   100vh: en el celular 100vh incluye la barra del navegador y cortaba abajo. */
-body.pagina-config { overflow: hidden; }
-body.pagina-config main { height: 100vh; height: 100dvh; display: flex; flex-direction: column; padding-bottom: 12px; }
-.config-pagina { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.config-pagina .panel-generador { flex: 1; min-height: 0; display: flex; margin-top: 12px; }
-.config-pagina .generador { height: auto; min-height: 0; flex: 1; }
+   propio estilo; el marco solo le da lugar. UNA sola barra de
+   desplazamiento, la de la pagina: el marco crece al alto de su contenido
+   (el generador lo informa con "biosoft-altura") y nunca scrollea por su
+   cuenta. */
+.panel-generador { padding: 0; overflow: hidden; margin-top: 12px; }
+.generador { width: 100%; min-height: 600px; border: 0; display: block; }
 
 .config-franja {
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 10px 14px; margin-top: 12px;
@@ -503,7 +496,7 @@ body.pagina-config main { height: 100vh; height: 100dvh; display: flex; flex-dir
 .desplegable[open] summary { color: var(--text); border-color: var(--accent); }
 .desplegable-panel {
   position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; width: min(560px, 90vw);
-  max-height: 60vh; overflow: auto; padding: 14px; border-radius: 12px;
+  padding: 14px; border-radius: 12px;
   background: var(--panel-2); border: 1px solid var(--border); box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
   font-size: 0.85rem; color: var(--text);
 }
@@ -515,7 +508,7 @@ body.pagina-config main { height: 100vh; height: 100dvh; display: flex; flex-dir
 .pedido-invalida, .pedido-ocupada, .pedido-incompleta, .pedido-error, .pedido-no_entregada { border-left-color: var(--down); }
 .pedido-estado { font-weight: 600; }
 .pedido-mensaje { color: var(--muted); }
-.config-json { max-height: 420px; overflow: auto; font-size: 0.8rem; }
+.config-json { font-size: 0.8rem; white-space: pre-wrap; word-break: break-word; }
 
 /* Estado del ultimo envio de configuracion: la confirmacion de la placa
    tiene que verse sin buscarla en la lista de envios. */
@@ -668,7 +661,30 @@ td .enlace-texto, .enlace-en-linea { margin-top: 0; text-align: left; }
 }
 .usuario-actual:hover, .usuario-actual.active { color: var(--text); border-color: var(--muted); }
 
-.tabla-scroll { overflow-x: auto; }
+/* Solo en pantallas angostas la tabla puede correrse de costado: en las
+   demas entra entera y el unico scroll es el de la pagina. */
+@media (max-width: 700px) { .tabla-scroll { overflow-x: auto; } }
+
+/* Bloques con poco contenido (Usuarios, Historial con pocas corridas): un
+   alto minimo para que la pagina no quede con un panel chico arriba y un
+   hueco abajo. */
+/* Hasta el pie de la ventana: lo que ocupan arriba la cabecera y la
+   navegacion (~150 px) y el margen de abajo de main (48 px). Historial suma
+   sus pestanas y filtros. */
+.panel-lleno { min-height: calc(100dvh - 214px); }
+.panel-corridas.panel-lleno { min-height: calc(100dvh - 312px); }
+.columnas-usuarios > .panel-lleno { align-self: stretch; }
+/* Dentro del panel, la lista de corridas no repite el margen de arriba. */
+.panel-corridas .lista-corridas { margin-top: 0; }
+
+/* Volver arriba: aparece cuando se bajo lo suficiente como para perder de
+   vista el comienzo de la seccion. */
+.boton-arriba {
+  position: fixed; right: 20px; bottom: 20px; z-index: 30; width: 44px; height: 44px; border-radius: 50%;
+  border: 1px solid var(--border); background: var(--panel-2); color: var(--text); font-size: 1.2rem;
+  cursor: pointer; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25); display: grid; place-items: center;
+}
+.boton-arriba:hover { border-color: var(--accent); color: var(--accent); }
 .tabla-usuarios td { vertical-align: middle; padding-right: 12px; }
 .tenue-celda { color: var(--muted); font-size: 0.8rem; }
 .acciones-fila { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }

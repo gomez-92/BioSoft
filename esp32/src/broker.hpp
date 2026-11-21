@@ -70,6 +70,8 @@ class BrokerManager {
     BrokerManager();
 
     void begin(const MqttConfig& config);
+    // El broker con el que arranco (de la tarjeta o de secrets.h).
+    const MqttConfig& config() const { return _config; }
     void loop();
 
     bool isConnected();

@@ -1,6 +1,6 @@
 import { config } from '../config.js';
 import { ConfigRequest, ConfigSnapshot } from '../models/index.js';
-import { chunkText, crc32, sinCredenciales } from './configchunks.js';
+import { chunkText, crc32, problemaDeCredenciales, sinContrasenas } from './configchunks.js';
 
 // Configuracion remota (tarjeta 24), las dos direcciones:
 //
@@ -41,11 +41,24 @@ function objeto(payload: unknown): Record<string, unknown> | null {
 
 /* ------------------------------ IDA ------------------------------ */
 
-interface Armado { total?: number; loadStatus?: string; bloques: Map<number, string> }
+interface Efectivo { wifi: string[]; broker: Record<string, unknown> | null }
+interface Armado { total?: number; loadStatus?: string; efectivo?: Efectivo; bloques: Map<number, string> }
 
 // Los motivos que la placa puede informar (ConfigLoader::loadStatus). Uno
 // desconocido se guarda como null: mejor "no se sabe" que un texto inventado.
-const LOAD_STATUS = new Set(['ok', 'nosd', 'nofile', 'unreadable', 'invalid', 'schema']);
+const LOAD_STATUS = new Set(['ok', 'nosd', 'nofile', 'unreadable', 'invalid', 'schema', 'experiment']);
+
+// Lo efectivo de la meta ("ew" redes, "eb" broker), solo con los tipos esperados.
+function leerEfectivo(data: Record<string, unknown>): Efectivo | undefined {
+  if (!Array.isArray(data.ew) && !objeto(data.eb)) return undefined;
+  const wifi = Array.isArray(data.ew) ? data.ew.filter((s): s is string => typeof s === 'string') : [];
+  const eb = objeto(data.eb);
+  const broker = eb ? Object.fromEntries(
+    ['server', 'port', 'user', 'clientId'].filter((k) => k in eb && ['string', 'number'].includes(typeof eb[k]))
+      .map((k) => [k, eb[k]]),
+  ) : null;
+  return { wifi, broker };
+}
 const armando = new Map<string, Armado>();
 
 async function completarSiEsta(id: string): Promise<void> {
@@ -58,7 +71,7 @@ async function completarSiEsta(id: string): Promise<void> {
     await ConfigSnapshot.updateOne(
       { configId: id },
       {
-        $set: { lastReportedAt: new Date(), loadStatus: armado.loadStatus ?? null },
+        $set: { lastReportedAt: new Date(), loadStatus: armado.loadStatus ?? null, effective: armado.efectivo ?? null },
         $setOnInsert: { text: '', content: null },
       },
       { upsert: true },
@@ -94,7 +107,10 @@ async function completarSiEsta(id: string): Promise<void> {
 
   await ConfigSnapshot.updateOne(
     { configId: id },
-    { $set: { text: texto, content: contenido, lastReportedAt: new Date(), loadStatus: armado.loadStatus ?? 'ok' } },
+    { $set: {
+      text: texto, content: contenido, lastReportedAt: new Date(), loadStatus: armado.loadStatus ?? 'ok',
+      effective: armado.efectivo ?? null,
+    } },
     { upsert: true },
   );
   console.log(`[config] configuracion vigente de la placa: ${id} (${armado.total} bloques)`);
@@ -112,6 +128,24 @@ async function recibirVigente(topic: string, payload: unknown): Promise<void> {
   if (sufijo === 'meta') {
     if (typeof data.n === 'number') armado.total = data.n;
     if (typeof data.src === 'string' && LOAD_STATUS.has(data.src)) armado.loadStatus = data.src;
+    const efectivo = leerEfectivo(data);
+    if (efectivo) armado.efectivo = efectivo;
+    // La placa publica la meta AL FINAL: para entonces los bloques ya
+    // completaron la configuracion y el armado se cerro. Lo que trae la meta
+    // (por que corre, y las redes y el broker efectivos) se aplica a lo ya
+    // guardado; si todavia no existe, lo toma el cierre de mas abajo.
+    const tarde: Record<string, unknown> = {};
+    if (armado.loadStatus) tarde.loadStatus = armado.loadStatus;
+    if (armado.efectivo) tarde.effective = armado.efectivo;
+    if (Object.keys(tarde).length > 0) {
+      const r = await ConfigSnapshot.updateOne({ configId: id }, { $set: tarde });
+      if (r.matchedCount > 0 && armado.bloques.size === 0 && (armado.total ?? 0) > 0) {
+        // Ya estaba guardada: este armado de la meta sola no espera bloques.
+        armando.delete(id);
+        emitir('config:current', { configId: id });
+        return;
+      }
+    }
   } else if (typeof data.i === 'number' && typeof data.d === 'string') {
     armado.bloques.set(data.i, data.d);
     if (typeof data.n === 'number') armado.total = data.n;
@@ -123,7 +157,7 @@ async function recibirVigente(topic: string, payload: unknown): Promise<void> {
 
 // Estados que cierran un pedido. "parcial" no: es la confirmacion de un
 // bloque, y es lo que habilita mandar el siguiente.
-const FINALES = new Set(['aceptada', 'invalida', 'ocupada', 'incompleta', 'error', 'no_entregada']);
+const FINALES = new Set(['aceptada', 'invalida', 'ocupada', 'incompleta', 'error', 'no_entregada', 'revertida', 'red_conservada']);
 
 let ESPERA_BLOQUE_MS = 5000;
 const REINTENTOS = 3;
@@ -158,7 +192,7 @@ function esperar(requestId: string, ms: number): Promise<Respuesta | null> {
 async function actualizar(requestId: string, cambios: Record<string, unknown>): Promise<void> {
   const pedido = await ConfigRequest.findOneAndUpdate(
     { requestId }, { $set: cambios }, { new: true },
-  ).lean();
+  ).select('-text').lean();
   if (pedido) emitir('config:request', pedido);
 }
 
@@ -212,9 +246,21 @@ export async function enviarConfiguracion(
   const incoherencia = incoherenciaDeExperimento(data);
   if (incoherencia) throw new PedidoInvalido(incoherencia);
 
-  const texto = JSON.stringify(sinCredenciales(data));
+  const credenciales = problemaDeCredenciales(data);
+  if (credenciales) throw new PedidoInvalido(credenciales);
+  // Con el mismo client id que este monitor, el broker echaria a uno de los
+  // dos cada vez que el otro conecta: la placa y el monitor se turnarian.
+  const clientId = (data.broker as { clientId?: unknown } | undefined)?.clientId;
+  if (typeof clientId === 'string' && clientId === config.mqtt.clientId) {
+    throw new PedidoInvalido(`broker.clientId "${clientId}" es el del monitor: la placa necesita uno distinto`);
+  }
+
+  // Lo que viaja lleva las contrasenas que se hayan escrito; lo que se
+  // guarda en la base, no (ver sinContrasenas).
+  const texto = JSON.stringify(data);
+  const guardado = JSON.stringify(sinContrasenas(data));
   // Tope de la placa: ConfigLoader lee con un buffer de 8 KB, y el archivo
-  // que graba (minificado) lleva ademas las credenciales del archivo vigente.
+  // que graba (minificado) puede sumar las contrasenas que ya tenia.
   const bytes = Buffer.byteLength(texto, 'utf8');
   if (bytes > 7000) {
     throw new PedidoInvalido(`la configuracion pesa ${bytes} bytes; el tope es 7000`);
@@ -223,7 +269,7 @@ export async function enviarConfiguracion(
   const bloques = chunkText(texto);
   const requestId = nuevoId();
   await ConfigRequest.create({
-    requestId, user: usuario, text: texto, chunks: bloques.length, state: 'enviando', sentChunks: 0,
+    requestId, user: usuario, text: guardado, chunks: bloques.length, state: 'enviando', sentChunks: 0,
   });
   enCurso = requestId;
 
@@ -294,6 +340,19 @@ async function recibirEstado(payload: unknown): Promise<void> {
   // tiene ya un resultado de la placa. Un reenvio tardio del ultimo bloque
   // llega despues de "aceptada", la placa contesta "incompleta" y eso
   // pisaba el resultado real: la SD estaba grabada y el monitor decia que no.
+  // "revertida" llega despues de "aceptada", a veces minutos despues: la
+  // placa probo la configuracion, no llego al broker y volvio a la anterior
+  // (MySystem::_checkConfigTrial). Es lo unico que puede pisar un "aceptada".
+  // "red_conservada" tambien: se aplico, pero la red en uso que se quito no
+  // se pudo borrar porque las otras no conectaron.
+  if (respuesta.st === 'revertida' || respuesta.st === 'red_conservada') {
+    const pedido = await ConfigRequest.findOneAndUpdate(
+      { requestId: data.r, state: { $in: ['aceptada', ...ABIERTOS] } },
+      { $set: { state: respuesta.st, message: respuesta.msg ?? null } }, { new: true },
+    ).select('-text').lean();
+    if (pedido) emitir('config:request', pedido);
+    return;
+  }
   if (FINALES.has(respuesta.st)) {
     await actualizarSiAbierto(data.r, {
       state: respuesta.st, message: respuesta.msg ?? null, newConfigId: respuesta.id ?? null,
@@ -309,7 +368,7 @@ const ABIERTOS = ['enviando', 'parcial', 'no_entregada'];
 async function actualizarSiAbierto(requestId: string, cambios: Record<string, unknown>): Promise<void> {
   const pedido = await ConfigRequest.findOneAndUpdate(
     { requestId, state: { $in: ABIERTOS } }, { $set: cambios }, { new: true },
-  ).lean();
+  ).select('-text').lean();
   if (pedido) emitir('config:request', pedido);
 }
 

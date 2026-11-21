@@ -614,5 +614,87 @@ check("un archivo viejo con control.tare se lee y no se vuelve a escribir", (() 
   return j.control.tare === undefined && T.state.control.tare === undefined;
 })());
 
+console.log("\n== WiFi y broker desde el monitor (embebido) ==");
+// Lo que la placa publica: redes y broker SIN contrasenas.
+const DE_LA_PLACA = Object.assign(JSON.parse(JSON.stringify(T.DEFAULTS)), {
+  runType: "test",
+  wifi: [{ssid: "Lab"}, {ssid: "Casa"}],
+  broker: {server: "h.emqxsl.com", port: 8883, user: "biosoft", clientId: "biosoft-esp32"},
+});
+const remoto = (inUse, config = DE_LA_PLACA) => {
+  ctx.resetRemoteCredentials();
+  T.loadParsed(JSON.parse(JSON.stringify(config)));
+  ctx.setBoardCredentials(config);
+  ctx.setInUseNetwork(inUse);
+  T.validate();
+};
+remoto("Lab");
+let j = T.buildJson();
+check("sin tocar nada no se envian ni wifi ni broker (la placa conserva los suyos)",
+      j.wifi === undefined && j.broker === undefined && T.errors.length === 0, T.errors.join(" | "));
+remoto("Lab"); T.state.wifi[2] = {ssid: "Bar", password: "clave-bar"}; j = T.buildJson();
+check("una red nueva viaja con su contrasena; las conocidas sin tocar, sin contrasena",
+      JSON.stringify(j.wifi) === JSON.stringify([{ssid: "Lab"}, {ssid: "Casa"}, {ssid: "Bar", password: "clave-bar"}]) &&
+      j.broker === undefined);
+remoto("Lab"); T.state.wifi[1].password = "nueva"; j = T.buildJson();
+check("una contrasena escrita en una red conocida la reemplaza",
+      JSON.stringify(j.wifi[1]) === JSON.stringify({ssid: "Casa", password: "nueva"}));
+remoto("Lab"); T.state.wifi[0] = {ssid: "", password: ""}; T.validate(); j = T.buildJson();
+check("quitar la red en uso se puede, con aviso (queda de respaldo hasta confirmar otra)",
+      T.errors.length === 0 && T.warns.some(w => /respaldo/.test(w)) &&
+      JSON.stringify(j.wifi) === JSON.stringify([{ssid: "Casa"}]), T.errors.join(" | "));
+remoto("Lab"); T.state.wifi = T.state.wifi.map(() => ({ssid: "", password: ""})); T.validate();
+check("quitar la red en uso sin dejar otra es un error", T.errors.some(e => /al menos otra red/.test(e)));
+remoto("Lab"); T.state.wifi = ["A", "B", "C", "D", "E"].map(s => ({ssid: s, password: "x"})); T.validate();
+check("sin la red en uso entran 4 redes (una queda de respaldo)", T.errors.some(e => /entran 4 redes/.test(e)));
+remoto("Lab"); { const t = T.state.wifi[0]; T.state.wifi[0] = T.state.wifi[1]; T.state.wifi[1] = t; }
+check("cambiar el orden (la prioridad) viaja", JSON.stringify(T.buildJson().wifi) === JSON.stringify([{ssid: "Casa"}, {ssid: "Lab"}]));
+remoto("Compilada");
+check("la red en uso que no esta en el archivo (secrets.h) aparece sola, sin contar como cambio",
+      T.state.wifi.some(n => n.ssid === "Compilada") && T.buildJson().wifi === undefined);
+T.state.wifi.find(n => n.ssid === "Casa").ssid = ""; j = T.buildJson();
+check("y si se cambian las redes, viaja sin contrasena (la placa usa la de la conexion)",
+      JSON.stringify(j.wifi) === JSON.stringify([{ssid: "Lab"}, {ssid: "Compilada"}]));
+remoto("Lab"); T.state.broker.server = "otro.emqxsl.com"; T.validate(); j = T.buildJson();
+check("cambiar el broker lo envia sin contrasena (conserva la de la placa) y avisa la vuelta atras",
+      j.broker && j.broker.server === "otro.emqxsl.com" && !("password" in j.broker) && j.wifi === undefined &&
+      T.warns.some(w => /5 minutos/.test(w)));
+remoto("Lab"); T.state.broker.password = "nueva-clave"; j = T.buildJson();
+check("una contrasena de broker escrita viaja", j.broker && j.broker.password === "nueva-clave");
+const sinBroker = Object.assign({}, DE_LA_PLACA); delete sinBroker.broker;
+remoto("Lab", sinBroker);
+check("placa con el broker compilado: campos vacios, sin errores y sin enviar nada",
+      T.state.broker.server === "" && T.state.broker.port === 0 && T.errors.length === 0 &&
+      T.buildJson().broker === undefined, T.errors.join(" | "));
+// La tarjeta sin wifi ni broker: la placa informa los EFECTIVOS (secrets.h).
+const EFECTIVO = {wifi: ["LabCompilada", "CasaCompilada"],
+                  broker: {server: "xxxxxxxx.ala.us-east-1.emqxsl.com", port: 8883, user: "biosoft", clientId: "biosoft-esp32"}};
+const SIN_CONEXION = Object.assign({}, DE_LA_PLACA); delete SIN_CONEXION.wifi; delete SIN_CONEXION.broker;
+ctx.resetRemoteCredentials();
+T.loadParsed(JSON.parse(JSON.stringify(SIN_CONEXION)));
+ctx.setBoardCredentials(SIN_CONEXION, EFECTIVO);
+ctx.setInUseNetwork("LabCompilada");
+T.validate();
+check("tarjeta sin redes ni broker: se precargan los efectivos que informa la placa",
+      T.state.wifi[0].ssid === "LabCompilada" && T.state.wifi[1].ssid === "CasaCompilada" &&
+      T.state.broker.server === EFECTIVO.broker.server && T.state.broker.password === "" && T.errors.length === 0,
+      T.errors.join(" | "));
+check("y sin tocar nada no se envian", T.buildJson().wifi === undefined && T.buildJson().broker === undefined);
+T.state.wifi[2] = {ssid: "Nueva", password: "clave-nueva"};
+j = ctx.connectionJson();
+check("enviar solo la conexion: la configuracion de la placa tal cual, mas las redes",
+      JSON.stringify(j.menus) === JSON.stringify(SIN_CONEXION.menus) && j.runType === "test" && j.schemaVersion === 1 &&
+      JSON.stringify(j.wifi) === JSON.stringify([{ssid: "LabCompilada"}, {ssid: "CasaCompilada"}, {ssid: "Nueva", password: "clave-nueva"}]) &&
+      j.broker === undefined);
+ctx.resetRemoteCredentials();
+ctx.setBoardCredentials(null, EFECTIVO);
+ctx.setInUseNetwork("LabCompilada");
+T.state.broker.server = "otro.emqxsl.com";
+j = ctx.connectionJson();
+check("placa con valores de fabrica: la conexion va sola, con schemaVersion",
+      j.schemaVersion === 1 && j.broker && j.broker.server === "otro.emqxsl.com" && j.menus === undefined);
+ctx.resetRemoteCredentials();
+reset();
+
 console.log(fails === 0 ? "\nTODO OK\n" : "\n" + fails + " FALLA(S)\n");
 process.exit(fails ? 1 : 0);

@@ -73,4 +73,8 @@ export interface PlacaStatus {
   configStatus: string | null;
   mega: boolean | null;
   uptimeSeconds: number | null;
+  /** Red WiFi por la que esta conectada la placa. */
+  network?: string | null;
+  /** Intensidad de la senal WiFi, en dBm. */
+  rssi?: number | null;
 }

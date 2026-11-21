@@ -1358,14 +1358,40 @@ caracteres **ya escapados** dentro del string `d`. Placa y monitor parten igual
 
 1. Parsea `config.new` (con el mismo `schemaVersion` que `ConfigLoader`). Si no
    es valido: `invalida`, no se toca nada.
-2. Calcula el id que va a tener (sin credenciales) y le agrega `wifi` y
-   `broker` **tal como estaban en el archivo vigente**: las credenciales no
-   viajan nunca por MQTT.
+2. Arma `wifi` y `broker` (desde 2026-11-19 viajan desde el monitor; antes
+   no viajaban nunca):
+   - **Contrasenas solo de ida.** La placa publica sus redes y su broker sin
+     contrasenas, y el monitor no las guarda. Una red o un broker que llega
+     sin `password` conserva la que ya tenia la placa; en una red que la
+     placa no conoce eso es un error (`password: ""` es una red abierta).
+   - **La red en uso se puede quitar, pero recien cuando la placa confirma
+     otra**: si falta en la lista, la placa la guarda de respaldo en
+     `/biosoft/wifi.fallback.json` (con la contrasena de la conexion
+     actual), la prueba ULTIMA y, ya reiniciada, la borra si llego al
+     broker por otra red; si solo pudo por ella, la conserva y publica
+     `red_conservada`. Por eso tiene que quedar al menos otra red y entran
+     4 mientras el respaldo esta pendiente (`ConfigLoader::mergeRemoteWifi`).
+   - **El orden de la lista es la prioridad**: la placa se conecta a la
+     primera red que ve; desde una de mas abajo reintenta subir cada 10
+     minutos, nunca durante un experimento.
+   - Una red o un broker sin contrasena que la placa usa desde `secrets.h`
+     (la tarjeta no trae la seccion) tambien se conserva: las "conocidas"
+     son las que usa de verdad, no solo las del archivo.
+   - Sin seccion `wifi` o `broker`, se conservan las del archivo vigente.
+   - El id se calcula con las redes y el broker **sin contrasenas**, asi que
+     cambiar de red cambia el id y el monitor no da por "vigente" algo que la
+     placa todavia no aplico.
 3. Rechaza un archivo que no entraria en el buffer de 8 KB de `ConfigLoader`.
 4. Copia `config.json` a **`config.prev.json`** (respaldo) y graba el nuevo
    `config.json`, **minificado** (indentado podria pasarse de 8 KB con las
    credenciales).
-5. Responde `aceptada` con el id nuevo.
+5. Deja la marca `/biosoft/config.trial` y responde `aceptada` con el id
+   nuevo.
+6. **Al reiniciar, la configuracion corre a prueba**: si la placa llega al
+   broker, la marca se borra. Si en **5 minutos** no llega (WiFi o broker mal
+   escritos), restaura `config.prev.json` (o borra `config.json` si no habia
+   anterior), reinicia y, ya reconectada, publica `revertida` para ese pedido.
+   Nunca durante un experimento: espera a que termine.
 
 Todo por streams de la SD: ningun buffer de 8 KB, que saldria del mismo heap
 que necesita el handshake TLS (tarjetas 17 y 18).
@@ -1381,12 +1407,18 @@ que necesita el handshake TLS (tarjetas 17 y 18).
 | `incompleta` | faltaron bloques o llegaron fuera de orden; o 30 s sin bloque nuevo |
 | `error` | la placa no pudo escribir (sin tarjeta, SD llena...) |
 | `no_entregada` | la placa no confirmo un bloque (estado que pone el monitor) |
+| `revertida` | se grabo, pero con ella la placa no llego al broker en 5 min y volvio a la anterior |
+| `red_conservada` | se aplico, pero se habia quitado la red en uso y las otras no conectaron: la placa la conserva |
 
 ### Salvaguardas, y lo que falta
 
 - Nunca se aplica en caliente; se rechaza durante una corrida; se valida antes
-  de tocar `config.json`; queda el respaldo; `wifi`/`broker` no viajan; no hay
-  comandos ni reinicio remotos.
+  de tocar `config.json`; queda el respaldo; las contrasenas viajan solo de
+  ida; la red en uso se borra recien cuando la placa confirma otra; lo recibido corre a prueba y vuelve
+  solo a lo anterior si pierde el broker; no hay comandos ni reinicio remotos.
+- **Ver y enviar configuracion es solo para administradores**: muestra los
+  nombres de las redes y los datos del broker. El detalle de una corrida (que
+  cualquiera ve) recibe la configuracion sin `wifi` ni `broker`.
 - **No hay confirmacion en la pantalla de la placa** ni boton "Reiniciar
   ahora": requieren SquareLine y quedaron como mejora (tarjeta 26).
   Consecuencia: lo aceptado se aplica en el proximo reinicio, **cualquiera sea

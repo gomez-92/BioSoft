@@ -172,6 +172,14 @@ void setup() {
       config1.add(SECRET_WIFI_SSID_1, SECRET_WIFI_PASS_1); // agregar aca todas las redes
       config1.add(SECRET_WIFI_SSID_2, SECRET_WIFI_PASS_2); // agregar aca todas las redes
     }
+    // Red de respaldo: la que estaba en uso y se quito desde la web. Va
+    // ULTIMA, hasta que la placa confirme otra (MySystem::_checkConfigTrial).
+    ConfigLoader::loadWifiFallback(sdStorage);
+    if (const ConfigLoader::WifiNetworkConfig* fallback = ConfigLoader::fallbackNetwork()) {
+      bool listed = false;
+      for (int i = 0; i < config1.totalNetworks(); i++) listed = listed || strcmp(config1.get(i).ssid, fallback->ssid) == 0;
+      if (!listed) config1.add(fallback->ssid, fallback->password);
+    }
     wiFiManager.begin(config1);
 
     // El broker, en cambio, se pisa clave por clave: lo que la tarjeta no

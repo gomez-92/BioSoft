@@ -163,6 +163,19 @@ coil at a time). Same self-contained rule as the manual; ticks and notes live
 in the browser's `localStorage`. When a step's expected log line or behaviour
 changes in firmware, this page goes stale silently — update it with the code.
 
+`python tools/informe-tiempo.py` regenerates the thesis annex on development
+time (HTML, PDF and `.docx`, into the gitignored `BioSoft/anexo-tiempo/`).
+Everything that cannot be deduced (start/cut/end dates, the author's weekly
+rate per stage, what was done in each period, folders that are not BioSoft)
+lives in `tools/informe-tiempo.json`; to update the annex, move `fin`, add a
+period and rerun. The "hours with a trace" are measured from what the work left
+on *this* PC — VS Code's local history (which kept copies of the deleted
+`C:\Repositorio` prototypes), Arduino IDE build folders, SquareLine backups,
+the reflog, Claude Code logs — so the script only gives the same numbers on
+the author's machine, and Claude Code logs older than ~30 days are already
+gone. It skips its own output folder when scanning the repo but **not** the
+rest of `BioSoft/`: those thesis inventories were real work on 2026-08-21/24.
+
 **The `.docx` is a one-way export, not a synchronized copy.** Re-running the
 script overwrites it. If the manual is ever edited in Word, that file becomes
 the authority and the changes have to come back to the HTML by hand — the same
@@ -1007,9 +1020,46 @@ and `StateListener` (own app state, from `SystemData`).
     `copyFile`). A first draft with two extra buffers took static RAM from
     88 KB to 105 KB.
   - The board writes `config.json` **minified**: pretty-printed, a config that
-    fit when sent can exceed `ConfigLoader`'s 8 KB once credentials are added
-    back (`ConfigLoader::addCredentials()` restores wifi/broker exactly as the
-    file had them; they never travel over MQTT).
+    fit when sent can exceed `ConfigLoader`'s 8 KB once passwords are added
+    back.
+  - **WiFi and broker travel from the web since 2026-11-19** (they used to
+    never travel; the user asked for it to stop pulling the SD card).
+    Passwords go **one way only**: the board publishes its networks and
+    broker without them (`stripCredentials()`), the server stores requests
+    without them (`sinContrasenas()`), and an entry arriving without
+    `password` keeps the board's (`mergeRemoteWifi()`, pure so it can be
+    host-tested; an unknown SSID without one is refused; "known" = the
+    networks the board *really* uses, card or `secrets.h`, from
+    `WiFiManager::config()`). **The network in use can be removed, but only
+    once the board confirms another one** (user decision): `droppedInUse`
+    makes the receiver save it as `/biosoft/wifi.fallback.json` (with
+    `WiFi.psk()`), the `.ino` appends it LAST to the list at boot, and
+    `_checkConfigTrial()` deletes it when the broker is reached through a
+    *different* SSID — or keeps it and reports `red_conservada` (a final
+    status that, like `revertida`, may overwrite `aceptada`). Hence at least
+    one other network must remain and only 4 fit while it is pending. The
+    pong carries `net` + `rssi` (the monitor's Placa badge shows network and
+    signal; the HMI only shows connected or not). **List order is the
+    priority** (`findBestNetwork()`: first visible network in list order;
+    from a lower one it rescans every 10 min, never mid-run) and the
+    generator reorders rows with arrows. Since the card often has no
+    `wifi`/`broker` (compiled in `secrets.h`), the current-config meta
+    carries the **effective** ones without passwords (`ew`/`eb`,
+    `describeConnection()`), stored as `ConfigSnapshot.effective` and
+    pre-filled by the generator. Embedded, WiFi and broker are **not
+    stepper steps**: they live in a separate "Conexion" view whose "Enviar
+    solo la conexion" sends the board's current config untouched plus the
+    changed networks/broker (`connectionJson()`), so changing a network
+    never means walking every step. A wrong broker has no such fallback, so a received config
+    **runs on trial**: `config.trial` marks it, reaching the broker confirms
+    it, and 5 min without the broker (never mid-run) restores
+    `config.prev.json`, reboots and reports `revertida`
+    (`MySystem::_checkConfigTrial()`; with no `config.json` before, a stale
+    prev is deleted at write time so the rollback can't resurrect it). The
+    server refuses a `broker.clientId` equal to its own (the broker would
+    keep kicking one of them). Configuración (page and `/config/current`,
+    `/config/requests`) is **admin-only** now; `/config/snapshots/:id`, used
+    by the run detail, returns content without `wifi`/`broker`.
   - Rejected while `Running`/`Starting`/`Stopping`; applied by reboot, and
     **the board reboots itself** (`MySystem::_rebootForConfigIfIdle()`, option
     A of 2026-11-19) once the receiver calls `Output::onConfigAccepted()` —
@@ -1062,7 +1112,8 @@ and `StateListener` (own app state, from `SystemData`).
 - **Each run carries `CFG` and `RLX` in `targets`** (card 23), for
   traceability. `CFG` = `ConfigLoader::configId()`: CRC32 (IEEE, via a
   `Print` that `serializeJson` feeds byte by byte — no text buffer) of the
-  parsed document **after removing `wifi` and `broker`**, computed at the end
+  parsed document **with `wifi`/`broker` passwords removed** (SSIDs and broker
+  host stay, so changing networks from the web changes the id), computed at the end
   of `load()`; `"default"` whenever the compiled defaults are what runs. Only
   the board computes it — the monitor stores it, never recomputes — and it is
   deliberately not written into the file (a hand-edited file would keep a
@@ -1655,6 +1706,25 @@ Other things worth knowing before touching it:
   (`biosoft-scenarios`) and the outcome (`biosoft-scenario-result`).
   `Scenario.init()` before seeding: without the unique index built, a
   create racing it duplicated a name in tests.
+- **One scroll per page, the page's own** (user requirement, 2026-11-21):
+  no inner scroll boxes. The embedded generator does not scroll: it posts
+  its content height (`biosoft-altura`, header + main measured with a
+  `ResizeObserver` — not the document height, which can never shrink) and
+  `Configuracion.tsx` sizes the iframe to it; a step change posts
+  `biosoft-arriba` so the page returns to the iframe's top. Inside the
+  generator nothing uses `vh` for heights (a `vh` inside an auto-sized
+  iframe grows forever); its step `min-height` is in px. Wide tables may
+  scroll sideways only below 700 px. `BotonArriba` (and `#arriba` in the
+  standalone generator) appears past 400 px. Short pages get
+  `.panel-lleno` (`calc(100dvh - …)`, tuned so Usuarios/Historial reach the
+  window bottom without adding a scrollbar). The generator needs
+  `[hidden]{display:none !important}`: its `display:flex` blocks otherwise
+  ignore `hidden`.
+- **The current-config meta arrives LAST** (after the chunks), so the
+  snapshot is already complete when it lands: `recibirVigente()` applies
+  the meta's `loadStatus`/`effective` to the stored snapshot instead of
+  only to the in-progress assembly — before, the effective WiFi/broker
+  were silently lost on every real publish (the test only covered `n=0`).
 - **Theme: automatic / light / dark** (`lib/tema.ts`), a per-browser
   preference in localStorage, applied as `data-theme` on <html> before the
   first render (`main.tsx`); automatic = no attribute, `prefers-color-scheme`

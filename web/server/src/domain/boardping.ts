@@ -25,6 +25,10 @@ export interface PlacaStatus {
   /** Si la placa ve al Mega por el serial. */
   mega: boolean | null;
   uptimeSeconds: number | null;
+  /** Red WiFi por la que esta conectada (el generador no deja quitarla). */
+  network: string | null;
+  /** Intensidad de la senal WiFi, en dBm (-30 excelente ... -90 inutilizable). */
+  rssi: number | null;
 }
 
 type Publicar = (topic: string, payload: string) => Promise<void>;
@@ -36,7 +40,7 @@ let ESPERA_MS = 5000;
 
 const INICIAL: PlacaStatus = {
   estado: 'desconocido', ultimoPing: null, ultimaRespuesta: null, latenciaMs: null,
-  appState: null, configId: null, configStatus: null, mega: null, uptimeSeconds: null,
+  appState: null, configId: null, configStatus: null, mega: null, uptimeSeconds: null, network: null, rssi: null,
 };
 let status: PlacaStatus = { ...INICIAL };
 
@@ -126,6 +130,8 @@ export function handlePong(payload: unknown, retained = false): void {
     configStatus: typeof data.cfgst === 'string' ? data.cfgst : null,
     mega: typeof data.mega === 'boolean' ? data.mega : null,
     uptimeSeconds: typeof data.up === 'number' ? data.up : null,
+    network: typeof data.net === 'string' ? data.net : null,
+    rssi: typeof data.rssi === 'number' ? data.rssi : null,
   });
   pendiente.resolver(status);
 }

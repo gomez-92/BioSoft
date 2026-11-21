@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { connectTestDb, disconnectTestDb } from './support/db.js';
-import { MAX_CHUNK_ESCAPED, chunkText, crc32, sinCredenciales } from '../src/domain/configchunks.js';
+import { MAX_CHUNK_ESCAPED, chunkText, crc32, problemaDeCredenciales, sinContrasenas } from '../src/domain/configchunks.js';
 
 // Configuracion remota (tarjeta 24). Todo lo que se prueba aca falla en
 // silencio si se rompe: una configuracion mal reensamblada se guardaria como
@@ -46,10 +46,24 @@ describe('chunkText', () => {
   });
 });
 
-describe('sinCredenciales', () => {
-  it('nunca manda wifi ni broker', () => {
-    const limpio = sinCredenciales({ schemaVersion: 1, wifi: [{ ssid: 'x' }], broker: { user: 'u' }, menus: {} });
-    expect(limpio).toEqual({ schemaVersion: 1, menus: {} });
+describe('credenciales (wifi y broker viajan desde 2026-11-19)', () => {
+  it('sin contrasenas: lo que se guarda en la base', () => {
+    const limpio = sinContrasenas({
+      schemaVersion: 1, menus: {},
+      wifi: [{ ssid: 'Lab', password: 'x' }, { ssid: 'Bar' }],
+      broker: { server: 'h', user: 'u', password: 'p' },
+    });
+    expect(limpio).toEqual({ schemaVersion: 1, menus: {}, wifi: [{ ssid: 'Lab' }, { ssid: 'Bar' }], broker: { server: 'h', user: 'u' } });
+  });
+  it('valida contra los topes de la placa', () => {
+    expect(problemaDeCredenciales({ wifi: [{ ssid: 'Lab' }] })).toBeNull();
+    expect(problemaDeCredenciales({ wifi: 'Lab' })).toMatch(/lista/);
+    expect(problemaDeCredenciales({ wifi: [{ ssid: '' }] })).toMatch(/sin nombre/);
+    expect(problemaDeCredenciales({ wifi: [{ ssid: 'x'.repeat(33) }] })).toMatch(/32/);
+    expect(problemaDeCredenciales({ wifi: Array.from({ length: 6 }, (_, i) => ({ ssid: `r${i}` })) })).toMatch(/5 redes/);
+    expect(problemaDeCredenciales({ broker: { port: 0 } })).toMatch(/port/);
+    expect(problemaDeCredenciales({ broker: { server: 'x'.repeat(64) } })).toMatch(/server/);
+    expect(problemaDeCredenciales({ broker: { server: 'h.emqxsl.com', port: 8883 } })).toBeNull();
   });
 });
 
@@ -87,6 +101,22 @@ describe.skipIf(!hayMongo)('configuracion vigente de la placa', () => {
     expect((guardada?.content as { schemaVersion: number }).schemaVersion).toBe(1);
   });
 
+  // Como publica la placa: los bloques y la meta AL FINAL. Para entonces la
+  // configuracion ya se completo; lo efectivo de la meta no se puede perder.
+  it('la meta que llega despues de los bloques igual guarda redes y broker efectivos', async () => {
+    const texto = JSON.stringify({ schemaVersion: 1, menus: { x: 'z'.repeat(900) } });
+    const { id, mensajes } = publicarVigente(texto);
+    const meta = mensajes.pop()!;
+    for (const mensaje of mensajes) await handleConfigMessage(mensaje);
+    expect((await ConfigSnapshot.findOne({ configId: id }).lean())?.text).toBe(texto);
+    await handleConfigMessage({
+      ...meta,
+      payload: { id, n: mensajes.length, src: 'ok', ew: ['Lab'], eb: { server: 'h.emqxsl.com', port: 8883 } } as never,
+    });
+    expect((await ConfigSnapshot.findOne({ configId: id }).lean())?.effective)
+      .toEqual({ wifi: ['Lab'], broker: { server: 'h.emqxsl.com', port: 8883 } });
+  });
+
   // Bloques de dos configuraciones mezclados (retenidos viejos en el broker)
   // darian un texto que no es ninguna de las dos: el CRC lo detecta.
   it('descarta un texto cuyo CRC no coincide con el id', async () => {
@@ -118,11 +148,31 @@ describe.skipIf(!hayMongo)('configuracion vigente de la placa', () => {
     expect((await ConfigSnapshot.findOne({ configId: 'default' }).lean())?.loadStatus).toBe('invalid');
     await meta('inventado');
     expect((await ConfigSnapshot.findOne({ configId: 'default' }).lean())?.loadStatus).toBeNull();
+    await meta('experiment');
+    expect((await ConfigSnapshot.findOne({ configId: 'default' }).lean())?.loadStatus).toBe('experiment');
+  });
+
+  it('guarda las redes y el broker EFECTIVOS que informa la meta, sin nada de mas', async () => {
+    await handleConfigMessage({
+      topic: 'biosoft/config/current/meta',
+      payload: {
+        id: 'default', n: 0, src: 'nofile', ew: ['Lab', 'Casa', 3],
+        eb: { server: 'h.emqxsl.com', port: 8883, user: 'biosoft', clientId: 'esp', password: 'NO' },
+      },
+      retained: true,
+    });
+    const snap = await ConfigSnapshot.findOne({ configId: 'default' }).lean();
+    expect(snap?.effective).toEqual({
+      wifi: ['Lab', 'Casa'], broker: { server: 'h.emqxsl.com', port: 8883, user: 'biosoft', clientId: 'esp' },
+    });
   });
 });
 
 describe.skipIf(!hayMongo)('envio de una configuracion a la placa', () => {
-  const CONFIG = { schemaVersion: 1, runType: 'test', menus: { relleno: 'z'.repeat(1200) }, wifi: [{ ssid: 'SECRETA' }] };
+  const CONFIG = {
+    schemaVersion: 1, runType: 'test', menus: { relleno: 'z'.repeat(1200) },
+    wifi: [{ ssid: 'Lab', password: 'CLAVE-WIFI' }], broker: { server: 'h.emqxsl.com', password: 'CLAVE-BROKER' },
+  };
   let publicados: Array<{ topic: string; payload: { r: string; i: number; n: number; d: string } }>;
 
   // Una placa simulada: confirma cada bloque y, en el ultimo, responde con el
@@ -161,7 +211,7 @@ describe.skipIf(!hayMongo)('envio de una configuracion a la placa', () => {
     await ConfigRequest.deleteMany({});
   });
 
-  it('manda todos los bloques en orden, sin credenciales, y registra la aceptacion', async () => {
+  it('manda todos los bloques en orden, con wifi y broker, y registra la aceptacion', async () => {
     placa((r) => ({ r, st: 'aceptada', id: '0badc0de', msg: 'se aplica en el proximo reinicio' }));
     const { requestId, bloques } = await enviarConfiguracion(CONFIG, 'tester');
     const pedido = await terminado(requestId);
@@ -169,9 +219,49 @@ describe.skipIf(!hayMongo)('envio de una configuracion a la placa', () => {
     expect(pedido.state).toBe('aceptada');
     expect(pedido.newConfigId).toBe('0badc0de');
     expect(publicados.map((m) => m.payload.i)).toEqual([...Array(bloques).keys()]);
-    const texto = publicados.map((m) => m.payload.d).join('');
-    expect(texto).not.toContain('SECRETA');
-    expect(JSON.parse(texto).runType).toBe('test');
+    const enviado = JSON.parse(publicados.map((m) => m.payload.d).join(''));
+    expect(enviado.runType).toBe('test');
+    // Las contrasenas viajan a la placa...
+    expect(enviado.wifi).toEqual([{ ssid: 'Lab', password: 'CLAVE-WIFI' }]);
+    expect(enviado.broker.password).toBe('CLAVE-BROKER');
+    // ...pero no quedan en la base.
+    const guardado = await ConfigRequest.findOne({ requestId }).lean();
+    expect(guardado?.text).not.toContain('CLAVE-WIFI');
+    expect(guardado?.text).not.toContain('CLAVE-BROKER');
+    expect(JSON.parse(guardado!.text!).wifi).toEqual([{ ssid: 'Lab' }]);
+  });
+
+  it('rechaza un broker con el client id del monitor', async () => {
+    placa(() => null);
+    const { config } = await import('../src/config.js');
+    await expect(enviarConfiguracion({ ...CONFIG, broker: { clientId: config.mqtt.clientId } }, 'tester'))
+      .rejects.toThrow('client');
+  });
+
+  it('"revertida" pisa un aceptada: la placa no llego al broker y volvio a la anterior', async () => {
+    placa((r) => ({ r, st: 'aceptada', id: '0badc0de' }));
+    const { requestId } = await enviarConfiguracion(CONFIG, 'tester');
+    expect((await terminado(requestId)).state).toBe('aceptada');
+    await handleConfigMessage({
+      topic: 'biosoft/config/status',
+      payload: { r: requestId, st: 'revertida', msg: 'no llego al broker en 5 minutos' },
+      retained: false,
+    });
+    const pedido = await ConfigRequest.findOne({ requestId }).lean();
+    expect(pedido?.state).toBe('revertida');
+    expect(pedido?.message).toMatch(/broker/);
+  });
+
+  it('"red_conservada" pisa un aceptada: se aplico, pero la red en uso que se quito sigue', async () => {
+    placa((r) => ({ r, st: 'aceptada', id: '0badc0de' }));
+    const { requestId } = await enviarConfiguracion(CONFIG, 'tester');
+    await terminado(requestId);
+    await handleConfigMessage({
+      topic: 'biosoft/config/status',
+      payload: { r: requestId, st: 'red_conservada', msg: 'las otras redes no conectaron: la placa conserva "Lab"' },
+      retained: false,
+    });
+    expect((await ConfigRequest.findOne({ requestId }).lean())?.state).toBe('red_conservada');
   });
 
   it('una placa ocupada corta el envio en el primer bloque', async () => {

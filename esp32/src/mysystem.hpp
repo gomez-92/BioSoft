@@ -59,6 +59,13 @@ class MySystem :
     // Lo levanta onBrokerConnected() (otro nucleo) y lo atiende update(): el
     // Timer no es seguro entre nucleos, asi que la tarea se agrega desde aca.
     volatile bool _publishConfigRequested = false;
+    // Configuracion recibida desde la web, A PRUEBA (RemoteConfig::TrialPath):
+    // si la placa no llega al broker en ConfigTrialMs, vuelve a la anterior.
+    bool _configTrial = false;
+    unsigned long _configTrialSince = 0;
+    // Pedido revertido en el arranque anterior, a avisarle al monitor.
+    char _revertedRequest[RemoteConfig::MaxRequestIdLength + 1] = "";
+    void _checkConfigTrial();
     // millis() del ack del start: el Mega lo manda en la misma vuelta de
     // loop() en que llama a _start(), asi que es el inicio REAL del
     // experimento. El paso a Running llega despues, con el state_data
@@ -167,6 +174,9 @@ class MySystem :
     bool publishQueueIdle() override;
     bool experimentInProgress() override;
     void onConfigAccepted() override;
+    bool inUseNetwork(char* ssid, size_t ssidSize, char* password, size_t passwordSize) override;
+    uint8_t effectiveNetworks(ConfigLoader::WifiNetworkConfig* out, uint8_t max) override;
+    void describeConnection(JsonDocument& meta) override;
     void _rebootForConfigIfIdle();
     static constexpr unsigned long ConfigRebootMinDelayMs = 2000;
     static constexpr unsigned long ConfigRebootMaxWaitMs = 10000;
@@ -218,6 +228,19 @@ inline void MySystem::begin() {
   // Configuracion remota (tarjeta 24): la cola entre nucleos y la
   // suscripcion. subscribe() guarda el topic y lo reaplica en cada
   // reconexion del broker.
+  if (_sdStorage.isReady()) {
+    char request[RemoteConfig::MaxRequestIdLength + 1] = "";
+    if (_sdStorage.exists(RemoteConfig::TrialPath)) {
+      _configTrial = true;
+      _configTrialSince = millis();
+      DEBUG_PRINTLN(DEBUG_MYSYSTEM, "[CONFIG] configuracion remota A PRUEBA: tiene 5 min para llegar al broker");
+    }
+    if (_sdStorage.exists(RemoteConfig::RevertedPath)
+        && _sdStorage.readFile(RemoteConfig::RevertedPath, request, sizeof(request))) {
+      strncpy(_revertedRequest, request, RemoteConfig::MaxRequestIdLength);
+    }
+  }
+
   _configInbox = xQueueCreate(4, sizeof(ConfigInboxMessage));
   _brokerManager.subscribe(RemoteConfig::TopicSet);
   _pingInbox = xQueueCreate(2, sizeof(RemotePing::Request));
@@ -268,6 +291,72 @@ inline void MySystem::update() {
   _updateRemoteConfig();
   _answerPings();
   _rebootForConfigIfIdle();
+  _checkConfigTrial();
+}
+
+// Una configuracion recibida desde la web puede traer otro WiFi u otro
+// broker. La red en uso no se puede quitar, pero un broker mal escrito deja
+// a la placa sin forma de que alguien se lo corrija a distancia. Por eso se
+// aplica a prueba: llegar al broker la confirma; no llegar en 5 minutos la
+// deshace (vuelve config.prev.json, o sin archivo si no habia) y reinicia.
+// Nunca durante un experimento: se espera a que termine. El aviso
+// "revertida" sale al reconectar, ya con la configuracion anterior.
+inline void MySystem::_checkConfigTrial() {
+  if (_revertedRequest[0] != '\0' && _data.communication.brokerOk && publishQueueIdle()) {
+    char payload[256];
+    if (RemoteConfig::buildReverted(_revertedRequest, payload, sizeof(payload)) > 0) {
+      _publish(RemoteConfig::TopicStatus, payload, false);
+    }
+    DEBUG_PRINTF(DEBUG_MYSYSTEM, "[CONFIG] aviso al monitor: pedido %s revertido\n", _revertedRequest);
+    _sdStorage.remove(RemoteConfig::RevertedPath);
+    _revertedRequest[0] = '\0';
+  }
+
+  if (!_configTrial) return;
+  if (_data.communication.brokerOk) {
+    if (!publishQueueIdle()) return;
+    _configTrial = false;
+    // La red en uso que se quito queda de respaldo hasta este momento: si se
+    // conecto por OTRA, se borra; si fue por ella, se conserva y se avisa.
+    if (const ConfigLoader::WifiNetworkConfig* fallback = ConfigLoader::fallbackNetwork()) {
+      if (WiFi.SSID() != fallback->ssid) {
+        _sdStorage.remove(ConfigLoader::FallbackPath);
+        DEBUG_PRINTF(DEBUG_MYSYSTEM, "[CONFIG] conecto por %s: se quita la red %s\n", WiFi.SSID().c_str(), fallback->ssid);
+      } else {
+        char request[RemoteConfig::MaxRequestIdLength + 1] = "";
+        _sdStorage.readFile(RemoteConfig::TrialPath, request, sizeof(request));
+        char payload[256];
+        if (request[0] != '\0' && RemoteConfig::buildNetworkKept(request, fallback->ssid, payload, sizeof(payload)) > 0) {
+          _publish(RemoteConfig::TopicStatus, payload, false);
+        }
+        DEBUG_PRINTF(DEBUG_MYSYSTEM, "[CONFIG] solo conecto por %s: se conserva\n", fallback->ssid);
+      }
+    }
+    _sdStorage.remove(RemoteConfig::TrialPath);
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, "[CONFIG] llego al broker: configuracion remota confirmada");
+    return;
+  }
+  if (millis() - _configTrialSince < RemoteConfig::ConfigTrialMs) return;
+  if (experimentInProgress()) return;
+
+  char request[RemoteConfig::MaxRequestIdLength + 1] = "";
+  _sdStorage.readFile(RemoteConfig::TrialPath, request, sizeof(request));
+  DEBUG_PRINTLN(DEBUG_MYSYSTEM, "[CONFIG] sin broker en 5 min: se vuelve a la configuracion anterior");
+  bool restored = _sdStorage.exists(RemoteConfig::PrevPath)
+    ? _sdStorage.copyFile(RemoteConfig::PrevPath, ConfigLoader::ConfigPath)
+    : _sdStorage.remove(ConfigLoader::ConfigPath);
+  if (!restored) {
+    // Sin poder restaurar no se reinicia en bucle: se deja de intentar.
+    DEBUG_PRINTLN(DEBUG_MYSYSTEM, "[CONFIG] no se pudo restaurar la configuracion anterior");
+    _configTrial = false;
+    return;
+  }
+  _sdStorage.writeFile(RemoteConfig::RevertedPath, request);
+  _sdStorage.remove(RemoteConfig::TrialPath);
+  // La configuracion anterior tiene la red que se habia quitado.
+  _sdStorage.remove(ConfigLoader::FallbackPath);
+  delay(100);
+  ESP.restart();
 }
 
 // Configuracion remota aceptada (grabada en la SD): se aplica reiniciando,
@@ -304,6 +393,48 @@ inline void MySystem::_rebootForConfigIfIdle() {
   ESP.restart();
 }
 
+// La red por la que la placa esta conectada ahora (la configuracion remota
+// no deja quitarla). WiFi.psk() es la contrasena con la que se conecto.
+inline bool MySystem::inUseNetwork(char* ssid, size_t ssidSize, char* password, size_t passwordSize) {
+  if (WiFi.status() != WL_CONNECTED) return false;
+  strncpy(ssid, WiFi.SSID().c_str(), ssidSize - 1);
+  ssid[ssidSize - 1] = '\0';
+  strncpy(password, WiFi.psk().c_str(), passwordSize - 1);
+  password[passwordSize - 1] = '\0';
+  return ssid[0] != '\0';
+}
+
+inline uint8_t MySystem::effectiveNetworks(ConfigLoader::WifiNetworkConfig* out, uint8_t max) {
+  const WiFiConfig& config = _wifiManager.config();
+  uint8_t count = 0;
+  for (int i = 0; i < config.totalNetworks() && count < max; i++) {
+    const WiFiNetwork& network = config.get(i);
+    if (network.ssid == nullptr || network.ssid[0] == '\0') continue;
+    strncpy(out[count].ssid, network.ssid, sizeof(out[count].ssid) - 1);
+    out[count].ssid[sizeof(out[count].ssid) - 1] = '\0';
+    strncpy(out[count].password, network.password ? network.password : "", sizeof(out[count].password) - 1);
+    out[count].password[sizeof(out[count].password) - 1] = '\0';
+    count++;
+  }
+  return count;
+}
+
+// "ew": nombres de las redes efectivas; "eb": broker efectivo, sin contrasena.
+inline void MySystem::describeConnection(JsonDocument& meta) {
+  const WiFiConfig& wifi = _wifiManager.config();
+  JsonArray networks = meta["ew"].to<JsonArray>();
+  for (int i = 0; i < wifi.totalNetworks(); i++) {
+    const char* ssid = wifi.get(i).ssid;
+    if (ssid != nullptr && ssid[0] != '\0') networks.add(ssid);
+  }
+  const MqttConfig& broker = _brokerManager.config();
+  JsonObject eb = meta["eb"].to<JsonObject>();
+  if (broker.server != nullptr) eb["server"] = broker.server;
+  eb["port"] = broker.port;
+  if (broker.user != nullptr) eb["user"] = broker.user;
+  if (broker.clientId != nullptr) eb["clientId"] = broker.clientId;
+}
+
 // Contesta los pings del monitor con lo minimo para saber que la placa esta
 // viva y en que anda. Va por la cola de publicacion como la telemetria: si el
 // broker se cayo, el pong se pierde y el monitor lo ve como "sin respuesta",
@@ -312,10 +443,13 @@ inline void MySystem::_answerPings() {
   if (_pingInbox == nullptr) return;
   RemotePing::Request request;
   while (xQueueReceive(_pingInbox, &request, 0) == pdTRUE) {
-    char payload[160];
+    char payload[200];
+    bool online = WiFi.status() == WL_CONNECTED;
+    String network = online ? WiFi.SSID() : String();
+    int rssi = online ? (int) WiFi.RSSI() : 0;
     size_t length = RemotePing::buildPong(request, _data.getState(), ConfigLoader::configId(),
                                           ConfigLoader::loadStatus(), _serial.isConnected(), millis() / 1000,
-                                          payload, sizeof(payload));
+                                          network.c_str(), rssi, payload, sizeof(payload));
     if (length == 0) continue;
     DEBUG_PRINTF(DEBUG_MYSYSTEM, "[PING] %s -> pong\n", request.id);
     _publish(RemotePing::TopicPong, payload, false);
