@@ -94,6 +94,14 @@ export function startIngestor(): void {
     // esta caido se pierde para siempre (huecos legitimos en el historico).
     clean: false,
     reconnectPeriod: 5000,
+    // Sin esto, un CONNACK de rechazo ("Server unavailable" mientras EMQX
+    // arranca, o una credencial mala) deja al cliente sin reintentar NUNCA
+    // MAS: mqtt.js 5 suprime la reconexion en ese caso y reconnectPeriod solo
+    // cubre cortes de red. Paso el 2026-11-22: el broker se reinicio, el
+    // primer reintento cayo mientras arrancaba y el monitor quedo
+    // desconectado hasta reiniciar la maquina. Con credencial mala reintenta
+    // cada 5 s y lo dice en el log, que es mejor que quedar mudo.
+    reconnectOnConnackError: true,
     ca: caDelBroker(),
   });
 

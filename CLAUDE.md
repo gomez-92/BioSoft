@@ -1771,6 +1771,13 @@ Other things worth knowing before touching it:
   nothing else). `/api/health` says more but sits behind the login — and with
   the database down **you cannot log in**, so the only endpoint able to explain
   why nothing works was unreachable exactly when needed.
+- **`reconnectOnConnackError: true` is load-bearing.** mqtt.js 5 stops
+  reconnecting *for good* when the broker answers a CONNACK with an error;
+  `reconnectPeriod` only covers network drops. On 2026-11-22 EMQX was
+  restarted, the first retry landed while it was starting (`Server
+  unavailable`) and the monitor stayed disconnected (`/api/ping` →
+  `mqtt:false`, no more `reconectando...` in the log) until the Fly machine
+  was restarted by hand.
 - **The MQTT ingestor starts independently of Mongo.** It used to wait for the
   database so it could restore the open run first; that coupling meant a
   database problem also silently stopped telemetry ingestion.
