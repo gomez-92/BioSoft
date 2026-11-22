@@ -2,8 +2,9 @@
 //
 // ui_SplashScreen      (0, 0, 320, 240)   st_screen + st_bg_surface (blanco)
 // ├─ ui_Image1         (0, -40, 320, 240) logo de la facultad
-// ├─ ui_SplashNombre   (0, 132, 320, -)   FONT_24, COL_PRIMARY_DARK, centrado: "BioSoft"
-// └─ ui_SplashEstado   (0, 176, 320, -)   st_lbl centrado: "INICIANDO..."
+// ├─ ui_SplashNombre      (0, 128, 320, -) FONT_24, COL_PRIMARY_DARK, centrado: "SEMBAF"
+// ├─ ui_SplashDescripcion (0, 158, 320, -) st_lbl centrado: el nombre completo
+// └─ ui_SplashEstado      (0, 190, 320, -) st_lbl centrado: "INICIANDO..."
 //
 // El handoff pide un logo de 160 x 96 en (80, 40). El asset que hay
 // (ui_img_fiuner3201_png) es la pantalla entera, 320 x 240 en blanco con el
@@ -20,6 +21,7 @@
 lv_obj_t * ui_SplashScreen = NULL;
 lv_obj_t * ui_Image1 = NULL;
 lv_obj_t * ui_SplashNombre = NULL;
+lv_obj_t * ui_SplashDescripcion = NULL;
 lv_obj_t * ui_SplashEstado = NULL;
 
 void ui_SplashScreen_screen_init(void)
@@ -32,16 +34,23 @@ void ui_SplashScreen_screen_init(void)
     lv_image_set_src(ui_Image1, &ui_img_fiuner3201_png);
     lv_obj_set_pos(ui_Image1, 0, -40);
 
-    ui_SplashNombre = ui_label_create(ui_SplashScreen, &st_val24, "BioSoft");
+    ui_SplashNombre = ui_label_create(ui_SplashScreen, &st_val24, "SEMBAF");
     lv_obj_add_style(ui_SplashNombre, &st_txt_center, 0);
     // Unico texto en este color: no amerita un estilo compartido mas.
     lv_obj_set_style_text_color(ui_SplashNombre, COL_PRIMARY_DARK, 0);
-    lv_obj_set_pos(ui_SplashNombre, 0, 132);
+    lv_obj_set_pos(ui_SplashNombre, 0, 128);
     lv_obj_set_width(ui_SplashNombre, PANTALLA_ANCHO);
+
+    // Sin tildes: Montserrat de LVGL es solo ASCII.
+    ui_SplashDescripcion = ui_label_create(ui_SplashScreen, &st_lbl,
+                                           "Sistema de Exposicion Magnetica de Baja Frecuencia");
+    lv_obj_add_style(ui_SplashDescripcion, &st_txt_center, 0);
+    lv_obj_set_pos(ui_SplashDescripcion, 0, 158);
+    lv_obj_set_width(ui_SplashDescripcion, PANTALLA_ANCHO);
 
     ui_SplashEstado = ui_label_create(ui_SplashScreen, &st_lbl, "INICIANDO...");
     lv_obj_add_style(ui_SplashEstado, &st_txt_center, 0);
-    lv_obj_set_pos(ui_SplashEstado, 0, 176);
+    lv_obj_set_pos(ui_SplashEstado, 0, 190);
     lv_obj_set_width(ui_SplashEstado, PANTALLA_ANCHO);
 }
 
@@ -52,5 +61,6 @@ void ui_SplashScreen_screen_destroy(void)
     ui_SplashScreen = NULL;
     ui_Image1 = NULL;
     ui_SplashNombre = NULL;
+    ui_SplashDescripcion = NULL;
     ui_SplashEstado = NULL;
 }
