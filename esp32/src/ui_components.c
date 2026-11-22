@@ -21,16 +21,17 @@ lv_obj_t* ui_data_card_create(lv_obj_t* parent, int32_t width, int32_t height, c
     lv_obj_t* card = ui_card_create(parent);
     lv_obj_set_size(card, width, height);
     lv_obj_set_flex_flow(card, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(card, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_flex_align(card, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(card, 3, 0);
 
-    ui_label_create(card, &st_lbl, text);
-
-    lv_obj_t* box = ui_box_create(card);
-    lv_obj_set_size(box, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_set_flex_flow(box, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(box, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
-    lv_obj_set_style_pad_column(box, 3, 0);
-    if (values) *values = box;
+    // Todo plano, sin una caja intermedia para valor + unidad: con una caja
+    // de tamano LV_SIZE_CONTENT alineada a la derecha, su ancho quedaba el
+    // del texto inicial y al llegar el valor real desbordaba hacia la
+    // izquierda (en la placa se veia la unidad y un pedazo del ultimo
+    // digito). La etiqueta crece y empuja los valores contra el borde.
+    lv_obj_t* label = ui_label_create(card, &st_lbl, text);
+    lv_obj_set_flex_grow(label, 1);
+    if (values) *values = card;
     return card;
 }
 
