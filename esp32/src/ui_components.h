@@ -48,6 +48,16 @@ void ui_button_set_kind(lv_obj_t* button, ui_button_kind_t kind);
 // arma cada pantalla.
 lv_obj_t* ui_card_create(lv_obj_t* parent);
 
+// Tarjeta de dato de solo lectura (PRINCIPAL, OBJETIVOS de EN CURSO):
+// etiqueta a la izquierda y valores a la derecha. Los valores se agregan con
+// ui_data_card_add_value sobre el contenedor que devuelve en *values.
+lv_obj_t* ui_data_card_create(lv_obj_t* parent, int32_t width, int32_t height, const char* text,
+                              lv_obj_t** values);
+
+// Agrega "valor unidad" (valor en st_val16, unidad en st_lbl) y devuelve el
+// label del valor. DURACION lleva dos: "1 h" "30 m".
+lv_obj_t* ui_data_card_add_value(lv_obj_t* values, const char* value, const char* unit);
+
 // Contenedor sin estilos (ni fondo, ni borde, ni pad), sin scroll ni click:
 // para filas y columnas de layout.
 lv_obj_t* ui_box_create(lv_obj_t* parent);

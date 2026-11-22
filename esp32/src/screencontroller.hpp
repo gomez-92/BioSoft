@@ -19,6 +19,7 @@ static void btnPrincipalGoToConfigClick(lv_event_t * e);
 static void dropdownConfigSelectedChanged(lv_event_t * e);
 static void btnConfigSaveClick(lv_event_t * e);
 static void btnConfigBackClick(lv_event_t * e);
+static void btnConfigTabClick(lv_event_t * e);
 
 static void btnRunningDetenerClick(lv_event_t * e);
 
@@ -214,6 +215,7 @@ class PrincipalController : public BaseScreenController {
     SystemData& _data;
     StatusIconsCache _statusIcons;
     void _updateStatusIcons();
+    void _applyMode();
 };
 
 inline PrincipalController::PrincipalController(SystemData& data) : BaseScreenController(&ui_PrincipalScreen, ui_PrincipalScreen_screen_init, ui_PrincipalScreen_screen_destroy, ScreenType::PRINCIPAL, "principal"), _data(data) {}
@@ -240,12 +242,23 @@ inline void PrincipalController::show() {
   lv_label_set_text(ui_PrincipalTolIntensidadValor, _data.principal.toleranceValue);
   lv_label_set_text(ui_PrincipalTempNormalValor, _data.principal.normalTemperatureValue);
   lv_label_set_text(ui_PrincipalTempCriticaValor, _data.principal.criticalTemperatureValue);
-  // El diseno UiFinalParte1 muestra solo el modo ("CAMPO X"/"CAMPO NULO");
-  // el grupo (tratado/control) y los chips de componentes del diseno
-  // anterior ya no tienen widget.
-  lv_label_set_text(ui_PrincipalModoValor, _data.principal.fieldModeValue);
+  _applyMode();
 
   _updateStatusIcons();
+}
+
+// Banda de modo: CAMPO X relleno violeta con el rayo, CAMPO NULO blanco con
+// contorno gris y sin simbolo. Relleno = campo encendido (handoff).
+inline void PrincipalController::_applyMode() {
+  bool nullField = _data.configuration.fieldModeOption == 1;
+  lv_label_set_text(ui_PrincipalModoValor, _data.principal.fieldModeValue);
+  lv_obj_remove_style(ui_PrincipalModoBanda, &st_mode_x, 0);
+  lv_obj_remove_style(ui_PrincipalModoBanda, &st_mode_null, 0);
+  lv_obj_add_style(ui_PrincipalModoBanda, nullField ? &st_mode_null : &st_mode_x, 0);
+  lv_obj_remove_style(ui_PrincipalModoTag, &st_mode_sub, 0);
+  if (!nullField) lv_obj_add_style(ui_PrincipalModoTag, &st_mode_sub, 0);
+  if (nullField) lv_obj_add_flag(ui_PrincipalModoSimbolo, LV_OBJ_FLAG_HIDDEN);
+  else           lv_obj_remove_flag(ui_PrincipalModoSimbolo, LV_OBJ_FLAG_HIDDEN);
 }
 
 // La configuracion de esta pantalla solo cambia en Configuraciones, que
@@ -259,10 +272,24 @@ inline void PrincipalController::_updateStatusIcons() {
   if (_statusIcons.matches(_data.communication)) return;
   _statusIcons.remember(_data.communication);
 
-  applyStatusIcon(ui_PrincipalMegaOk, ui_PrincipalMegaNo, _data.communication.serialOk);
-  applyStatusIcon(ui_PrincipalWifiOk, ui_PrincipalWifiNo, _data.communication.wifiOk);
-  applyStatusIcon(ui_PrincipalBrokerOk, ui_PrincipalBrokerNo, _data.communication.brokerOk);
-  applyStatusIcon(ui_PrincipalSdOk, ui_PrincipalSdNo, _data.communication.sdOk);
+  ui_status_icon_set(ui_PrincipalIconoMega, _data.communication.serialOk);
+  ui_status_icon_set(ui_PrincipalIconoWifi, _data.communication.wifiOk);
+  ui_status_icon_set(ui_PrincipalIconoBroker, _data.communication.brokerOk);
+  ui_status_icon_set(ui_PrincipalIconoSd, _data.communication.sdOk);
+
+  // INICIAR sin Mega: deshabilitado y diciendo por que, en vez de mandar un
+  // start al vacio. Solo si la SD exige el Mega (requireMega, default true):
+  // en modo banco se puede iniciar sin el. Es la misma condicion con la que
+  // MySystem ignora el toque, asi que lo que se ve y lo que pasa coinciden.
+  bool blocked = ConfigLoader::requireMega() && !_data.communication.serialOk;
+  if (blocked) {
+    lv_obj_add_state(ui_ButtonPrincipalIniciar, LV_STATE_DISABLED);
+    lv_label_set_text(ui_ButtonPrincipalIniciarTexto, "SIN CONEXION");
+  }
+  else {
+    lv_obj_remove_state(ui_ButtonPrincipalIniciar, LV_STATE_DISABLED);
+    lv_label_set_text(ui_ButtonPrincipalIniciarTexto, "INICIAR");
+  }
 }
 
 inline void PrincipalController::goToConfig() {
@@ -300,13 +327,12 @@ inline void btnPrincipalGoToConfigClick(lv_event_t * e) {
  * ============================================================ */
 // Los _lastOptionXxx son un staging area: cambiar un dropdown
 // (onDropdownChanged) solo actualiza estos campos, NO _data.configuration.
-// El valor elegido recien se aplica a _data.configuration en onSave() --
-// si el operador entra a Configuraciones, cambia algo y sale por
-// onBack() (Volver) en vez de Guardar, el cambio se descarta -- por
-// decision de diseno, sin avisar: el diseno UiFinalParte1 no trae el
-// cartel "N CAMBIOS SIN GUARDAR" del anterior y no se quiso reponerlo.
-// onBack() descarta explicitamente (resincroniza el staging) en vez de
-// confiar en que el proximo show() lo haga.
+// El valor elegido recien se aplica a _data.configuration en onSave(). Lo
+// que difiere de lo guardado se marca en pantalla (_updateDirty): chip SIN
+// GUARDAR, borde ambar en el campo, punto en su pestania, VOLVER pasa a
+// DESCARTAR y GUARDAR solo se habilita con cambios. onBack() descarta
+// explicitamente (resincroniza el staging) en vez de confiar en que el
+// proximo show() lo haga.
 class ConfigurationController : public BaseScreenController {
   public:
     ConfigurationController(SystemData& data);
@@ -316,6 +342,7 @@ class ConfigurationController : public BaseScreenController {
     void onDropdownChanged(lv_event_t * e);
     void onSave();
     void onBack();
+    void onTab(bool limits);
   private:
     SystemData& _data;
 
@@ -344,6 +371,7 @@ class ConfigurationController : public BaseScreenController {
 
   private:
     void _applyState();
+    void _updateDirty();
     void _syncStagingFromData();
     void _rebuildNormalOptions();
     void _rebuildCriticalOptions();
@@ -364,22 +392,9 @@ inline void ConfigurationController::update() {}
 inline void ConfigurationController::init() {
   BaseScreenController::init();
 
-  // PENDIENTE (ajuste visual, se corrige en SquareLine y se re-exporta):
-  // el texto de los 7 dropdowns desborda. Los 7 salen del export con
-  // lv_font_montserrat_20 mientras sus titulos usan montserrat_10, y dos
-  // de ellos tienen ancho fijo -- Modo 118 px e Intensidad 90 px -- contra
-  // lv_pct(100) en los otros cinco. A 20 px, "Campo nulo" (la etiqueta mas
-  // larga de las compiladas) ya no entra en esos anchos.
-  // Dos cosas a tener en cuenta cuando se ajuste:
-  //  - No alcanza con achicar la fuente en LV_PART_MAIN: eso es el boton
-  //    cerrado. La lista desplegada es otro objeto (lv_dropdown_get_list),
-  //    que SquareLine no estiliza, asi que hay que tocar las dos partes o
-  //    el problema se muda al desplegable.
-  //  - El ancho tiene que tolerar etiquetas mas largas que las compiladas:
-  //    los menus vienen de la SD y el `label` es texto libre del operador
-  //    (ver ConfigLoader y docs/config-schema.md seccion 3).
-
-  // El de modo pisa el "NORMAL/NULO" que trae el export: la lista real es
+  // Las etiquetas de los menus vienen de la SD (texto libre de hasta 15
+  // caracteres): el valor de cada campo es un label que corta con "...",
+  // ver ui_ConfiguracionesScreen.c. La lista de modo es
   // ConfigurationOptions::optionsFieldMode, fija en 2 entradas por diseno.
   buildDropdown(ui_ConfiguracionModoOpciones, ConfigurationOptions::optionsFieldMode, ConfigurationOptions::countFieldMode);
   buildDropdown(ui_ConfiguracionDuracionOpciones, ConfigurationOptions::optionsDuration, ConfigurationOptions::countDuration);
@@ -400,6 +415,12 @@ inline void ConfigurationController::init() {
 
   lv_obj_add_event_cb(ui_ButtonConfiguracionGuardar, btnConfigSaveClick, LV_EVENT_CLICKED, this);
   lv_obj_add_event_cb(ui_ButtonConfiguracionVolver, btnConfigBackClick, LV_EVENT_CLICKED, this);
+  lv_obj_add_event_cb(ui_ConfiguracionTabExposicion, btnConfigTabClick, LV_EVENT_CLICKED, this);
+  lv_obj_add_event_cb(ui_ConfiguracionTabLimites, btnConfigTabClick, LV_EVENT_CLICKED, this);
+}
+
+inline void ConfigurationController::onTab(bool limits) {
+  ui_config_show_tab(limits);
 }
 
 inline void ConfigurationController::_applyState() {
@@ -409,6 +430,11 @@ inline void ConfigurationController::_applyState() {
   lv_dropdown_set_selected(ui_ConfiguracionIntensidadCampoOpciones, _data.configuration.targetFieldIntensityOption);
   lv_dropdown_set_selected(ui_ConfiguracionFrecuenciaOpciones, _data.configuration.targetFieldFrequencyOption);
   lv_dropdown_set_selected(ui_ConfiguracionTolIntensidadOpciones, _data.configuration.fieldIntensityToleranceOption);
+  ui_config_field_refresh(ui_ConfiguracionModoOpciones, true);
+  ui_config_field_refresh(ui_ConfiguracionDuracionOpciones, true);
+  ui_config_field_refresh(ui_ConfiguracionIntensidadCampoOpciones, true);
+  ui_config_field_refresh(ui_ConfiguracionFrecuenciaOpciones, true);
+  ui_config_field_refresh(ui_ConfiguracionTolIntensidadOpciones, true);
   _syncStagingFromData();
 
   // Los dos de temperatura van despues del sync porque cada uno se filtra
@@ -417,6 +443,52 @@ inline void ConfigurationController::_applyState() {
   // dos se limpia al entrar.
   _rebuildNormalOptions();
   _rebuildCriticalOptions();
+
+  // Se entra siempre por EXPOSICION y sin cambios.
+  ui_config_show_tab(false);
+  _updateDirty();
+}
+
+// Que difiere de lo guardado. Un rango de temperatura sin opcion
+// compatible (NoSelection) cuenta como cambio: es distinto de lo guardado
+// y GUARDAR lo rechaza igual (onSave).
+inline void ConfigurationController::_updateDirty() {
+  const ConfigurationData& saved = _data.configuration;
+  bool mode      = _lastOptionFieldMode != saved.fieldModeOption;
+  bool intensity = _lastOptionFieldIntensity != saved.targetFieldIntensityOption;
+  bool frequency = _lastOptionFrequency != saved.targetFieldFrequencyOption;
+  bool duration  = _lastOptionDuration != saved.targetDurationOption;
+  bool tolerance = _lastOptionTolFieldIntensity != saved.fieldIntensityToleranceOption;
+  bool normal    = _lastOptionRangeNormalTemperature != saved.normalTemperatureRangeOption;
+  bool critical  = _lastOptionRangeCriticalTemperature != saved.criticalTemperatureRangeOption;
+
+  ui_config_field_set_dirty(ui_ConfiguracionModoOpciones, mode);
+  ui_config_field_set_dirty(ui_ConfiguracionIntensidadCampoOpciones, intensity);
+  ui_config_field_set_dirty(ui_ConfiguracionFrecuenciaOpciones, frequency);
+  ui_config_field_set_dirty(ui_ConfiguracionDuracionOpciones, duration);
+  ui_config_field_set_dirty(ui_ConfiguracionTolIntensidadOpciones, tolerance);
+  ui_config_field_set_dirty(ui_ConfiguracionTempNormalOpciones, normal);
+  ui_config_field_set_dirty(ui_ConfiguracionTempCriticaOpciones, critical);
+
+  bool exposureDirty = mode || intensity || frequency || duration;
+  bool limitsDirty = tolerance || normal || critical;
+  bool dirty = exposureDirty || limitsDirty;
+
+  if (exposureDirty) lv_obj_remove_flag(ui_ConfiguracionTabExposicionPunto, LV_OBJ_FLAG_HIDDEN);
+  else               lv_obj_add_flag(ui_ConfiguracionTabExposicionPunto, LV_OBJ_FLAG_HIDDEN);
+  if (limitsDirty) lv_obj_remove_flag(ui_ConfiguracionTabLimitesPunto, LV_OBJ_FLAG_HIDDEN);
+  else             lv_obj_add_flag(ui_ConfiguracionTabLimitesPunto, LV_OBJ_FLAG_HIDDEN);
+
+  if (dirty) {
+    lv_obj_remove_flag(ui_ConfiguracionSinGuardar, LV_OBJ_FLAG_HIDDEN);
+    lv_label_set_text(ui_ButtonConfiguracionVolverTexto, "DESCARTAR");
+    lv_obj_remove_state(ui_ButtonConfiguracionGuardar, LV_STATE_DISABLED);
+  }
+  else {
+    lv_obj_add_flag(ui_ConfiguracionSinGuardar, LV_OBJ_FLAG_HIDDEN);
+    lv_label_set_text(ui_ButtonConfiguracionVolverTexto, "VOLVER");
+    lv_obj_add_state(ui_ButtonConfiguracionGuardar, LV_STATE_DISABLED);
+  }
 }
 
 // Deja el staging igual a lo guardado: lo que muestran los dropdowns y lo
@@ -455,14 +527,13 @@ inline bool ConfigurationController::_isNested(const ConfigurationOptions::Optio
 inline uint8_t ConfigurationController::_applySelection(lv_obj_t* dropdown, const uint8_t* map, uint8_t count, uint8_t absolute) {
   for (uint8_t i = 0; i < count; i++) {
     if (map[i] != absolute) continue;
-    // NULL = volver a mostrar la opcion elegida en vez del placeholder.
-    lv_dropdown_set_text(dropdown, NULL);
     lv_dropdown_set_selected(dropdown, i);
+    ui_config_field_refresh(dropdown, true);
     return absolute;
   }
 
-  // Literal a proposito: lv_dropdown_set_text guarda el puntero, no copia.
-  lv_dropdown_set_text(dropdown, "--");
+  // "--" en el campo: lo que estaba elegido ya no es compatible.
+  ui_config_field_refresh(dropdown, false);
   return NoSelection;
 }
 
@@ -536,16 +607,16 @@ inline void ConfigurationController::onDropdownChanged(lv_event_t * e) {
   // del otro.
   else if(widget == ui_ConfiguracionTempNormalOpciones) {
     if (optionSelectedIndex >= _normalCount) return;
-    lv_dropdown_set_text(widget, NULL);
     _lastOptionRangeNormalTemperature = _normalMap[optionSelectedIndex];
     _rebuildCriticalOptions();
   }
   else if(widget == ui_ConfiguracionTempCriticaOpciones) {
     if (optionSelectedIndex >= _criticalCount) return;
-    lv_dropdown_set_text(widget, NULL);
     _lastOptionRangeCriticalTemperature = _criticalMap[optionSelectedIndex];
     _rebuildNormalOptions();
   }
+  ui_config_field_refresh(widget, true);
+  _updateDirty();
 }
 
 inline void ConfigurationController::onSave() {
@@ -611,6 +682,13 @@ static void btnConfigBackClick(lv_event_t * e) {
   ConfigurationController * self = (ConfigurationController *) lv_event_get_user_data(e);
   if(lv_event_get_code(e) == LV_EVENT_CLICKED) {
     self->onBack();
+  }
+}
+
+static void btnConfigTabClick(lv_event_t * e) {
+  ConfigurationController * self = (ConfigurationController *) lv_event_get_user_data(e);
+  if(lv_event_get_code(e) == LV_EVENT_CLICKED) {
+    self->onTab(lv_event_get_target(e) == ui_ConfiguracionTabLimites);
   }
 }
 

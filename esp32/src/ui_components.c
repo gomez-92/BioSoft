@@ -16,6 +16,30 @@ lv_obj_t* ui_card_create(lv_obj_t* parent) {
     return card;
 }
 
+lv_obj_t* ui_data_card_create(lv_obj_t* parent, int32_t width, int32_t height, const char* text,
+                              lv_obj_t** values) {
+    lv_obj_t* card = ui_card_create(parent);
+    lv_obj_set_size(card, width, height);
+    lv_obj_set_flex_flow(card, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(card, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+
+    ui_label_create(card, &st_lbl, text);
+
+    lv_obj_t* box = ui_box_create(card);
+    lv_obj_set_size(box, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(box, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(box, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
+    lv_obj_set_style_pad_column(box, 3, 0);
+    if (values) *values = box;
+    return card;
+}
+
+lv_obj_t* ui_data_card_add_value(lv_obj_t* values, const char* value, const char* unit) {
+    lv_obj_t* label = ui_label_create(values, &st_val16, value);
+    ui_label_create(values, &st_lbl, unit);
+    return label;
+}
+
 lv_obj_t* ui_header_create(lv_obj_t* parent, const char* text, lv_obj_t** title) {
     lv_obj_t* header = ui_box_create(parent);
     lv_obj_add_style(header, &st_header, 0);

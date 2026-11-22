@@ -88,6 +88,14 @@ extern lv_style_t st_txt12;         // FONT_12, COL_TEXT
 extern lv_style_t st_f10;           // solo FONT_10: hereda el color (paneles, chips)
 extern lv_style_t st_f16;           // solo FONT_16: hereda el color
 extern lv_style_t st_chip_sm;       // chip de alto 20: pad_hor 6, radio 4
+extern lv_style_t st_mode_sub;      // etiqueta MODO sobre CAMPO X: COL_MODE_X_SUB
+extern lv_style_t st_chip_dirty;    // chip SIN GUARDAR del encabezado
+extern lv_style_t st_lbl_dirty;     // etiqueta de un campo cambiado: COL_WARN_TEXT
+extern lv_style_t st_field;         // campo de CONFIGURACION (dropdown, encima del tema)
+extern lv_style_t st_field_symbol;  // flecha del campo: LV_PART_INDICATOR
+extern lv_style_t st_dd_list;       // lista abierta del dropdown
+extern lv_style_t st_dd_sel;        // opcion elegida de la lista (LV_PART_SELECTED)
+extern lv_style_t st_mode_square;   // cuadrito 12 x 12 del campo MODO
 extern lv_style_t st_btn_pri;
 extern lv_style_t st_btn_pri_pr;    // LV_STATE_PRESSED
 extern lv_style_t st_btn_sec;

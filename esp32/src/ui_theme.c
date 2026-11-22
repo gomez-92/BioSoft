@@ -18,6 +18,14 @@ lv_style_t st_txt12;
 lv_style_t st_f10;
 lv_style_t st_f16;
 lv_style_t st_chip_sm;
+lv_style_t st_mode_sub;
+lv_style_t st_chip_dirty;
+lv_style_t st_lbl_dirty;
+lv_style_t st_field;
+lv_style_t st_field_symbol;
+lv_style_t st_dd_list;
+lv_style_t st_dd_sel;
+lv_style_t st_mode_square;
 lv_style_t st_btn_pri;
 lv_style_t st_btn_pri_pr;
 lv_style_t st_btn_sec;
@@ -160,6 +168,56 @@ void ui_theme_init(void) {
     lv_style_set_pad_left(&st_chip_sm, PAD_MD);
     lv_style_set_pad_right(&st_chip_sm, PAD_MD);
     lv_style_set_radius(&st_chip_sm, RADIO_SM);
+
+    lv_style_init(&st_mode_sub);
+    lv_style_set_text_color(&st_mode_sub, COL_MODE_X_SUB);
+
+    lv_style_init(&st_chip_dirty);
+    lv_style_set_height(&st_chip_dirty, 18);
+    lv_style_set_pad_left(&st_chip_dirty, PAD_MD);
+    lv_style_set_pad_right(&st_chip_dirty, PAD_MD);
+    lv_style_set_pad_top(&st_chip_dirty, 3);
+    lv_style_set_radius(&st_chip_dirty, RADIO_SM);
+    init_bg(&st_chip_dirty, COL_WARN_BG);
+    init_text(&st_chip_dirty, COL_WARN_TEXT, FONT_10);
+
+    lv_style_init(&st_lbl_dirty);
+    lv_style_set_text_color(&st_lbl_dirty, COL_WARN_TEXT);
+
+    // El dropdown conserva el tema (dibuja la flecha y abre la lista); esto
+    // va encima, despues de st_card. El texto propio del dropdown no se usa:
+    // el valor va en un label hijo que puede cortar con "..." (ver
+    // ui_ConfiguracionesScreen.c).
+    lv_style_init(&st_field);
+    lv_style_set_width(&st_field, 148);
+    lv_style_set_height(&st_field, ALTO_BOTON);
+    lv_style_set_pad_top(&st_field, 16);
+    lv_style_set_pad_bottom(&st_field, 2);
+    lv_style_set_shadow_width(&st_field, 0);
+    lv_style_set_outline_width(&st_field, 0);
+    init_text(&st_field, COL_TEXT, FONT_16);
+
+    lv_style_init(&st_field_symbol);
+    lv_style_set_text_color(&st_field_symbol, COL_PRIMARY);
+
+    // Opciones de ~36 px (FONT_16 + line_space 20), hasta 5 a la vista.
+    lv_style_init(&st_dd_list);
+    init_bg(&st_dd_list, COL_SURFACE);
+    lv_style_set_border_width(&st_dd_list, 1);
+    lv_style_set_border_color(&st_dd_list, COL_BORDER);
+    lv_style_set_radius(&st_dd_list, RADIO_SM);
+    lv_style_set_max_height(&st_dd_list, 180);
+    lv_style_set_text_line_space(&st_dd_list, 20);
+    init_text(&st_dd_list, COL_TEXT, FONT_16);
+
+    lv_style_init(&st_dd_sel);
+    init_bg(&st_dd_sel, COL_PRIMARY);
+    lv_style_set_text_color(&st_dd_sel, lv_color_white());
+
+    lv_style_init(&st_mode_square);
+    lv_style_set_width(&st_mode_square, 12);
+    lv_style_set_height(&st_mode_square, 12);
+    lv_style_set_radius(&st_mode_square, 2);
 
     init_button(&st_btn_pri, COL_PRIMARY, lv_color_white());
     init_pressed(&st_btn_pri_pr, COL_PRIMARY_DARK);
