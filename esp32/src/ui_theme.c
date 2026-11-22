@@ -26,6 +26,11 @@ lv_style_t st_field_symbol;
 lv_style_t st_dd_list;
 lv_style_t st_dd_sel;
 lv_style_t st_mode_square;
+lv_style_t st_f12;
+lv_style_t st_lbl12;
+lv_style_t st_txt_right;
+lv_style_t st_val_warn;
+lv_style_t st_val_crit;
 lv_style_t st_btn_pri;
 lv_style_t st_btn_pri_pr;
 lv_style_t st_btn_sec;
@@ -218,6 +223,20 @@ void ui_theme_init(void) {
     lv_style_set_width(&st_mode_square, 12);
     lv_style_set_height(&st_mode_square, 12);
     lv_style_set_radius(&st_mode_square, 2);
+
+    lv_style_init(&st_f12);
+    lv_style_set_text_font(&st_f12, FONT_12);
+
+    lv_style_init(&st_lbl12);
+    init_text(&st_lbl12, COL_TEXT_2, FONT_12);
+
+    lv_style_init(&st_txt_right);
+    lv_style_set_text_align(&st_txt_right, LV_TEXT_ALIGN_RIGHT);
+
+    lv_style_init(&st_val_warn);
+    lv_style_set_text_color(&st_val_warn, COL_WARN_TEXT);
+    lv_style_init(&st_val_crit);
+    lv_style_set_text_color(&st_val_crit, COL_CRIT_TEXT);
 
     init_button(&st_btn_pri, COL_PRIMARY, lv_color_white());
     init_pressed(&st_btn_pri_pr, COL_PRIMARY_DARK);

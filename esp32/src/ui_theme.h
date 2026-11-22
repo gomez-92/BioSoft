@@ -96,6 +96,11 @@ extern lv_style_t st_field_symbol;  // flecha del campo: LV_PART_INDICATOR
 extern lv_style_t st_dd_list;       // lista abierta del dropdown
 extern lv_style_t st_dd_sel;        // opcion elegida de la lista (LV_PART_SELECTED)
 extern lv_style_t st_mode_square;   // cuadrito 12 x 12 del campo MODO
+extern lv_style_t st_f12;           // solo FONT_12: hereda el color
+extern lv_style_t st_lbl12;         // FONT_12, COL_TEXT_2 (unidades, corriente)
+extern lv_style_t st_txt_right;     // solo text_align right
+extern lv_style_t st_val_warn;      // valor medido en advertencia: COL_WARN_TEXT
+extern lv_style_t st_val_crit;      // valor medido en critico: COL_CRIT_TEXT
 extern lv_style_t st_btn_pri;
 extern lv_style_t st_btn_pri_pr;    // LV_STATE_PRESSED
 extern lv_style_t st_btn_sec;

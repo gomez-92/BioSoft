@@ -22,6 +22,7 @@ static void btnConfigBackClick(lv_event_t * e);
 static void btnConfigTabClick(lv_event_t * e);
 
 static void btnRunningDetenerClick(lv_event_t * e);
+static void btnRunningTabClick(lv_event_t * e);
 
 static void btnResultadoVolverClick(lv_event_t * e);
 static void btnResultadoRepetirClick(lv_event_t * e);
@@ -703,6 +704,7 @@ class RunningController : public BaseScreenController {
     void update() override;
     void init() override;
     void onStop();
+    void onTab(bool targets);
   private:
     SystemData& _data;
     unsigned long _lastProgressUpdate = 0;
@@ -717,10 +719,17 @@ class RunningController : public BaseScreenController {
     float _shownMagneticField = NAN;
     float _shownTemperature = NAN;
 
-    // 0xFF = todavia no se aplico ninguna distribucion de filas. No sirve
-    // arrancar en 0: el export trae las 4 filas visibles, asi que "0 filas"
+    // 0xFF = todavia no se aplico ninguna distribucion de filas: "0 filas"
     // tambien hay que aplicarlo una primera vez.
     uint8_t _visibleCoils = 0xFF;
+
+    // Salud (global y por fuente) y puntos ya pintados. nullptr / 0xFF =
+    // nada pintado todavia: init() los reinicia porque los widgets son nuevos.
+    const char* _shownHealth = nullptr;
+    const char* _shownCemHealth = nullptr;
+    const char* _shownTempHealth = nullptr;
+    uint8_t _shownCemDots = 0xFF;
+    uint8_t _shownTempDots = 0xFF;
 
     void _loadTargetsData();
     void _updateMeasuresData();
@@ -728,7 +737,8 @@ class RunningController : public BaseScreenController {
     void _updateProgressData();
     void _updateAlertsData();
     void _updateHealthData();
-    void _applyAlertDots(const char* source, lv_obj_t* const dots[MAX_ALERT_DOTS]);
+    void _applyAlertDots(const char* source, lv_obj_t* const dots[MAX_ALERT_DOTS], uint8_t& shown);
+    void _applySourceHealth(const char* source, lv_obj_t* value, const char*& shown);
     void _updateStatusIcons();
     uint8_t _resolveVisibleCoils() const;
     void _applyCoilVisibility();
@@ -739,26 +749,20 @@ inline RunningController::RunningController(SystemData& data) : BaseScreenContro
 inline void RunningController::init() {
   BaseScreenController::init();
 
-  // Mismo motivo que en Principal: widgets nuevos, caches viejos. Ademas
-  // _visibleCoils vuelve al centinela 0xFF para que _applyCoilVisibility()
-  // aplique si o si -- el export deja las 4 filas visibles.
+  // Widgets nuevos, caches viejos: todo lo "ya pintado" vuelve a cero.
   _statusIcons = StatusIconsCache();
   _visibleCoils = 0xFF;
   _shownMagneticField = NAN;
   _shownTemperature = NAN;
+  _shownHealth = nullptr;
+  _shownCemHealth = nullptr;
+  _shownTempHealth = nullptr;
+  _shownCemDots = 0xFF;
+  _shownTempDots = 0xFF;
 
   lv_obj_add_event_cb(ui_ButtonDetener, btnRunningDetenerClick, LV_EVENT_CLICKED, this);
-
-  // Los 3 chips de salud se exportan visibles uno al lado del otro; arrancan
-  // en NORMAL, _updateHealthData los corrige apenas se muestra la pantalla.
-  lv_obj_add_flag(ui_EnCursoHeaderEstadoAdvertencia, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_add_flag(ui_EnCursoHeaderEstadoCritico, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_remove_flag(ui_EnCursoHeaderEstadoNormal, LV_OBJ_FLAG_HIDDEN);
-
-  lv_obj_t* const bars[MAX_COILS] = { ui_EnCursoMedicionesBobina1ControlBar, ui_EnCursoMedicionesBobina2ControlBar, ui_EnCursoMedicionesBobina3ControlBar, ui_EnCursoMedicionesBobina4ControlBar };
-  for (uint8_t i = 0; i < MAX_COILS; i++) {
-    lv_bar_set_range(bars[i], 0, 100);
-  }
+  lv_obj_add_event_cb(ui_EnCursoTabMediciones, btnRunningTabClick, LV_EVENT_CLICKED, this);
+  lv_obj_add_event_cb(ui_EnCursoTabObjetivos, btnRunningTabClick, LV_EVENT_CLICKED, this);
 }
 
 inline void RunningController::onStop() {
@@ -769,49 +773,50 @@ inline void RunningController::onStop() {
   _listener->onScreenEvent(ev);
 }
 
+// Las dos paginas existen desde que se creo la pantalla (decision B):
+// cambiar de pestania solo muestra una y oculta la otra.
+inline void RunningController::onTab(bool targets) {
+  ui_encurso_show_tab(targets);
+}
+
 inline void RunningController::show() {
   BaseScreenController::show();
 
-  // NAN nunca compara igual, asi que _updateMeasuresData escribe si o si:
-  // al entrar a la pantalla los valores mostrados arrancan en 0 (o en la
-  // ultima muestra recibida), nunca en el texto de maqueta del export.
+  // NAN nunca compara igual, asi que _updateMeasuresData escribe si o si.
   _shownMagneticField = NAN;
   _shownTemperature = NAN;
 
-  // Cuantas bobinas hay se decide al entrar, no en cada tick: la respuesta
-  // no cambia durante un experimento.
+  ui_encurso_show_tab(false);
+
+  // Cuantas bobinas hay se decide al entrar (y se revisa cada segundo, ver
+  // update(): sin SD sale de los coil_data que todavia no llegaron).
   _applyCoilVisibility();
 
-  // tab objetivos
   _loadTargetsData();
-  // barra inferior (avance, restante)
   _updateProgressData();
   _lastProgressUpdate = millis();
-  // tab mediciones
   _updateMeasuresData();
   _updateCoilsData();
   _updateAlertsData();
-  // estado de salud
   _updateHealthData();
-  // conexiones (serie con el Mega, WiFi, broker, SD)
   _updateStatusIcons();
 }
 
-// Mismos cuatro indicadores que Principal y Resultado, con los widgets de
-// esta pantalla. Se refrescan en cada tick porque la conexion puede caerse
-// en medio del experimento, que es justo cuando mas importa verlo.
+// Mismos cuatro indicadores que Principal y Resultado. Se refrescan en cada
+// tick porque la conexion puede caerse en medio del experimento, que es
+// justo cuando mas importa verlo.
 inline void RunningController::_updateStatusIcons() {
   if (_statusIcons.matches(_data.communication)) return;
   _statusIcons.remember(_data.communication);
 
-  applyStatusIcon(ui_EnCursoMegaOk, ui_EnCursoMegaNo, _data.communication.serialOk);
-  applyStatusIcon(ui_EnCursoWifiOk, ui_EnCursoWifiNo, _data.communication.wifiOk);
-  applyStatusIcon(ui_EnCursoBrokerOk, ui_EnCursoBrokerNo, _data.communication.brokerOk);
-  applyStatusIcon(ui_EnCursoSdOk, ui_EnCursoSdNo, _data.communication.sdOk);
+  ui_status_icon_set(ui_EnCursoIconoMega, _data.communication.serialOk);
+  ui_status_icon_set(ui_EnCursoIconoWifi, _data.communication.wifiOk);
+  ui_status_icon_set(ui_EnCursoIconoBroker, _data.communication.brokerOk);
+  ui_status_icon_set(ui_EnCursoIconoSd, _data.communication.sdOk);
 }
 
-// Mismos valores sueltos que muestra Principal (numero grande + unidad chica
-// en widgets separados), formateados desde los campos numericos de la opcion.
+// OBJETIVOS: los mismos valores sueltos que Principal. El modo va en el
+// chip junto a las pestanias, a la vista en las dos.
 inline void RunningController::_loadTargetsData() {
   lv_label_set_text(ui_EnCursoObjetivosIntensidadValor, _data.principal.intensityValue);
   lv_label_set_text(ui_EnCursoObjetivosFrecuenciaValor, _data.principal.frequencyValue);
@@ -820,7 +825,12 @@ inline void RunningController::_loadTargetsData() {
   lv_label_set_text(ui_EnCursoObjetivosTempNormalValor, _data.principal.normalTemperatureValue);
   lv_label_set_text(ui_EnCursoObjetivosTempCriticaValor, _data.principal.criticalTemperatureValue);
   lv_label_set_text(ui_EnCursoObjetivosTolIntensidadValor, _data.principal.toleranceValue);
-  lv_label_set_text(ui_EnCursoObjetivosModoValor, _data.principal.fieldModeValue);
+
+  bool nullField = _data.configuration.fieldModeOption == 1;
+  lv_obj_remove_style(ui_EnCursoModoChip, &st_mode_x, 0);
+  lv_obj_remove_style(ui_EnCursoModoChip, &st_mode_null, 0);
+  lv_obj_add_style(ui_EnCursoModoChip, nullField ? &st_mode_null : &st_mode_x, 0);
+  lv_label_set_text(ui_EnCursoModoTexto, nullField ? "CAMPO NULO" : LV_SYMBOL_CHARGE " CAMPO X");
 }
 
 inline void RunningController::_updateMeasuresData() {
@@ -863,19 +873,16 @@ inline uint8_t RunningController::_resolveVisibleCoils() const {
   return reported;
 }
 
-// Ademas de mostrar u ocultar filas escribe los NOMBRES, y por eso sale
-// temprano si la cuenta no cambio: los nombres salen de la SD o son fijos,
-// no cambian hasta que se reinicie el sistema, asi que reescribirlos en cada
-// tick seria repintar cuatro labels por segundo para nada.
+// Ademas de mostrar u ocultar filas (y ajustar sus anchos) escribe los
+// NOMBRES, y por eso sale temprano si la cuenta no cambio: los nombres salen
+// de la SD o son fijos y no cambian hasta que se reinicie el sistema.
 inline void RunningController::_applyCoilVisibility() {
   uint8_t resolved = _resolveVisibleCoils();
   if (resolved == _visibleCoils) return;
   _visibleCoils = resolved;
 
-  lv_obj_t* const rows[MAX_COILS] = {
-    ui_EnCursoMedicionesBobina1, ui_EnCursoMedicionesBobina2,
-    ui_EnCursoMedicionesBobina3, ui_EnCursoMedicionesBobina4
-  };
+  ui_encurso_set_coil_layout(_visibleCoils);
+
   lv_obj_t* const nameLabels[MAX_COILS] = {
     ui_EnCursoMedicionesBobina1Nombre, ui_EnCursoMedicionesBobina2Nombre,
     ui_EnCursoMedicionesBobina3Nombre, ui_EnCursoMedicionesBobina4Nombre
@@ -884,15 +891,9 @@ inline void RunningController::_applyCoilVisibility() {
   const ConfigLoader::CoilConfig* coils = ConfigLoader::coilConfigs();
   uint8_t named = ConfigLoader::coilConfigCount();
 
-  for (uint8_t i = 0; i < MAX_COILS; i++) {
-    if (i >= _visibleCoils) {
-      lv_obj_add_flag(rows[i], LV_OBJ_FLAG_HIDDEN);
-      continue;
-    }
-
+  for (uint8_t i = 0; i < _visibleCoils && i < MAX_COILS; i++) {
     // El nombre sale de la SD si esta (el mismo con el que el Mega resuelve
-    // config_coil); si no, el generico "B1".."B4". El export trae "B3" en
-    // la fila 4.
+    // config_coil); si no, el generico "B1".."B4".
     if (i < named && coils[i].name[0] != '\0') {
       lv_label_set_text(nameLabels[i], coils[i].name);
     }
@@ -901,8 +902,6 @@ inline void RunningController::_applyCoilVisibility() {
       snprintf(str, sizeof(str), "B%u", i + 1);
       lv_label_set_text(nameLabels[i], str);
     }
-
-    lv_obj_remove_flag(rows[i], LV_OBJ_FLAG_HIDDEN);
   }
 }
 
@@ -915,9 +914,7 @@ inline void RunningController::_updateCoilsData() {
   lv_obj_t* const dutyBars[MAX_COILS] = { ui_EnCursoMedicionesBobina1ControlBar, ui_EnCursoMedicionesBobina2ControlBar, ui_EnCursoMedicionesBobina3ControlBar, ui_EnCursoMedicionesBobina4ControlBar };
   lv_obj_t* const dutyLabels[MAX_COILS] = { ui_EnCursoMedicionesBobina1ControlValor, ui_EnCursoMedicionesBobina2ControlValor, ui_EnCursoMedicionesBobina3ControlValor, ui_EnCursoMedicionesBobina4ControlValor };
 
-  // Los nombres NO se tocan aca: los escribe _applyCoilVisibility() cuando
-  // cambia la cantidad de filas, porque no cambian durante la ejecucion.
-  for (uint8_t i = 0; i < _visibleCoils; i++) {
+  for (uint8_t i = 0; i < _visibleCoils && i < MAX_COILS; i++) {
     char str[16];
 
     snprintf(str, sizeof(str), "%.2f A", _data.measures.coilCurrent[i]);
@@ -927,88 +924,96 @@ inline void RunningController::_updateCoilsData() {
     if (duty < 0.0f) duty = 0.0f;
     if (duty > 100.0f) duty = 100.0f;
     lv_bar_set_value(dutyBars[i], (int32_t) (duty + 0.5f), LV_ANIM_OFF);
-    snprintf(str, sizeof(str), "%.1f%%", duty);
+    snprintf(str, sizeof(str), "%.1f %%", duty);
     lv_label_set_text(dutyLabels[i], str);
   }
 }
 
 inline void RunningController::_updateProgressData() {
-  char str[8];
-  snprintf(str, sizeof(str), "%.1f%%", _data.progressPercent());
-  lv_label_set_text(ui_Label1, str);   // ui_Label1 es el % de PROGRESO (sin renombrar en SquareLine)
+  char str[16];
+  float percent = _data.progressPercent();
+  snprintf(str, sizeof(str), "%.0f %%", percent);
+  lv_label_set_text(ui_EnCursoProgresoValor, str);
+  lv_bar_set_value(ui_EnCursoProgresoBarra, (int32_t) (percent + 0.5f), LV_ANIM_OFF);
 
-  // TRANSCURRIDO, como lo titula el diseno UiFInalParte2 (el anterior
-  // mostraba RESTANTE); es el mismo dato que congela Resultado.
+  // TRANSCURRIDO: es el mismo dato que congela Resultado.
   unsigned long elapsed = _data.elapsedSeconds();
-  snprintf(str, sizeof(str), "%lu", elapsed / 3600);
-  lv_label_set_text(ui_EnCursoTranscurridoHorasValor, str);
-  snprintf(str, sizeof(str), "%02lu", (elapsed % 3600) / 60);
-  lv_label_set_text(ui_EnCursoTranscurridoMinutosValor, str);
+  snprintf(str, sizeof(str), "%lu h %02lu m", elapsed / 3600, (elapsed % 3600) / 60);
+  lv_label_set_text(ui_EnCursoTranscurridoValor, str);
 }
 
-// Los 4 paneles que cada medicion tiene al lado del titulo son los ULTIMOS
-// 4 eventos de esa fuente: el mas antiguo a la izquierda, el mas reciente a
-// la derecha. Se muestran tantos como eventos haya (ninguno con 0, los 4 mas
-// nuevos a partir del cuarto) y el resto se ocultan -- un panel apagado no
-// se distinguiria de uno "sin alerta todavia".
+// Los 4 puntos de cada medicion son los ULTIMOS 4 eventos de esa fuente: el
+// mas antiguo a la izquierda, el mas reciente a la derecha. Se muestran
+// tantos como eventos haya y el resto se ocultan. El color es el del PROPIO
+// evento: rojo si fue critico (o sin lecturas), ambar si fue racha o
+// frecuencia.
 //
-// El color es el del PROPIO evento, no el del conjunto: rojo si ese evento
-// fue critico, ambar si fue streak o frequency. Son los mismos dos colores
-// que el export usa en los chips de salud del header.
-inline void RunningController::_applyAlertDots(const char* source, lv_obj_t* const dots[MAX_ALERT_DOTS]) {
+// Solo repinta si cambio algo: `shown` guarda cuantos hay y cuales son
+// criticos (bit 3 en adelante), y esto corre en cada tick de 50 ms.
+inline void RunningController::_applyAlertDots(const char* source, lv_obj_t* const dots[MAX_ALERT_DOTS], uint8_t& shown) {
   const AlertHistory* history = _data.alertHistory(source);
   uint8_t count = (history != nullptr) ? history->count : 0;
+
+  uint8_t signature = count;
+  for (uint8_t i = 0; i < count && i < MAX_ALERT_DOTS; i++) {
+    if (isCriticalAlertType(history->types[i])) signature |= (1 << (3 + i));
+  }
+  if (signature == shown) return;
+  shown = signature;
 
   for (uint8_t i = 0; i < MAX_ALERT_DOTS; i++) {
     if (i >= count) {
       lv_obj_add_flag(dots[i], LV_OBJ_FLAG_HIDDEN);
       continue;
     }
-
     bool critical = isCriticalAlertType(history->types[i]);
-    lv_obj_set_style_bg_color(dots[i],
-                              critical ? lv_color_hex(0xA30000) : lv_color_hex(0xC47F08),
-                              LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_remove_style(dots[i], &st_dot_warn, 0);
+    lv_obj_remove_style(dots[i], &st_dot_crit, 0);
+    lv_obj_add_style(dots[i], critical ? &st_dot_crit : &st_dot_warn, 0);
     lv_obj_remove_flag(dots[i], LV_OBJ_FLAG_HIDDEN);
   }
 }
 
-inline void RunningController::_updateAlertsData() {
-  // En UiFInalParte2 los puntos ya estan dentro del panel que nombran
-  // (el export anterior los tenia cruzados).
-  lv_obj_t* const cemDots[MAX_ALERT_DOTS] = { ui_EnCursoMedicionesIntensidadAlertas1, ui_EnCursoMedicionesIntensidadAlertas2, ui_EnCursoMedicionesIntensidadAlertas3, ui_EnCursoMedicionesIntensidadAlertas4 };
-  lv_obj_t* const tempDots[MAX_ALERT_DOTS] = { ui_EnCursoMedicionesTempAlertas1, ui_EnCursoMedicionesTempAlertas2, ui_EnCursoMedicionesTempAlertas3, ui_EnCursoMedicionesTempAlertas4 };
-  _applyAlertDots("CEM1", cemDots);
-  _applyAlertDots("TEMP1", tempDots);
+// Valor medido en COL_WARN_TEXT si esa fuente esta en advertencia, en
+// COL_CRIT_TEXT si esta en critico (decision A del plan: salud por fuente,
+// misma regla que la global).
+inline void RunningController::_applySourceHealth(const char* source, lv_obj_t* value, const char*& shown) {
+  const char* health = _data.evaluateSourceHealth(source);
+  if (health == shown) return;
+  shown = health;
+
+  lv_obj_remove_style(value, &st_val_warn, 0);
+  lv_obj_remove_style(value, &st_val_crit, 0);
+  if (health == HealthData::Critical)     lv_obj_add_style(value, &st_val_crit, 0);
+  else if (health == HealthData::Warning) lv_obj_add_style(value, &st_val_warn, 0);
 }
 
+inline void RunningController::_updateAlertsData() {
+  lv_obj_t* const cemDots[MAX_ALERT_DOTS] = { ui_EnCursoMedicionesIntensidadAlertas1, ui_EnCursoMedicionesIntensidadAlertas2, ui_EnCursoMedicionesIntensidadAlertas3, ui_EnCursoMedicionesIntensidadAlertas4 };
+  lv_obj_t* const tempDots[MAX_ALERT_DOTS] = { ui_EnCursoMedicionesTempAlertas1, ui_EnCursoMedicionesTempAlertas2, ui_EnCursoMedicionesTempAlertas3, ui_EnCursoMedicionesTempAlertas4 };
+  _applyAlertDots("CEM1", cemDots, _shownCemDots);
+  _applyAlertDots("TEMP1", tempDots, _shownTempDots);
+  _applySourceHealth("CEM1", ui_EnCursoMedicionesIntensidadValor, _shownCemHealth);
+  _applySourceHealth("TEMP1", ui_EnCursoMedicionesTempValor, _shownTempHealth);
+}
+
+// Salud global: el encabezado entero toma el color (lo que se lee a 1 m).
+// Sobre el ambar el texto, el divisor y los iconos OK pasan a oscuro: lo
+// hace st_hdr_warn por herencia, salvo el divisor, que es un fondo.
 inline void RunningController::_updateHealthData() {
   const char* health = _data.progress.health;
+  if (_shownHealth != nullptr && strcmp(_shownHealth, health) == 0) return;
 
   bool isCritical = strcmp(health, HealthData::Critical) == 0;
   bool isWarning  = strcmp(health, HealthData::Warning) == 0;
+  _shownHealth = isCritical ? HealthData::Critical : (isWarning ? HealthData::Warning : HealthData::Normal);
 
-  // Un solo chip visible a la vez: los tres comparten el flex row del header.
-  if (isCritical) {
-    lv_obj_remove_flag(ui_EnCursoHeaderEstadoCritico, LV_OBJ_FLAG_HIDDEN);
-  }
-  else {
-    lv_obj_add_flag(ui_EnCursoHeaderEstadoCritico, LV_OBJ_FLAG_HIDDEN);
-  }
-
-  if (isWarning) {
-    lv_obj_remove_flag(ui_EnCursoHeaderEstadoAdvertencia, LV_OBJ_FLAG_HIDDEN);
-  }
-  else {
-    lv_obj_add_flag(ui_EnCursoHeaderEstadoAdvertencia, LV_OBJ_FLAG_HIDDEN);
-  }
-
-  if (!isCritical && !isWarning) {
-    lv_obj_remove_flag(ui_EnCursoHeaderEstadoNormal, LV_OBJ_FLAG_HIDDEN);
-  }
-  else {
-    lv_obj_add_flag(ui_EnCursoHeaderEstadoNormal, LV_OBJ_FLAG_HIDDEN);
-  }
+  lv_obj_remove_style(ui_EnCursoHeader, &st_hdr_ok, 0);
+  lv_obj_remove_style(ui_EnCursoHeader, &st_hdr_warn, 0);
+  lv_obj_remove_style(ui_EnCursoHeader, &st_hdr_crit, 0);
+  lv_obj_add_style(ui_EnCursoHeader, isCritical ? &st_hdr_crit : (isWarning ? &st_hdr_warn : &st_hdr_ok), 0);
+  lv_label_set_text(ui_EnCursoHeaderSalud, isCritical ? "CRITICO" : (isWarning ? "ADVERTENCIA" : "NORMAL"));
+  lv_obj_set_style_bg_color(ui_EnCursoHeaderDivisor, isWarning ? COL_TEXT : lv_color_white(), 0);
 }
 
 inline void RunningController::update() {
@@ -1017,18 +1022,15 @@ inline void RunningController::update() {
   _updateHealthData();
   _updateStatusIcons();
 
-  // El progreso (%, restante) y las corrientes no necesitan refrescarse en
-  // cada tick de pantalla (50ms) -- un experimento se mide en minutos, no en
-  // decimas de segundo. Se throttlea a 1s, igual que los envios por Serial
-  // del resto del proyecto.
+  // El progreso y las corrientes no necesitan refrescarse en cada tick de
+  // pantalla (50 ms): un experimento se mide en minutos. Se throttlea a 1 s.
   unsigned long now = millis();
   if (now - _lastProgressUpdate >= 1000) {
     _lastProgressUpdate = now;
     _updateProgressData();
     // Se recalcula junto con los datos y no solo en show() por el caso sin
     // SD: ahi la cuenta sale de los frames coil_data del Mega, que todavia
-    // no habian llegado al entrar a la pantalla. Es idempotente y son 4
-    // banderas, asi que no vale la pena condicionarlo.
+    // no habian llegado al entrar a la pantalla.
     _applyCoilVisibility();
     _updateCoilsData();
   }
@@ -1038,6 +1040,13 @@ static void btnRunningDetenerClick(lv_event_t * e) {
   RunningController * self = (RunningController *) lv_event_get_user_data(e);
   if(lv_event_get_code(e) == LV_EVENT_CLICKED) {
     self->onStop();
+  }
+}
+
+static void btnRunningTabClick(lv_event_t * e) {
+  RunningController * self = (RunningController *) lv_event_get_user_data(e);
+  if(lv_event_get_code(e) == LV_EVENT_CLICKED) {
+    self->onTab(lv_event_get_target(e) == ui_EnCursoTabObjetivos);
   }
 }
 
