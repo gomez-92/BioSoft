@@ -198,6 +198,8 @@ void setup() {
   // que atender acá.
   ConfigLoader::load(sdStorage);
   logStartup();
+  LOG_D(SISTEMA, "heap antes de la UI libre=%u B bloque_mayor=%u B", (unsigned)ESP.getFreeHeap(),
+        (unsigned)ESP.getMaxAllocHeap());
 
   if (!BENCH_SIN_RED) {
     // Redes: si la tarjeta trae alguna, REEMPLAZAN a las compiladas. No se
@@ -255,9 +257,10 @@ void setup() {
   // y sensores reales (o sin tarjeta) no crea nada.
   TestRunNotice::begin(ConfigLoader::marksRunsAsTest());
 
-  // Referencia para diagnosticar el heap: begin() ya creo las seis pantallas
-  // de LVGL, que con LV_USE_STDLIB_MALLOC en CLIB salen de este mismo heap y
-  // no de un pool propio. Lo que quede aca es contra lo que compite el
+  // Referencia para diagnosticar el heap: begin() ya inicializo LVGL y creo
+  // el splash (las demas se crean al navegar, ver ScreenManager). LVGL, con
+  // LV_USE_STDLIB_MALLOC en CLIB, sale de este mismo heap y no de un pool
+  // propio. Lo que quede aca es contra lo que compite el
   // handshake TLS, que necesita del orden de 40-50 KB contiguos.
   LOG_D(SISTEMA, "heap tras la UI libre=%u B bloque_mayor=%u B", (unsigned)ESP.getFreeHeap(),
         (unsigned)ESP.getMaxAllocHeap());

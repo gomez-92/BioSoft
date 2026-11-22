@@ -7,6 +7,7 @@
 #include <SPI.h>
 #include <Wire.h>
 #include "ui.h"
+#include "ui_theme.h"
 #include "log.hpp"
 
 // ========================================================
@@ -156,8 +157,12 @@ inline void DisplayDriver::begin()
     lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
     lv_indev_set_read_cb(indev, touchRead);
 
-    // ---------- Inicializar UI (SquareLine) ----------
+    // ---------- Inicializar UI ----------
+    // ui_init() fija el tema por defecto de LVGL (spinner y dropdown lo
+    // usan de base). Los estilos compartidos van inmediatamente despues:
+    // con el heap todavia entero, antes de crear cualquier pantalla.
     ui_init();
+    ui_theme_init();
 }
 
 // ========================================================

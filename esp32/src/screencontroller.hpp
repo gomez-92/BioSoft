@@ -8,6 +8,8 @@
 #include "systemdata.hpp"
 #include "iscreen.hpp"
 #include "ui.h"
+#include "ui_theme.h"
+#include "ui_components.h"
 #include "log.hpp"
 
 
@@ -17,8 +19,10 @@ static void btnPrincipalGoToConfigClick(lv_event_t * e);
 static void dropdownConfigSelectedChanged(lv_event_t * e);
 static void btnConfigSaveClick(lv_event_t * e);
 static void btnConfigBackClick(lv_event_t * e);
+static void btnConfigTabClick(lv_event_t * e);
 
 static void btnRunningDetenerClick(lv_event_t * e);
+static void btnRunningTabClick(lv_event_t * e);
 
 static void btnResultadoVolverClick(lv_event_t * e);
 static void btnResultadoRepetirClick(lv_event_t * e);
@@ -212,6 +216,7 @@ class PrincipalController : public BaseScreenController {
     SystemData& _data;
     StatusIconsCache _statusIcons;
     void _updateStatusIcons();
+    void _applyMode();
 };
 
 inline PrincipalController::PrincipalController(SystemData& data) : BaseScreenController(&ui_PrincipalScreen, ui_PrincipalScreen_screen_init, ui_PrincipalScreen_screen_destroy, ScreenType::PRINCIPAL, "principal"), _data(data) {}
@@ -238,12 +243,23 @@ inline void PrincipalController::show() {
   lv_label_set_text(ui_PrincipalTolIntensidadValor, _data.principal.toleranceValue);
   lv_label_set_text(ui_PrincipalTempNormalValor, _data.principal.normalTemperatureValue);
   lv_label_set_text(ui_PrincipalTempCriticaValor, _data.principal.criticalTemperatureValue);
-  // El diseno UiFinalParte1 muestra solo el modo ("CAMPO X"/"CAMPO NULO");
-  // el grupo (tratado/control) y los chips de componentes del diseno
-  // anterior ya no tienen widget.
-  lv_label_set_text(ui_PrincipalModoValor, _data.principal.fieldModeValue);
+  _applyMode();
 
   _updateStatusIcons();
+}
+
+// Banda de modo: CAMPO X relleno violeta con el rayo, CAMPO NULO blanco con
+// contorno gris y sin simbolo. Relleno = campo encendido (handoff).
+inline void PrincipalController::_applyMode() {
+  bool nullField = _data.configuration.fieldModeOption == 1;
+  lv_label_set_text(ui_PrincipalModoValor, _data.principal.fieldModeValue);
+  lv_obj_remove_style(ui_PrincipalModoBanda, &st_mode_x, 0);
+  lv_obj_remove_style(ui_PrincipalModoBanda, &st_mode_null, 0);
+  lv_obj_add_style(ui_PrincipalModoBanda, nullField ? &st_mode_null : &st_mode_x, 0);
+  lv_obj_remove_style(ui_PrincipalModoTag, &st_mode_sub, 0);
+  if (!nullField) lv_obj_add_style(ui_PrincipalModoTag, &st_mode_sub, 0);
+  if (nullField) lv_obj_add_flag(ui_PrincipalModoSimbolo, LV_OBJ_FLAG_HIDDEN);
+  else           lv_obj_remove_flag(ui_PrincipalModoSimbolo, LV_OBJ_FLAG_HIDDEN);
 }
 
 // La configuracion de esta pantalla solo cambia en Configuraciones, que
@@ -257,10 +273,24 @@ inline void PrincipalController::_updateStatusIcons() {
   if (_statusIcons.matches(_data.communication)) return;
   _statusIcons.remember(_data.communication);
 
-  applyStatusIcon(ui_PrincipalMegaOk, ui_PrincipalMegaNo, _data.communication.serialOk);
-  applyStatusIcon(ui_PrincipalWifiOk, ui_PrincipalWifiNo, _data.communication.wifiOk);
-  applyStatusIcon(ui_PrincipalBrokerOk, ui_PrincipalBrokerNo, _data.communication.brokerOk);
-  applyStatusIcon(ui_PrincipalSdOk, ui_PrincipalSdNo, _data.communication.sdOk);
+  ui_status_icon_set(ui_PrincipalIconoMega, _data.communication.serialOk);
+  ui_status_icon_set(ui_PrincipalIconoWifi, _data.communication.wifiOk);
+  ui_status_icon_set(ui_PrincipalIconoBroker, _data.communication.brokerOk);
+  ui_status_icon_set(ui_PrincipalIconoSd, _data.communication.sdOk);
+
+  // INICIAR sin Mega: deshabilitado y diciendo por que, en vez de mandar un
+  // start al vacio. Solo si la SD exige el Mega (requireMega, default true):
+  // en modo banco se puede iniciar sin el. Es la misma condicion con la que
+  // MySystem ignora el toque, asi que lo que se ve y lo que pasa coinciden.
+  bool blocked = ConfigLoader::requireMega() && !_data.communication.serialOk;
+  if (blocked) {
+    lv_obj_add_state(ui_ButtonPrincipalIniciar, LV_STATE_DISABLED);
+    lv_label_set_text(ui_ButtonPrincipalIniciarTexto, "SIN CONEXION");
+  }
+  else {
+    lv_obj_remove_state(ui_ButtonPrincipalIniciar, LV_STATE_DISABLED);
+    lv_label_set_text(ui_ButtonPrincipalIniciarTexto, "INICIAR");
+  }
 }
 
 inline void PrincipalController::goToConfig() {
@@ -298,13 +328,12 @@ inline void btnPrincipalGoToConfigClick(lv_event_t * e) {
  * ============================================================ */
 // Los _lastOptionXxx son un staging area: cambiar un dropdown
 // (onDropdownChanged) solo actualiza estos campos, NO _data.configuration.
-// El valor elegido recien se aplica a _data.configuration en onSave() --
-// si el operador entra a Configuraciones, cambia algo y sale por
-// onBack() (Volver) en vez de Guardar, el cambio se descarta -- por
-// decision de diseno, sin avisar: el diseno UiFinalParte1 no trae el
-// cartel "N CAMBIOS SIN GUARDAR" del anterior y no se quiso reponerlo.
-// onBack() descarta explicitamente (resincroniza el staging) en vez de
-// confiar en que el proximo show() lo haga.
+// El valor elegido recien se aplica a _data.configuration en onSave(). Lo
+// que difiere de lo guardado se marca en pantalla (_updateDirty): chip SIN
+// GUARDAR, borde ambar en el campo, punto en su pestania, VOLVER pasa a
+// DESCARTAR y GUARDAR solo se habilita con cambios. onBack() descarta
+// explicitamente (resincroniza el staging) en vez de confiar en que el
+// proximo show() lo haga.
 class ConfigurationController : public BaseScreenController {
   public:
     ConfigurationController(SystemData& data);
@@ -314,6 +343,7 @@ class ConfigurationController : public BaseScreenController {
     void onDropdownChanged(lv_event_t * e);
     void onSave();
     void onBack();
+    void onTab(bool limits);
   private:
     SystemData& _data;
 
@@ -342,6 +372,7 @@ class ConfigurationController : public BaseScreenController {
 
   private:
     void _applyState();
+    void _updateDirty();
     void _syncStagingFromData();
     void _rebuildNormalOptions();
     void _rebuildCriticalOptions();
@@ -362,22 +393,9 @@ inline void ConfigurationController::update() {}
 inline void ConfigurationController::init() {
   BaseScreenController::init();
 
-  // PENDIENTE (ajuste visual, se corrige en SquareLine y se re-exporta):
-  // el texto de los 7 dropdowns desborda. Los 7 salen del export con
-  // lv_font_montserrat_20 mientras sus titulos usan montserrat_10, y dos
-  // de ellos tienen ancho fijo -- Modo 118 px e Intensidad 90 px -- contra
-  // lv_pct(100) en los otros cinco. A 20 px, "Campo nulo" (la etiqueta mas
-  // larga de las compiladas) ya no entra en esos anchos.
-  // Dos cosas a tener en cuenta cuando se ajuste:
-  //  - No alcanza con achicar la fuente en LV_PART_MAIN: eso es el boton
-  //    cerrado. La lista desplegada es otro objeto (lv_dropdown_get_list),
-  //    que SquareLine no estiliza, asi que hay que tocar las dos partes o
-  //    el problema se muda al desplegable.
-  //  - El ancho tiene que tolerar etiquetas mas largas que las compiladas:
-  //    los menus vienen de la SD y el `label` es texto libre del operador
-  //    (ver ConfigLoader y docs/config-schema.md seccion 3).
-
-  // El de modo pisa el "NORMAL/NULO" que trae el export: la lista real es
+  // Las etiquetas de los menus vienen de la SD (texto libre de hasta 15
+  // caracteres): el valor de cada campo es un label que corta con "...",
+  // ver ui_ConfiguracionesScreen.c. La lista de modo es
   // ConfigurationOptions::optionsFieldMode, fija en 2 entradas por diseno.
   buildDropdown(ui_ConfiguracionModoOpciones, ConfigurationOptions::optionsFieldMode, ConfigurationOptions::countFieldMode);
   buildDropdown(ui_ConfiguracionDuracionOpciones, ConfigurationOptions::optionsDuration, ConfigurationOptions::countDuration);
@@ -398,6 +416,12 @@ inline void ConfigurationController::init() {
 
   lv_obj_add_event_cb(ui_ButtonConfiguracionGuardar, btnConfigSaveClick, LV_EVENT_CLICKED, this);
   lv_obj_add_event_cb(ui_ButtonConfiguracionVolver, btnConfigBackClick, LV_EVENT_CLICKED, this);
+  lv_obj_add_event_cb(ui_ConfiguracionTabExposicion, btnConfigTabClick, LV_EVENT_CLICKED, this);
+  lv_obj_add_event_cb(ui_ConfiguracionTabLimites, btnConfigTabClick, LV_EVENT_CLICKED, this);
+}
+
+inline void ConfigurationController::onTab(bool limits) {
+  ui_config_show_tab(limits);
 }
 
 inline void ConfigurationController::_applyState() {
@@ -407,6 +431,11 @@ inline void ConfigurationController::_applyState() {
   lv_dropdown_set_selected(ui_ConfiguracionIntensidadCampoOpciones, _data.configuration.targetFieldIntensityOption);
   lv_dropdown_set_selected(ui_ConfiguracionFrecuenciaOpciones, _data.configuration.targetFieldFrequencyOption);
   lv_dropdown_set_selected(ui_ConfiguracionTolIntensidadOpciones, _data.configuration.fieldIntensityToleranceOption);
+  ui_config_field_refresh(ui_ConfiguracionModoOpciones, true);
+  ui_config_field_refresh(ui_ConfiguracionDuracionOpciones, true);
+  ui_config_field_refresh(ui_ConfiguracionIntensidadCampoOpciones, true);
+  ui_config_field_refresh(ui_ConfiguracionFrecuenciaOpciones, true);
+  ui_config_field_refresh(ui_ConfiguracionTolIntensidadOpciones, true);
   _syncStagingFromData();
 
   // Los dos de temperatura van despues del sync porque cada uno se filtra
@@ -415,6 +444,52 @@ inline void ConfigurationController::_applyState() {
   // dos se limpia al entrar.
   _rebuildNormalOptions();
   _rebuildCriticalOptions();
+
+  // Se entra siempre por EXPOSICION y sin cambios.
+  ui_config_show_tab(false);
+  _updateDirty();
+}
+
+// Que difiere de lo guardado. Un rango de temperatura sin opcion
+// compatible (NoSelection) cuenta como cambio: es distinto de lo guardado
+// y GUARDAR lo rechaza igual (onSave).
+inline void ConfigurationController::_updateDirty() {
+  const ConfigurationData& saved = _data.configuration;
+  bool mode      = _lastOptionFieldMode != saved.fieldModeOption;
+  bool intensity = _lastOptionFieldIntensity != saved.targetFieldIntensityOption;
+  bool frequency = _lastOptionFrequency != saved.targetFieldFrequencyOption;
+  bool duration  = _lastOptionDuration != saved.targetDurationOption;
+  bool tolerance = _lastOptionTolFieldIntensity != saved.fieldIntensityToleranceOption;
+  bool normal    = _lastOptionRangeNormalTemperature != saved.normalTemperatureRangeOption;
+  bool critical  = _lastOptionRangeCriticalTemperature != saved.criticalTemperatureRangeOption;
+
+  ui_config_field_set_dirty(ui_ConfiguracionModoOpciones, mode);
+  ui_config_field_set_dirty(ui_ConfiguracionIntensidadCampoOpciones, intensity);
+  ui_config_field_set_dirty(ui_ConfiguracionFrecuenciaOpciones, frequency);
+  ui_config_field_set_dirty(ui_ConfiguracionDuracionOpciones, duration);
+  ui_config_field_set_dirty(ui_ConfiguracionTolIntensidadOpciones, tolerance);
+  ui_config_field_set_dirty(ui_ConfiguracionTempNormalOpciones, normal);
+  ui_config_field_set_dirty(ui_ConfiguracionTempCriticaOpciones, critical);
+
+  bool exposureDirty = mode || intensity || frequency || duration;
+  bool limitsDirty = tolerance || normal || critical;
+  bool dirty = exposureDirty || limitsDirty;
+
+  if (exposureDirty) lv_obj_remove_flag(ui_ConfiguracionTabExposicionPunto, LV_OBJ_FLAG_HIDDEN);
+  else               lv_obj_add_flag(ui_ConfiguracionTabExposicionPunto, LV_OBJ_FLAG_HIDDEN);
+  if (limitsDirty) lv_obj_remove_flag(ui_ConfiguracionTabLimitesPunto, LV_OBJ_FLAG_HIDDEN);
+  else             lv_obj_add_flag(ui_ConfiguracionTabLimitesPunto, LV_OBJ_FLAG_HIDDEN);
+
+  if (dirty) {
+    lv_obj_remove_flag(ui_ConfiguracionSinGuardar, LV_OBJ_FLAG_HIDDEN);
+    lv_label_set_text(ui_ButtonConfiguracionVolverTexto, "DESCARTAR");
+    lv_obj_remove_state(ui_ButtonConfiguracionGuardar, LV_STATE_DISABLED);
+  }
+  else {
+    lv_obj_add_flag(ui_ConfiguracionSinGuardar, LV_OBJ_FLAG_HIDDEN);
+    lv_label_set_text(ui_ButtonConfiguracionVolverTexto, "VOLVER");
+    lv_obj_add_state(ui_ButtonConfiguracionGuardar, LV_STATE_DISABLED);
+  }
 }
 
 // Deja el staging igual a lo guardado: lo que muestran los dropdowns y lo
@@ -453,14 +528,13 @@ inline bool ConfigurationController::_isNested(const ConfigurationOptions::Optio
 inline uint8_t ConfigurationController::_applySelection(lv_obj_t* dropdown, const uint8_t* map, uint8_t count, uint8_t absolute) {
   for (uint8_t i = 0; i < count; i++) {
     if (map[i] != absolute) continue;
-    // NULL = volver a mostrar la opcion elegida en vez del placeholder.
-    lv_dropdown_set_text(dropdown, NULL);
     lv_dropdown_set_selected(dropdown, i);
+    ui_config_field_refresh(dropdown, true);
     return absolute;
   }
 
-  // Literal a proposito: lv_dropdown_set_text guarda el puntero, no copia.
-  lv_dropdown_set_text(dropdown, "--");
+  // "--" en el campo: lo que estaba elegido ya no es compatible.
+  ui_config_field_refresh(dropdown, false);
   return NoSelection;
 }
 
@@ -534,16 +608,16 @@ inline void ConfigurationController::onDropdownChanged(lv_event_t * e) {
   // del otro.
   else if(widget == ui_ConfiguracionTempNormalOpciones) {
     if (optionSelectedIndex >= _normalCount) return;
-    lv_dropdown_set_text(widget, NULL);
     _lastOptionRangeNormalTemperature = _normalMap[optionSelectedIndex];
     _rebuildCriticalOptions();
   }
   else if(widget == ui_ConfiguracionTempCriticaOpciones) {
     if (optionSelectedIndex >= _criticalCount) return;
-    lv_dropdown_set_text(widget, NULL);
     _lastOptionRangeCriticalTemperature = _criticalMap[optionSelectedIndex];
     _rebuildNormalOptions();
   }
+  ui_config_field_refresh(widget, true);
+  _updateDirty();
 }
 
 inline void ConfigurationController::onSave() {
@@ -612,6 +686,13 @@ static void btnConfigBackClick(lv_event_t * e) {
   }
 }
 
+static void btnConfigTabClick(lv_event_t * e) {
+  ConfigurationController * self = (ConfigurationController *) lv_event_get_user_data(e);
+  if(lv_event_get_code(e) == LV_EVENT_CLICKED) {
+    self->onTab(lv_event_get_target(e) == ui_ConfiguracionTabLimites);
+  }
+}
+
 
 /* ============================================================
  *  RUNNING (pantalla "En curso", ui_EnCursoScreen)
@@ -623,6 +704,7 @@ class RunningController : public BaseScreenController {
     void update() override;
     void init() override;
     void onStop();
+    void onTab(bool targets);
   private:
     SystemData& _data;
     unsigned long _lastProgressUpdate = 0;
@@ -637,10 +719,17 @@ class RunningController : public BaseScreenController {
     float _shownMagneticField = NAN;
     float _shownTemperature = NAN;
 
-    // 0xFF = todavia no se aplico ninguna distribucion de filas. No sirve
-    // arrancar en 0: el export trae las 4 filas visibles, asi que "0 filas"
+    // 0xFF = todavia no se aplico ninguna distribucion de filas: "0 filas"
     // tambien hay que aplicarlo una primera vez.
     uint8_t _visibleCoils = 0xFF;
+
+    // Salud (global y por fuente) y puntos ya pintados. nullptr / 0xFF =
+    // nada pintado todavia: init() los reinicia porque los widgets son nuevos.
+    const char* _shownHealth = nullptr;
+    const char* _shownCemHealth = nullptr;
+    const char* _shownTempHealth = nullptr;
+    uint8_t _shownCemDots = 0xFF;
+    uint8_t _shownTempDots = 0xFF;
 
     void _loadTargetsData();
     void _updateMeasuresData();
@@ -648,7 +737,8 @@ class RunningController : public BaseScreenController {
     void _updateProgressData();
     void _updateAlertsData();
     void _updateHealthData();
-    void _applyAlertDots(const char* source, lv_obj_t* const dots[MAX_ALERT_DOTS]);
+    void _applyAlertDots(const char* source, lv_obj_t* const dots[MAX_ALERT_DOTS], uint8_t& shown);
+    void _applySourceHealth(const char* source, lv_obj_t* value, const char*& shown);
     void _updateStatusIcons();
     uint8_t _resolveVisibleCoils() const;
     void _applyCoilVisibility();
@@ -659,26 +749,20 @@ inline RunningController::RunningController(SystemData& data) : BaseScreenContro
 inline void RunningController::init() {
   BaseScreenController::init();
 
-  // Mismo motivo que en Principal: widgets nuevos, caches viejos. Ademas
-  // _visibleCoils vuelve al centinela 0xFF para que _applyCoilVisibility()
-  // aplique si o si -- el export deja las 4 filas visibles.
+  // Widgets nuevos, caches viejos: todo lo "ya pintado" vuelve a cero.
   _statusIcons = StatusIconsCache();
   _visibleCoils = 0xFF;
   _shownMagneticField = NAN;
   _shownTemperature = NAN;
+  _shownHealth = nullptr;
+  _shownCemHealth = nullptr;
+  _shownTempHealth = nullptr;
+  _shownCemDots = 0xFF;
+  _shownTempDots = 0xFF;
 
   lv_obj_add_event_cb(ui_ButtonDetener, btnRunningDetenerClick, LV_EVENT_CLICKED, this);
-
-  // Los 3 chips de salud se exportan visibles uno al lado del otro; arrancan
-  // en NORMAL, _updateHealthData los corrige apenas se muestra la pantalla.
-  lv_obj_add_flag(ui_EnCursoHeaderEstadoAdvertencia, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_add_flag(ui_EnCursoHeaderEstadoCritico, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_remove_flag(ui_EnCursoHeaderEstadoNormal, LV_OBJ_FLAG_HIDDEN);
-
-  lv_obj_t* const bars[MAX_COILS] = { ui_EnCursoMedicionesBobina1ControlBar, ui_EnCursoMedicionesBobina2ControlBar, ui_EnCursoMedicionesBobina3ControlBar, ui_EnCursoMedicionesBobina4ControlBar };
-  for (uint8_t i = 0; i < MAX_COILS; i++) {
-    lv_bar_set_range(bars[i], 0, 100);
-  }
+  lv_obj_add_event_cb(ui_EnCursoTabMediciones, btnRunningTabClick, LV_EVENT_CLICKED, this);
+  lv_obj_add_event_cb(ui_EnCursoTabObjetivos, btnRunningTabClick, LV_EVENT_CLICKED, this);
 }
 
 inline void RunningController::onStop() {
@@ -689,49 +773,50 @@ inline void RunningController::onStop() {
   _listener->onScreenEvent(ev);
 }
 
+// Las dos paginas existen desde que se creo la pantalla (decision B):
+// cambiar de pestania solo muestra una y oculta la otra.
+inline void RunningController::onTab(bool targets) {
+  ui_encurso_show_tab(targets);
+}
+
 inline void RunningController::show() {
   BaseScreenController::show();
 
-  // NAN nunca compara igual, asi que _updateMeasuresData escribe si o si:
-  // al entrar a la pantalla los valores mostrados arrancan en 0 (o en la
-  // ultima muestra recibida), nunca en el texto de maqueta del export.
+  // NAN nunca compara igual, asi que _updateMeasuresData escribe si o si.
   _shownMagneticField = NAN;
   _shownTemperature = NAN;
 
-  // Cuantas bobinas hay se decide al entrar, no en cada tick: la respuesta
-  // no cambia durante un experimento.
+  ui_encurso_show_tab(false);
+
+  // Cuantas bobinas hay se decide al entrar (y se revisa cada segundo, ver
+  // update(): sin SD sale de los coil_data que todavia no llegaron).
   _applyCoilVisibility();
 
-  // tab objetivos
   _loadTargetsData();
-  // barra inferior (avance, restante)
   _updateProgressData();
   _lastProgressUpdate = millis();
-  // tab mediciones
   _updateMeasuresData();
   _updateCoilsData();
   _updateAlertsData();
-  // estado de salud
   _updateHealthData();
-  // conexiones (serie con el Mega, WiFi, broker, SD)
   _updateStatusIcons();
 }
 
-// Mismos cuatro indicadores que Principal y Resultado, con los widgets de
-// esta pantalla. Se refrescan en cada tick porque la conexion puede caerse
-// en medio del experimento, que es justo cuando mas importa verlo.
+// Mismos cuatro indicadores que Principal y Resultado. Se refrescan en cada
+// tick porque la conexion puede caerse en medio del experimento, que es
+// justo cuando mas importa verlo.
 inline void RunningController::_updateStatusIcons() {
   if (_statusIcons.matches(_data.communication)) return;
   _statusIcons.remember(_data.communication);
 
-  applyStatusIcon(ui_EnCursoMegaOk, ui_EnCursoMegaNo, _data.communication.serialOk);
-  applyStatusIcon(ui_EnCursoWifiOk, ui_EnCursoWifiNo, _data.communication.wifiOk);
-  applyStatusIcon(ui_EnCursoBrokerOk, ui_EnCursoBrokerNo, _data.communication.brokerOk);
-  applyStatusIcon(ui_EnCursoSdOk, ui_EnCursoSdNo, _data.communication.sdOk);
+  ui_status_icon_set(ui_EnCursoIconoMega, _data.communication.serialOk);
+  ui_status_icon_set(ui_EnCursoIconoWifi, _data.communication.wifiOk);
+  ui_status_icon_set(ui_EnCursoIconoBroker, _data.communication.brokerOk);
+  ui_status_icon_set(ui_EnCursoIconoSd, _data.communication.sdOk);
 }
 
-// Mismos valores sueltos que muestra Principal (numero grande + unidad chica
-// en widgets separados), formateados desde los campos numericos de la opcion.
+// OBJETIVOS: los mismos valores sueltos que Principal. El modo va en el
+// chip junto a las pestanias, a la vista en las dos.
 inline void RunningController::_loadTargetsData() {
   lv_label_set_text(ui_EnCursoObjetivosIntensidadValor, _data.principal.intensityValue);
   lv_label_set_text(ui_EnCursoObjetivosFrecuenciaValor, _data.principal.frequencyValue);
@@ -740,7 +825,12 @@ inline void RunningController::_loadTargetsData() {
   lv_label_set_text(ui_EnCursoObjetivosTempNormalValor, _data.principal.normalTemperatureValue);
   lv_label_set_text(ui_EnCursoObjetivosTempCriticaValor, _data.principal.criticalTemperatureValue);
   lv_label_set_text(ui_EnCursoObjetivosTolIntensidadValor, _data.principal.toleranceValue);
-  lv_label_set_text(ui_EnCursoObjetivosModoValor, _data.principal.fieldModeValue);
+
+  bool nullField = _data.configuration.fieldModeOption == 1;
+  lv_obj_remove_style(ui_EnCursoModoChip, &st_mode_x, 0);
+  lv_obj_remove_style(ui_EnCursoModoChip, &st_mode_null, 0);
+  lv_obj_add_style(ui_EnCursoModoChip, nullField ? &st_mode_null : &st_mode_x, 0);
+  lv_label_set_text(ui_EnCursoModoTexto, nullField ? "CAMPO NULO" : LV_SYMBOL_CHARGE " CAMPO X");
 }
 
 inline void RunningController::_updateMeasuresData() {
@@ -783,19 +873,16 @@ inline uint8_t RunningController::_resolveVisibleCoils() const {
   return reported;
 }
 
-// Ademas de mostrar u ocultar filas escribe los NOMBRES, y por eso sale
-// temprano si la cuenta no cambio: los nombres salen de la SD o son fijos,
-// no cambian hasta que se reinicie el sistema, asi que reescribirlos en cada
-// tick seria repintar cuatro labels por segundo para nada.
+// Ademas de mostrar u ocultar filas (y ajustar sus anchos) escribe los
+// NOMBRES, y por eso sale temprano si la cuenta no cambio: los nombres salen
+// de la SD o son fijos y no cambian hasta que se reinicie el sistema.
 inline void RunningController::_applyCoilVisibility() {
   uint8_t resolved = _resolveVisibleCoils();
   if (resolved == _visibleCoils) return;
   _visibleCoils = resolved;
 
-  lv_obj_t* const rows[MAX_COILS] = {
-    ui_EnCursoMedicionesBobina1, ui_EnCursoMedicionesBobina2,
-    ui_EnCursoMedicionesBobina3, ui_EnCursoMedicionesBobina4
-  };
+  ui_encurso_set_coil_layout(_visibleCoils);
+
   lv_obj_t* const nameLabels[MAX_COILS] = {
     ui_EnCursoMedicionesBobina1Nombre, ui_EnCursoMedicionesBobina2Nombre,
     ui_EnCursoMedicionesBobina3Nombre, ui_EnCursoMedicionesBobina4Nombre
@@ -804,15 +891,9 @@ inline void RunningController::_applyCoilVisibility() {
   const ConfigLoader::CoilConfig* coils = ConfigLoader::coilConfigs();
   uint8_t named = ConfigLoader::coilConfigCount();
 
-  for (uint8_t i = 0; i < MAX_COILS; i++) {
-    if (i >= _visibleCoils) {
-      lv_obj_add_flag(rows[i], LV_OBJ_FLAG_HIDDEN);
-      continue;
-    }
-
+  for (uint8_t i = 0; i < _visibleCoils && i < MAX_COILS; i++) {
     // El nombre sale de la SD si esta (el mismo con el que el Mega resuelve
-    // config_coil); si no, el generico "B1".."B4". El export trae "B3" en
-    // la fila 4.
+    // config_coil); si no, el generico "B1".."B4".
     if (i < named && coils[i].name[0] != '\0') {
       lv_label_set_text(nameLabels[i], coils[i].name);
     }
@@ -821,8 +902,6 @@ inline void RunningController::_applyCoilVisibility() {
       snprintf(str, sizeof(str), "B%u", i + 1);
       lv_label_set_text(nameLabels[i], str);
     }
-
-    lv_obj_remove_flag(rows[i], LV_OBJ_FLAG_HIDDEN);
   }
 }
 
@@ -835,9 +914,7 @@ inline void RunningController::_updateCoilsData() {
   lv_obj_t* const dutyBars[MAX_COILS] = { ui_EnCursoMedicionesBobina1ControlBar, ui_EnCursoMedicionesBobina2ControlBar, ui_EnCursoMedicionesBobina3ControlBar, ui_EnCursoMedicionesBobina4ControlBar };
   lv_obj_t* const dutyLabels[MAX_COILS] = { ui_EnCursoMedicionesBobina1ControlValor, ui_EnCursoMedicionesBobina2ControlValor, ui_EnCursoMedicionesBobina3ControlValor, ui_EnCursoMedicionesBobina4ControlValor };
 
-  // Los nombres NO se tocan aca: los escribe _applyCoilVisibility() cuando
-  // cambia la cantidad de filas, porque no cambian durante la ejecucion.
-  for (uint8_t i = 0; i < _visibleCoils; i++) {
+  for (uint8_t i = 0; i < _visibleCoils && i < MAX_COILS; i++) {
     char str[16];
 
     snprintf(str, sizeof(str), "%.2f A", _data.measures.coilCurrent[i]);
@@ -847,88 +924,96 @@ inline void RunningController::_updateCoilsData() {
     if (duty < 0.0f) duty = 0.0f;
     if (duty > 100.0f) duty = 100.0f;
     lv_bar_set_value(dutyBars[i], (int32_t) (duty + 0.5f), LV_ANIM_OFF);
-    snprintf(str, sizeof(str), "%.1f%%", duty);
+    snprintf(str, sizeof(str), "%.1f %%", duty);
     lv_label_set_text(dutyLabels[i], str);
   }
 }
 
 inline void RunningController::_updateProgressData() {
-  char str[8];
-  snprintf(str, sizeof(str), "%.1f%%", _data.progressPercent());
-  lv_label_set_text(ui_Label1, str);   // ui_Label1 es el % de PROGRESO (sin renombrar en SquareLine)
+  char str[16];
+  float percent = _data.progressPercent();
+  snprintf(str, sizeof(str), "%.0f %%", percent);
+  lv_label_set_text(ui_EnCursoProgresoValor, str);
+  lv_bar_set_value(ui_EnCursoProgresoBarra, (int32_t) (percent + 0.5f), LV_ANIM_OFF);
 
-  // TRANSCURRIDO, como lo titula el diseno UiFInalParte2 (el anterior
-  // mostraba RESTANTE); es el mismo dato que congela Resultado.
+  // TRANSCURRIDO: es el mismo dato que congela Resultado.
   unsigned long elapsed = _data.elapsedSeconds();
-  snprintf(str, sizeof(str), "%lu", elapsed / 3600);
-  lv_label_set_text(ui_EnCursoTranscurridoHorasValor, str);
-  snprintf(str, sizeof(str), "%02lu", (elapsed % 3600) / 60);
-  lv_label_set_text(ui_EnCursoTranscurridoMinutosValor, str);
+  snprintf(str, sizeof(str), "%lu h %02lu m", elapsed / 3600, (elapsed % 3600) / 60);
+  lv_label_set_text(ui_EnCursoTranscurridoValor, str);
 }
 
-// Los 4 paneles que cada medicion tiene al lado del titulo son los ULTIMOS
-// 4 eventos de esa fuente: el mas antiguo a la izquierda, el mas reciente a
-// la derecha. Se muestran tantos como eventos haya (ninguno con 0, los 4 mas
-// nuevos a partir del cuarto) y el resto se ocultan -- un panel apagado no
-// se distinguiria de uno "sin alerta todavia".
+// Los 4 puntos de cada medicion son los ULTIMOS 4 eventos de esa fuente: el
+// mas antiguo a la izquierda, el mas reciente a la derecha. Se muestran
+// tantos como eventos haya y el resto se ocultan. El color es el del PROPIO
+// evento: rojo si fue critico (o sin lecturas), ambar si fue racha o
+// frecuencia.
 //
-// El color es el del PROPIO evento, no el del conjunto: rojo si ese evento
-// fue critico, ambar si fue streak o frequency. Son los mismos dos colores
-// que el export usa en los chips de salud del header.
-inline void RunningController::_applyAlertDots(const char* source, lv_obj_t* const dots[MAX_ALERT_DOTS]) {
+// Solo repinta si cambio algo: `shown` guarda cuantos hay y cuales son
+// criticos (bit 3 en adelante), y esto corre en cada tick de 50 ms.
+inline void RunningController::_applyAlertDots(const char* source, lv_obj_t* const dots[MAX_ALERT_DOTS], uint8_t& shown) {
   const AlertHistory* history = _data.alertHistory(source);
   uint8_t count = (history != nullptr) ? history->count : 0;
+
+  uint8_t signature = count;
+  for (uint8_t i = 0; i < count && i < MAX_ALERT_DOTS; i++) {
+    if (isCriticalAlertType(history->types[i])) signature |= (1 << (3 + i));
+  }
+  if (signature == shown) return;
+  shown = signature;
 
   for (uint8_t i = 0; i < MAX_ALERT_DOTS; i++) {
     if (i >= count) {
       lv_obj_add_flag(dots[i], LV_OBJ_FLAG_HIDDEN);
       continue;
     }
-
     bool critical = isCriticalAlertType(history->types[i]);
-    lv_obj_set_style_bg_color(dots[i],
-                              critical ? lv_color_hex(0xA30000) : lv_color_hex(0xC47F08),
-                              LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_remove_style(dots[i], &st_dot_warn, 0);
+    lv_obj_remove_style(dots[i], &st_dot_crit, 0);
+    lv_obj_add_style(dots[i], critical ? &st_dot_crit : &st_dot_warn, 0);
     lv_obj_remove_flag(dots[i], LV_OBJ_FLAG_HIDDEN);
   }
 }
 
-inline void RunningController::_updateAlertsData() {
-  // En UiFInalParte2 los puntos ya estan dentro del panel que nombran
-  // (el export anterior los tenia cruzados).
-  lv_obj_t* const cemDots[MAX_ALERT_DOTS] = { ui_EnCursoMedicionesIntensidadAlertas1, ui_EnCursoMedicionesIntensidadAlertas2, ui_EnCursoMedicionesIntensidadAlertas3, ui_EnCursoMedicionesIntensidadAlertas4 };
-  lv_obj_t* const tempDots[MAX_ALERT_DOTS] = { ui_EnCursoMedicionesTempAlertas1, ui_EnCursoMedicionesTempAlertas2, ui_EnCursoMedicionesTempAlertas3, ui_EnCursoMedicionesTempAlertas4 };
-  _applyAlertDots("CEM1", cemDots);
-  _applyAlertDots("TEMP1", tempDots);
+// Valor medido en COL_WARN_TEXT si esa fuente esta en advertencia, en
+// COL_CRIT_TEXT si esta en critico (decision A del plan: salud por fuente,
+// misma regla que la global).
+inline void RunningController::_applySourceHealth(const char* source, lv_obj_t* value, const char*& shown) {
+  const char* health = _data.evaluateSourceHealth(source);
+  if (health == shown) return;
+  shown = health;
+
+  lv_obj_remove_style(value, &st_val_warn, 0);
+  lv_obj_remove_style(value, &st_val_crit, 0);
+  if (health == HealthData::Critical)     lv_obj_add_style(value, &st_val_crit, 0);
+  else if (health == HealthData::Warning) lv_obj_add_style(value, &st_val_warn, 0);
 }
 
+inline void RunningController::_updateAlertsData() {
+  lv_obj_t* const cemDots[MAX_ALERT_DOTS] = { ui_EnCursoMedicionesIntensidadAlertas1, ui_EnCursoMedicionesIntensidadAlertas2, ui_EnCursoMedicionesIntensidadAlertas3, ui_EnCursoMedicionesIntensidadAlertas4 };
+  lv_obj_t* const tempDots[MAX_ALERT_DOTS] = { ui_EnCursoMedicionesTempAlertas1, ui_EnCursoMedicionesTempAlertas2, ui_EnCursoMedicionesTempAlertas3, ui_EnCursoMedicionesTempAlertas4 };
+  _applyAlertDots("CEM1", cemDots, _shownCemDots);
+  _applyAlertDots("TEMP1", tempDots, _shownTempDots);
+  _applySourceHealth("CEM1", ui_EnCursoMedicionesIntensidadValor, _shownCemHealth);
+  _applySourceHealth("TEMP1", ui_EnCursoMedicionesTempValor, _shownTempHealth);
+}
+
+// Salud global: el encabezado entero toma el color (lo que se lee a 1 m).
+// Sobre el ambar el texto, el divisor y los iconos OK pasan a oscuro: lo
+// hace st_hdr_warn por herencia, salvo el divisor, que es un fondo.
 inline void RunningController::_updateHealthData() {
   const char* health = _data.progress.health;
+  if (_shownHealth != nullptr && strcmp(_shownHealth, health) == 0) return;
 
   bool isCritical = strcmp(health, HealthData::Critical) == 0;
   bool isWarning  = strcmp(health, HealthData::Warning) == 0;
+  _shownHealth = isCritical ? HealthData::Critical : (isWarning ? HealthData::Warning : HealthData::Normal);
 
-  // Un solo chip visible a la vez: los tres comparten el flex row del header.
-  if (isCritical) {
-    lv_obj_remove_flag(ui_EnCursoHeaderEstadoCritico, LV_OBJ_FLAG_HIDDEN);
-  }
-  else {
-    lv_obj_add_flag(ui_EnCursoHeaderEstadoCritico, LV_OBJ_FLAG_HIDDEN);
-  }
-
-  if (isWarning) {
-    lv_obj_remove_flag(ui_EnCursoHeaderEstadoAdvertencia, LV_OBJ_FLAG_HIDDEN);
-  }
-  else {
-    lv_obj_add_flag(ui_EnCursoHeaderEstadoAdvertencia, LV_OBJ_FLAG_HIDDEN);
-  }
-
-  if (!isCritical && !isWarning) {
-    lv_obj_remove_flag(ui_EnCursoHeaderEstadoNormal, LV_OBJ_FLAG_HIDDEN);
-  }
-  else {
-    lv_obj_add_flag(ui_EnCursoHeaderEstadoNormal, LV_OBJ_FLAG_HIDDEN);
-  }
+  lv_obj_remove_style(ui_EnCursoHeader, &st_hdr_ok, 0);
+  lv_obj_remove_style(ui_EnCursoHeader, &st_hdr_warn, 0);
+  lv_obj_remove_style(ui_EnCursoHeader, &st_hdr_crit, 0);
+  lv_obj_add_style(ui_EnCursoHeader, isCritical ? &st_hdr_crit : (isWarning ? &st_hdr_warn : &st_hdr_ok), 0);
+  lv_label_set_text(ui_EnCursoHeaderSalud, isCritical ? "CRITICO" : (isWarning ? "ADVERTENCIA" : "NORMAL"));
+  lv_obj_set_style_bg_color(ui_EnCursoHeaderDivisor, isWarning ? COL_TEXT : lv_color_white(), 0);
 }
 
 inline void RunningController::update() {
@@ -937,18 +1022,15 @@ inline void RunningController::update() {
   _updateHealthData();
   _updateStatusIcons();
 
-  // El progreso (%, restante) y las corrientes no necesitan refrescarse en
-  // cada tick de pantalla (50ms) -- un experimento se mide en minutos, no en
-  // decimas de segundo. Se throttlea a 1s, igual que los envios por Serial
-  // del resto del proyecto.
+  // El progreso y las corrientes no necesitan refrescarse en cada tick de
+  // pantalla (50 ms): un experimento se mide en minutos. Se throttlea a 1 s.
   unsigned long now = millis();
   if (now - _lastProgressUpdate >= 1000) {
     _lastProgressUpdate = now;
     _updateProgressData();
     // Se recalcula junto con los datos y no solo en show() por el caso sin
     // SD: ahi la cuenta sale de los frames coil_data del Mega, que todavia
-    // no habian llegado al entrar a la pantalla. Es idempotente y son 4
-    // banderas, asi que no vale la pena condicionarlo.
+    // no habian llegado al entrar a la pantalla.
     _applyCoilVisibility();
     _updateCoilsData();
   }
@@ -958,6 +1040,13 @@ static void btnRunningDetenerClick(lv_event_t * e) {
   RunningController * self = (RunningController *) lv_event_get_user_data(e);
   if(lv_event_get_code(e) == LV_EVENT_CLICKED) {
     self->onStop();
+  }
+}
+
+static void btnRunningTabClick(lv_event_t * e) {
+  RunningController * self = (RunningController *) lv_event_get_user_data(e);
+  if(lv_event_get_code(e) == LV_EVENT_CLICKED) {
+    self->onTab(lv_event_get_target(e) == ui_EnCursoTabObjetivos);
   }
 }
 
@@ -978,7 +1067,8 @@ class ResultadoController : public BaseScreenController {
     StatusIconsCache _statusIcons;
     void _updateStatusIcons();
     void _applyResult();
-    void _applyPanel(lv_obj_t* panel, bool visible, lv_obj_t* modeLabel, lv_obj_t* detailLabel, const char* detail);
+    void _applyPanel(lv_style_t* style, const char* symbol, const char* title, const char* headline, const char* detail);
+    void _layoutButtons(bool showRepeat);
     void _buildAlertsClause(char* out, size_t size) const;
     void _buildCriticalTexts(char* headline, size_t headlineSize, char* detail, size_t detailSize) const;
     void _buildRefusedTexts(char* headline, size_t headlineSize, char* detail, size_t detailSize) const;
@@ -992,14 +1082,6 @@ inline void ResultadoController::init() {
 
   lv_obj_add_event_cb(ui_ButtonResultadoPrincipal, btnResultadoVolverClick, LV_EVENT_CLICKED, this);
   lv_obj_add_event_cb(ui_ButtonResultadoRepetir, btnResultadoRepetirClick, LV_EVENT_CLICKED, this);
-
-  // Los 3 paneles (Completado/Falla/Detenido) ocupan el mismo lugar. El
-  // export deja Completado visible y los otros dos ocultos; se ocultan los
-  // 3 aca para no depender de ese default, _applyResult() muestra el que
-  // corresponde a _data.result.reason.
-  lv_obj_add_flag(ui_ResultadoCompletado, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_add_flag(ui_ResultadoFalla, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_add_flag(ui_ResultadoDetenido, LV_OBJ_FLAG_HIDDEN);
 }
 
 inline void ResultadoController::onVolver() {
@@ -1032,10 +1114,10 @@ inline void ResultadoController::_updateStatusIcons() {
   if (_statusIcons.matches(_data.communication)) return;
   _statusIcons.remember(_data.communication);
 
-  applyStatusIcon(ui_ResultadoMegaOk, ui_ResultadoMegaNo, _data.communication.serialOk);
-  applyStatusIcon(ui_ResultadoWifiOk, ui_ResultadoWifiNo, _data.communication.wifiOk);
-  applyStatusIcon(ui_ResultadoBrokerOk, ui_ResultadoBrokerNo, _data.communication.brokerOk);
-  applyStatusIcon(ui_ResultadoSdOk, ui_ResultadoSdNo, _data.communication.sdOk);
+  ui_status_icon_set(ui_ResultadoIconoMega, _data.communication.serialOk);
+  ui_status_icon_set(ui_ResultadoIconoWifi, _data.communication.wifiOk);
+  ui_status_icon_set(ui_ResultadoIconoBroker, _data.communication.brokerOk);
+  ui_status_icon_set(ui_ResultadoIconoSd, _data.communication.sdOk);
 }
 
 // "sin alertas activas" / "1 alerta activa" / "N alertas activas". Sale del
@@ -1111,14 +1193,43 @@ inline void ResultadoController::_buildRefusedTexts(char* headline, size_t headl
   }
 }
 
-inline void ResultadoController::_applyPanel(lv_obj_t* panel, bool visible, lv_obj_t* modeLabel, lv_obj_t* detailLabel, const char* detail) {
-  if (!visible) {
-    lv_obj_add_flag(panel, LV_OBJ_FLAG_HIDDEN);
-    return;
+// Un solo panel con cinco variantes: estilo de estado, simbolo, titulo,
+// titular y detalle. El chip de modo es el del experimento, igual en todas.
+inline void ResultadoController::_applyPanel(lv_style_t* style, const char* symbol, const char* title,
+                                             const char* headline, const char* detail) {
+  lv_obj_remove_style(ui_ResultadoPanel, &st_panel_ok, 0);
+  lv_obj_remove_style(ui_ResultadoPanel, &st_panel_warn, 0);
+  lv_obj_remove_style(ui_ResultadoPanel, &st_panel_crit, 0);
+  lv_obj_remove_style(ui_ResultadoPanel, &st_panel_neutral, 0);
+  lv_obj_add_style(ui_ResultadoPanel, style, 0);
+
+  lv_label_set_text(ui_ResultadoPanelSimbolo, symbol);
+  lv_label_set_text(ui_ResultadoPanelTitulo, title);
+  lv_label_set_text(ui_ResultadoPanelTitular, headline);
+  // Si el Mega no mando detalle queda vacio y el panel conserva su alto.
+  lv_label_set_text(ui_ResultadoPanelDetalle, detail);
+
+  // Relleno = campo encendido, contorno = sin campo (handoff).
+  bool nullField = strcmp(_data.result.fieldMode, "CAMPO NULO") == 0;
+  lv_obj_remove_style(ui_ResultadoPanelModo, &st_mode_x, 0);
+  lv_obj_remove_style(ui_ResultadoPanelModo, &st_mode_null, 0);
+  lv_obj_add_style(ui_ResultadoPanelModo, nullField ? &st_mode_null : &st_mode_x, 0);
+  lv_label_set_text(ui_ResultadoPanelModoTexto, nullField ? "CAMPO NULO" : LV_SYMBOL_CHARGE " CAMPO X");
+}
+
+// Con REPETIR: PRINCIPAL secundario a la izquierda. Sin REPETIR: PRINCIPAL
+// ocupa el ancho completo y pasa a primario (es la unica accion).
+inline void ResultadoController::_layoutButtons(bool showRepeat) {
+  if (showRepeat) {
+    lv_obj_remove_flag(ui_ButtonResultadoRepetir, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_width(ui_ButtonResultadoPrincipal, 148);
+    ui_button_set_kind(ui_ButtonResultadoPrincipal, UI_BTN_SECONDARY);
   }
-  lv_label_set_text(modeLabel, _data.result.fieldMode);
-  lv_label_set_text(detailLabel, detail);
-  lv_obj_remove_flag(panel, LV_OBJ_FLAG_HIDDEN);
+  else {
+    lv_obj_add_flag(ui_ButtonResultadoRepetir, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_width(ui_ButtonResultadoPrincipal, 304);
+    ui_button_set_kind(ui_ButtonResultadoPrincipal, UI_BTN_PRIMARY);
+  }
 }
 
 inline void ResultadoController::_applyResult() {
@@ -1126,49 +1237,40 @@ inline void ResultadoController::_applyResult() {
   bool isCritical  = strcmp(_data.result.reason, "critical") == 0;
   bool isStopped   = strcmp(_data.result.reason, "stopped") == 0;
   bool isRefused   = strcmp(_data.result.reason, "refused") == 0;
-  // Cualquier otro motivo ("unknown": el Mega no lo informo, ver
-  // MySystem::_applyResult) va al panel de falla. Antes no mostraba ningun
-  // panel y la pantalla quedaba en blanco sin decir que paso.
+  // Cualquier otro motivo ("unknown": el Mega no lo informo; "lost": la
+  // corrida se cerro sin result_data, ver MySystem::_applyResult) va al
+  // panel neutro con la descripcion que armo la ESP32.
   bool isUnknown   = !isCompleted && !isCritical && !isStopped && !isRefused;
 
   char alerts[32];
   _buildAlertsClause(alerts, sizeof(alerts));
 
-  // Completado: el titular fijo del export ("LA EXPOSICION LLEGO A SU FIN")
-  // ya dice todo, el detalle aporta como quedaron las alertas.
-  char completedDetail[64];
-  snprintf(completedDetail, sizeof(completedDetail), "%s", alerts);
-
-  // Detenido: de donde vino la orden. Para el experimento es lo mismo, pero
-  // no para quien lee el resultado despues.
-  char stoppedDetail[64];
-  snprintf(stoppedDetail, sizeof(stoppedDetail), "%s - %s",
-           _data.result.fromEmergency ? "pulsador de emergencia" : "boton de la pantalla",
-           alerts);
-
-  char criticalHeadline[48];
-  char criticalDetail[64];
-  _buildCriticalTexts(criticalHeadline, sizeof(criticalHeadline), criticalDetail, sizeof(criticalDetail));
-
-  _applyPanel(ui_ResultadoCompletado, isCompleted, ui_ResultadoMotivoCompletadoTipoCampo, ui_ResultadoMotivoCompletadoMotivoDetalle, completedDetail);
-  _applyPanel(ui_ResultadoDetenido, isStopped, ui_ResultadoMotivoDetenidoTipoCampo, ui_ResultadoMotivoDetenidoMotivoDetalle, stoppedDetail);
-  char refusedHeadline[40];
-  char refusedDetail[64];
-  _buildRefusedTexts(refusedHeadline, sizeof(refusedHeadline), refusedDetail, sizeof(refusedDetail));
-
-  _applyPanel(ui_ResultadoFalla, isCritical || isRefused || isUnknown, ui_ResultadoMotivoFallaTipoCampo, ui_ResultadoMotivoFallaMotivoDetalle,
-              isRefused ? refusedDetail : (isUnknown ? _data.result.description : criticalDetail));
-
-  if (isCritical) {
-    lv_label_set_text(ui_ResultadoMotivoFallaMotivo, criticalHeadline);
+  if (isCompleted) {
+    // El titular ya dice todo; el detalle aporta como quedaron las alertas.
+    _applyPanel(&st_panel_ok, LV_SYMBOL_OK, "COMPLETADO", "LA EXPOSICION LLEGO A SU FIN", alerts);
+  }
+  else if (isStopped) {
+    // De donde vino la orden: para el experimento es lo mismo, pero no para
+    // quien lee el resultado despues.
+    char detail[64];
+    snprintf(detail, sizeof(detail), "%s - %s",
+             _data.result.fromEmergency ? "pulsador de emergencia" : "boton de la pantalla", alerts);
+    _applyPanel(&st_panel_warn, LV_SYMBOL_STOP, "DETENIDO", "EL OPERADOR DETUVO LA EXPOSICION", detail);
+  }
+  else if (isCritical) {
+    char headline[48];
+    char detail[64];
+    _buildCriticalTexts(headline, sizeof(headline), detail, sizeof(detail));
+    _applyPanel(&st_panel_crit, LV_SYMBOL_CLOSE, "FALLA", headline, detail);
   }
   else if (isRefused) {
-    lv_label_set_text(ui_ResultadoMotivoFallaTitle, "NO INICIO");
-    lv_label_set_text(ui_ResultadoMotivoFallaMotivo, refusedHeadline);
+    char headline[40];
+    char detail[64];
+    _buildRefusedTexts(headline, sizeof(headline), detail, sizeof(detail));
+    _applyPanel(&st_panel_crit, LV_SYMBOL_CLOSE, "NO INICIO", headline, detail);
   }
-  else if (isUnknown) {
-    lv_label_set_text(ui_ResultadoMotivoFallaTitle, "TERMINO");
-    lv_label_set_text(ui_ResultadoMotivoFallaMotivo, "MOTIVO DESCONOCIDO");
+  else {
+    _applyPanel(&st_panel_neutral, "?", "TERMINO", "MOTIVO DESCONOCIDO", _data.result.description);
   }
 
   // REPETIR se oculta cuando corto por falla: repetir el mismo experimento
@@ -1179,37 +1281,36 @@ inline void ResultadoController::_applyResult() {
   // una configuracion remota esperando el reinicio: correria con la vieja
   // (ver MySystem::_rebootForConfigIfIdle).
   bool hideRepeat = isCritical || isRefused || isUnknown || _data.configRebootPending;
-  if (hideRepeat) lv_obj_add_flag(ui_ButtonResultadoRepetir, LV_OBJ_FLAG_HIDDEN);
-  else            lv_obj_remove_flag(ui_ButtonResultadoRepetir, LV_OBJ_FLAG_HIDDEN);
+  _layoutButtons(!hideRepeat);
 
   // Progreso, tiempo y campo medio: snapshot congelado en SystemData::result
   // al llegar result_data (ver systemdata.hpp), no los getters en vivo.
   char text[16];
-  snprintf(text, sizeof(text), "%.0f%%", _data.result.progressPercent);
+  snprintf(text, sizeof(text), "%.0f", _data.result.progressPercent);
   lv_label_set_text(ui_ResultadoProgresoValor, text);
 
   unsigned long totalMinutes = _data.result.elapsedSeconds / 60;
-  snprintf(text, sizeof(text), "%lu", totalMinutes / 60);
-  lv_label_set_text(ui_ResultadoProgresoHorasValor, text);
-  snprintf(text, sizeof(text), "%02lu", totalMinutes % 60);
-  lv_label_set_text(ui_ResultadoProgresoMinutosValor, text);
+  snprintf(text, sizeof(text), "%lu h %02lu", totalMinutes / 60, totalMinutes % 60);
+  lv_label_set_text(ui_ResultadoTranscurridoValor, text);
 
   if (_data.result.hasMeanMagneticField) {
     snprintf(text, sizeof(text), "%.2f", _data.result.meanMagneticField);
+    lv_label_set_text(ui_ResultadoCampoMedioUnidadValor, text);
+    lv_obj_remove_flag(ui_ResultadoCampoMedioUnidad, LV_OBJ_FLAG_HIDDEN);
   }
   else {
     // Sin ninguna muestra de CEM1 durante el experimento: no hay promedio
     // que mostrar, y un "0.00" se leeria como campo nulo medido.
-    snprintf(text, sizeof(text), "--");
+    lv_label_set_text(ui_ResultadoCampoMedioUnidadValor, "--");
+    lv_obj_add_flag(ui_ResultadoCampoMedioUnidad, LV_OBJ_FLAG_HIDDEN);
   }
-  lv_label_set_text(ui_ResultadoCampoMedioUnidadValor, text);
 }
 
 inline void ResultadoController::update() {
   _updateStatusIcons();
   // La configuracion puede llegar con esta pantalla ya abierta.
   if (_data.configRebootPending && !lv_obj_has_flag(ui_ButtonResultadoRepetir, LV_OBJ_FLAG_HIDDEN)) {
-    lv_obj_add_flag(ui_ButtonResultadoRepetir, LV_OBJ_FLAG_HIDDEN);
+    _layoutButtons(false);
   }
 }
 

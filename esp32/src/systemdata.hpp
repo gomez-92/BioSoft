@@ -245,6 +245,9 @@ class SystemData {
     void updatePrincipalConfigurationLabels();
     void pushAlert(const char* type, const char* source, int count, int limit);
     const char* evaluateHealth() const;
+    // La misma regla, solo con las alertas de una fuente ("CEM1", "TEMP1"):
+    // colorea el valor medido de esa fuente en En curso.
+    const char* evaluateSourceHealth(const char* source) const;
     const char* latestUpdateStr(unsigned long latestUpdate);
     // Historial por fuente para los 4 paneles de alerta de En curso.
     void pushAlertEvent(const char* source, const char* type);
@@ -389,6 +392,24 @@ inline const char* SystemData::evaluateHealth() const {
 
   for (int i = 0; i < MAX_ALERTS; i++) {
     if (!alerts.items[i].active) continue;
+    if (isCriticalAlertType(alerts.items[i].type)) {
+      return HealthData::Critical;
+    }
+    hasWarning = true;
+  }
+
+  return hasWarning ? HealthData::Warning : HealthData::Normal;
+}
+
+// Sale de AlertsData, igual que evaluateHealth(), asi que hereda su limite:
+// recuerda las ultimas MAX_ALERTS alertas distintas de TODAS las fuentes, y
+// con muchas alertas de una fuente la de otra puede quedar afuera.
+inline const char* SystemData::evaluateSourceHealth(const char* source) const {
+  bool hasWarning = false;
+
+  for (int i = 0; i < MAX_ALERTS; i++) {
+    if (!alerts.items[i].active) continue;
+    if (strcmp(alerts.items[i].source, source) != 0) continue;
     if (isCriticalAlertType(alerts.items[i].type)) {
       return HealthData::Critical;
     }

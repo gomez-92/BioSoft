@@ -1892,8 +1892,13 @@ inline void MySystem::onScreenChanged(ScreenType from, ScreenType to) {
   // asi que el heap se mueve en cada transicion. Este log es la forma de
   // ver que efectivamente se libera y que el bloque contiguo se mantiene
   // grande -- que es lo que necesita el handshake TLS.
-  LOG_D(SISTEMA, "pantalla %d -> %d heap_libre=%u B bloque_mayor=%u B", (int)from, (int)to,
-        (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
+  // Se mide despues de create(): la pantalla nueva ya existe. minimo = el
+  // piso historico desde el arranque (incluye los picos del handshake TLS).
+  static const char* const names[] = {"splash", "principal", "en_curso", "configuracion", "resultado",
+                                      "esperando"};
+  LOG_D(SISTEMA, "pantalla %s -> %s heap_libre=%u B bloque_mayor=%u B minimo=%u B", names[(int)from],
+        names[(int)to], (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap(),
+        (unsigned)ESP.getMinFreeHeap());
 }
 
 inline void MySystem::onScreenEvent(ScreenEvent e) {
