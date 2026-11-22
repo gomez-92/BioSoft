@@ -126,6 +126,16 @@ cleanup. Decisions that constrain every phase: `ScreenManager` and the
 theme stays on and our own objects use `lv_obj_remove_style_all()` + shared
 styles; EN CURSO creates both tabs on entry and only hides/shows them.
 
+**Baseline (phase 0, 2026-11-22, SquareLine screens):** 214.8 KB free /
+108 KB largest block before the UI; once TLS connects the largest block sits
+at **44.0 KB (45044 B) on every screen**, and freeing ~27 KB of screens does
+not move it — fragmentation, not total memory. With the broker cut on EN
+CURSO every reconnect fails with `-32512` (105 KB free, 44.0 KB block); on
+RESULTADO (46.0 KB block) the same reconnect succeeds. The margin is a few
+KB, so the migration is judged by how much that block grows on EN CURSO,
+and phase 4's test is exactly that: cut the broker mid-run, it must come
+back.
+
 **A phase is closed only when all of this is done, in its own commit:**
 1. Both projects build.
 2. Tested on the bench (navigation, and the phase's own checks in the plan).
