@@ -107,6 +107,38 @@ lower it, and consecutive runs kept the link. Below ~300 means a new path is
 too deep — the end-of-run hang coming back. `docs/puesta-en-marcha.html`
 (phases 2–3) carries these log lines.
 
+## In progress: hand-written LVGL screens (branch `feat/pantallas-lvgl`)
+
+The six SquareLine screens are being replaced, one at a time, by LVGL 9.1
+written by hand. The plan (phases, decisions A–D, heap table) is the doc
+https://claude.ai/artifact/QFHGKbDLadF1kFrBHtfWbb and the design handoff is
+https://claude.ai/artifact/W23df1TQhAL4tFxQ8QX4yX — read the plan first.
+Until phase 5 old and new screens coexist, so the SquareLine notes in the
+esp32 section still describe the screens not migrated yet.
+
+Phases: 0 baseline heap measurement → 1 `ui_theme` + components + ESPERANDO
++ SPLASH (cut-off point: if the heap does not improve, stop and rethink) →
+2 RESULTADO → 3 PRINCIPAL + CONFIGURACION → 4 EN CURSO → 5 SquareLine
+cleanup. Decisions that constrain every phase: `ScreenManager` and the
+`BaseScreenController` lifecycle are not touched; screens keep their
+`ui_XxxScreen` roots, `_screen_init()`/`_screen_destroy()` and the existing
+`ui_Xxx` widget names (new widgets: `ui_<Pantalla><Parte>`); the LVGL default
+theme stays on and our own objects use `lv_obj_remove_style_all()` + shared
+styles; EN CURSO creates both tabs on entry and only hides/shows them.
+
+**A phase is closed only when all of this is done, in its own commit:**
+1. Both projects build.
+2. Tested on the bench (navigation, and the phase's own checks in the plan).
+3. Heap measured with `-D LOG_DEBUG_SISTEMA=1`: the `pantalla X -> Y
+   heap_libre=… bloque_mayor=…` line for every migrated screen, written into
+   the plan's table. The figure that matters is `bloque_mayor`.
+4. TLS reconnects while on each migrated screen (broker dropped and back,
+   no `-32512`).
+5. **Documentation updated in the same phase, not at the end**:
+   `docs/manual-de-usuario.html` (then regenerate the PDF and the `.docx`),
+   `docs/puesta-en-marcha.html`, and this file (replace the SquareLine notes
+   for the migrated screens). Strike the phase off in the plan.
+
 ## Commands
 
 Each folder is built independently with PlatformIO (`pio`, i.e. the PlatformIO
