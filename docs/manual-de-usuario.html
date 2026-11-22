@@ -1064,6 +1064,35 @@ table.pins tbody td{padding:7px 12px 7px 0}
       muestra en la pantalla Resultado (ver «Cuando el equipo se niega a
       iniciar»).</p>
 
+    <h3>El número de corrida</h3>
+
+    <p>Cada experimento que comienza recibe un <strong>número de corrida</strong>
+      (<code>#1</code>, <code>#2</code>, …) que identifica esa corrida en todas
+      partes: en el monitor web (En curso, Historial, detalle y Bitácora) y en
+      los registros de consola de las dos placas. Es el dato que conviene
+      anotar en el cuaderno de laboratorio: con él se encuentra la corrida en
+      el historial y sus líneas en la consola.</p>
+
+    <ul>
+      <li><strong>Lo asigna el propio equipo</strong>, no el monitor, y lo
+        guarda en la memoria interna de la interfaz: sobrevive a apagar el
+        equipo y a actualizar el firmware, y no depende de la tarjeta SD.</li>
+      <li><strong>Un inicio rechazado no consume número.</strong> Si el equipo
+        se niega a iniciar (panel <em>NO INICIÓ</em>), el próximo experimento
+        recibe el mismo número, así no quedan saltos que hagan buscar una
+        corrida que nunca existió.</li>
+      <li><strong>Si la interfaz se reinicia durante un experimento</strong>,
+        al volver retoma el mismo número, que conserva la placa de control.
+        En el monitor la corrida sigue siendo una sola.</li>
+      <li>Los experimentos registrados antes de que existiera el número
+        figuran sin él («--»).</li>
+    </ul>
+
+    <p>En la consola, la interfaz escribe <code>I CORRIDA corrida #42 en
+      curso</code> al comenzar y la placa de control <code>I CORRIDA inicio
+      corrida=#42 …</code>; el resumen periódico y el resumen final también
+      llevan el número.</p>
+
     <h3>Cómo se mide el campo</h3>
 
     <p>El campo magnético no se lee como una instantánea: la señal de las
@@ -1293,18 +1322,18 @@ table.pins tbody td{padding:7px 12px 7px 0}
   │ ESP32  │───────────▶│  Broker  │───────────▶│   En curso   │
   └────────┘            └──────────┘   guarda   │   Historial  │
                               │        y envía  │   Detalle    │
-                              ▼                 └──────────────┘
-                        ┌──────────┐
+                              ▼                 │   Bitácora   │
+                        ┌──────────┐            └──────────────┘
                         │   Base   │  histórico de experimentos
-                        └──────────┘
+                        └──────────┘  y bitácora (una semana)
 </pre>
 
     <p>El acceso requiere usuario y contraseña. La dirección y las credenciales
       las provee quien haya instalado el monitor. Hay dos roles: un
       <strong>administrador</strong> envía configuración a la placa, crea y
-      modifica escenarios de prueba, borra corridas y gestiona usuarios (menú
-      «Usuarios»); un usuario de <strong>solo lectura</strong> ve todo lo
-      demás.</p>
+      modifica escenarios de prueba, borra corridas, gestiona usuarios (menú
+      «Usuarios») y consulta la Bitácora del equipo; un usuario de
+      <strong>solo lectura</strong> ve todo lo demás.</p>
 
     <p>La barra superior dice en todo momento qué funciona y qué no, cada
       indicador por su lado:</p>
@@ -1330,7 +1359,8 @@ table.pins tbody td{padding:7px 12px 7px 0}
     <h3>Pantalla «En curso»</h3>
 
     <p>Es la que responde la única pregunta que importa desde lejos: si el
-      experimento marcha bien. Muestra el estado general, el modo de
+      experimento marcha bien. Muestra el número de corrida junto al título
+      («Experimento en curso #42»), el estado general, el modo de
       exposición, el avance, el campo y la temperatura medidos junto a sus
       consignas, una fila por cada bobina montada y las últimas alertas.</p>
 
@@ -1362,14 +1392,17 @@ table.pins tbody td{padding:7px 12px 7px 0}
     <h3>Pantalla «Historial»</h3>
 
     <p>Lista los experimentos registrados, del más reciente al más antiguo, con
-      su fecha, su modo de exposición, cómo terminó y cuántas alertas
-      registró. Puede filtrarse por modo, por motivo de finalización y por
-      tipo de corrida.</p>
+      su número de corrida, su fecha, su modo de exposición, cómo terminó y
+      cuántas alertas registró. Puede filtrarse por modo y por motivo de
+      finalización. El buscador <strong>Corrida #</strong> encuentra una
+      corrida por su número (se escribe <code>42</code> o <code>#42</code>),
+      sea experimento o prueba.</p>
 
     <p><strong>Las corridas de prueba no se listan por defecto.</strong> Son
       las hechas con una tarjeta que declara <code>runType: "test"</code> (ver
-      la sección 14) y llevan el distintivo <strong>PRUEBA</strong>. Para
-      verlas se elige «Solo pruebas» o «Todas» en el filtro de tipo. Una
+      la sección 14) y llevan el distintivo <strong>PRUEBA</strong>. Están en
+      la pestaña <em>Pruebas</em> (o en <em>Todas</em>); la pestaña
+      <em>Experimentos</em>, que es la que se abre, no las muestra. Una
       corrida con el distintivo <strong>SIN MARCA</strong> proviene de un
       firmware anterior a esta marca: no se sabe si fue un experimento o una
       prueba, y por eso no se la presenta como ninguno de los dos.</p>
@@ -1412,6 +1445,66 @@ table.pins tbody td{padding:7px 12px 7px 0}
 
     <p>El botón <strong>Descargar CSV</strong> entrega las mediciones tal como
       se tomaron, sin promediar, para analizarlas en una planilla.</p>
+
+    <p>Para un administrador, el detalle termina con los <strong>eventos de
+      la placa</strong> ocurridos entre un minuto antes del inicio y un minuto
+      después del fin (ver «Pantalla «Bitácora»» más abajo), con un enlace a
+      la Bitácora filtrada por esa corrida. Explican lo que los gráficos no
+      dicen: un hueco porque se cayó el broker, un cierre sin motivo porque
+      la placa de control se reinició.</p>
+
+    <h3>Pantalla «Bitácora»</h3>
+
+    <p>La Bitácora registra <strong>lo que le pasó al equipo</strong>, no al
+      experimento: reinicios, enlaces caídos, conexión con el servidor,
+      configuración ignorada, y el inicio y el fin de cada corrida. Es lo
+      primero que conviene mirar cuando el monitor muestra algo raro. Solo
+      la ven los administradores.</p>
+
+    <p>No es la consola de las placas: son unos pocos eventos elegidos, en
+      castellano, cada uno con su nivel, su nombre, su hora y una línea
+      técnica con los datos. <strong>Con el equipo funcionando bien casi no
+      hay eventos</strong> (el arranque, el enlace con la placa de control y
+      las corridas); que la lista sea corta no es una falla.</p>
+
+    <div class="tablewrap"><table class="wide">
+      <thead><tr><th>Evento</th><th>Nivel</th><th>Cuándo aparece</th></tr></thead>
+      <tbody>
+        <tr><td>Arranque de la placa</td><td>Info / Error</td><td>Al encender la interfaz: causa del reinicio y qué configuración corre. Es <em>Error</em> si la interfaz se reinició sola (falla interna, baja tensión).</td></tr>
+        <tr><td>Configuración de la SD ignorada</td><td>Aviso</td><td>El archivo de la tarjeta existe pero no se usa (ilegible, inválido o incoherente): corren los valores de fábrica.</td></tr>
+        <tr><td>Configuración remota</td><td>Info / Aviso</td><td>Una configuración enviada desde el monitor se grabó, se revirtió o la placa conservó la red en uso.</td></tr>
+        <tr><td>Enlace con el Mega / Enlace con el Mega caído</td><td>Info / Aviso</td><td>Se estableció o se perdió el enlace serie con la placa de control.</td></tr>
+        <tr><td>El Mega se reinició</td><td>Error</td><td>La placa de control se reinició sin que el enlace llegara a caerse.</td></tr>
+        <tr><td>Memoria del Mega al límite</td><td>Aviso</td><td>El margen de memoria de la placa de control bajó de 500 bytes: antesala de un cuelgue.</td></tr>
+        <tr><td>Corrida iniciada / Corrida terminada</td><td>Info / Aviso</td><td>Inicio y fin de cada corrida, con su número, consignas y motivo de fin. Un corte por alerta es <em>Aviso</em>.</td></tr>
+        <tr><td>Corrida perdida</td><td>Error</td><td>La corrida terminó sin que llegara su resultado (por ejemplo, la placa de control se reinició).</td></tr>
+        <tr><td>Inicio rechazado</td><td>Aviso</td><td>La placa de control se negó a iniciar (panel <em>NO INICIÓ</em>).</td></tr>
+        <tr><td>Broker caído / Broker de vuelta</td><td>Aviso / Info</td><td>Se perdió y se recuperó la conexión con el servidor de telemetría, con el motivo y cuánto duró el corte.</td></tr>
+        <tr><td>Telemetría descartada</td><td>Aviso</td><td>Se perdieron mensajes de telemetría por no poder enviarlos a tiempo; dice cuántos.</td></tr>
+      </tbody>
+    </table></div>
+
+    <p>Cómo leerla:</p>
+
+    <ul>
+      <li><strong>Cada evento ocurrido durante una corrida lleva su
+        etiqueta</strong> («Corrida #42 · fecha · prueba»), que abre el detalle
+        de esa corrida. Los que no la llevan ocurrieron fuera de corrida.</li>
+      <li><strong>Filtros.</strong> Por nivel, por tipo de evento, solo
+        dentro o solo fuera de corridas, y el buscador
+        <strong>Corrida #</strong>, que deja solo los eventos de esa
+        corrida.</li>
+      <li><strong>La hora es la del equipo, no la de llegada.</strong> Lo que
+        pasa con el servidor caído (incluida la propia caída) espera en el
+        equipo y llega al reconectarse, ubicado en el momento en que
+        ocurrió. El equipo guarda hasta 16 eventos así; si se acumulan más,
+        el siguiente avisa cuántos se perdieron.</li>
+      <li><strong>Se conserva una semana.</strong> Pasado ese plazo los
+        eventos se borran solos; el historial de corridas no se borra.</li>
+      <li><strong>Un reinicio de la interfaz borra lo que todavía no
+        salió</strong>, pero su causa aparece en el siguiente <em>Arranque
+        de la placa</em>.</li>
+    </ul>
 
     <div class="callout warn">
       <span class="tag">Alcance del monitor</span>
@@ -1849,6 +1942,8 @@ table.pins tbody td{padding:7px 12px 7px 0}
         <tr><td>La interfaz indica «Continuando sin tarjeta SD» con tarjeta insertada</td><td>La tarjeta no responde en el bus VSPI</td><td>Reinsertar; comprobar formato FAT32; ensayar con <code>tools/test-sd-esp32</code></td></tr>
         <tr><td>Se cambió la configuración y el panel remoto dejó de mostrar un valor</td><td>Se renombró un campo de telemetría</td><td>El panel remoto espera los nombres originales: revertirlos o actualizar el panel</td></tr>
         <tr><td>Colores invertidos o toque permanente en una esquina</td><td>Firmware compilado para la otra revisión de la placa HMI</td><td>Ajustar <code>TOUCH_KIND</code> y <code>TFT_INVERSION_ON</code> de manera conjunta (sección 3.7)</td></tr>
+        <tr><td>Un hueco en los gráficos o una corrida «Sin cierre»</td><td>Se cortó la conexión, o una de las placas se reinició</td><td>Abrir el detalle de la corrida (o la Bitácora con su número): los eventos de la placa dicen qué pasó y a qué hora</td></tr>
+        <tr><td>La Bitácora queda vacía con la placa funcionando</td><td>El broker no deja pasar los eventos de la placa</td><td>Revisar la regla de acceso del broker para el topic <code>biosoft/log</code> (guía de despliegue del monitor)</td></tr>
         <tr><td>El pulsador de emergencia no produce efecto</td><td>No hay experimento en curso</td><td>Es el comportamiento esperado</td></tr>
       </tbody>
     </table></div>
