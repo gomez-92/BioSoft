@@ -103,6 +103,10 @@ const NOMBRE_MOTIVO: Record<string, string> = {
   // La placa lo pone cuando el Mega corto sin informar el motivo (se quedo
   // sin memoria para armar result_data): la corrida termino, el porque no.
   unknown: 'Terminado sin motivo informado',
+  // La placa lo pone cuando el Mega volvio a Ready sin mandar el resultado
+  // (se reinicio a mitad de corrida o el resultado se perdio): la corrida se
+  // cierra igual en vez de quedar abierta "esperando datos".
+  lost: 'Interrumpido: se perdio la placa de control',
 };
 
 export function nombreMotivo(reason: string): string {

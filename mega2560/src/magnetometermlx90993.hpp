@@ -49,7 +49,8 @@ private:
     bool trigger() override { return _sensor.startSingleMeasurement(); }
     bool fetch(float& x, float& y, float& z) override { return _sensor.readMeasurement(&x, &y, &z); }
     uint32_t conversionUs() const override {
-        return (uint32_t)(mlx90393_tconv[MLX90393_SAMPLING_FILTER][MLX90393_SAMPLING_OSR] * 1000.0f + 0.5f);
+        // La tabla esta en flash (copia local de la libreria, lib/Adafruit_MLX90393).
+        return (uint32_t)(pgm_read_float(&mlx90393_tconv[MLX90393_SAMPLING_FILTER][MLX90393_SAMPLING_OSR]) * 1000.0f + 0.5f);
     }
     uint32_t overheadUs() const override { return MLX90393_BUS_OVERHEAD_US; }
 

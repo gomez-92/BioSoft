@@ -233,6 +233,22 @@
         <span class="que">La pantalla pasa de Splash a Principal</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f2-monitor">
         <span class="que">Monitor web: desaparece "sin Mega"</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f2-diag">
+        <span class="que">Log del ESP32 al primer <code>state_data</code>: <code>[MEGA] up=… rst=… etapa_previa=… gap=… ram=…</code></span>
+        <span class="det">El Mega no hace falta conectarlo por USB: su diagnóstico llega dentro de <code>state_data</code>.
+          <code>rst</code> = <code>0x01</code> (encendido) o <code>0x02</code> (reset); <code>ram</code> ≈ 2700–2800 bytes
+          libres en reposo. <code>rst=0x08</code> = reinició el watchdog (2 s) y <code>etapa_previa</code> dice en qué paso
+          de <code>Engine::update()</code> se colgó; <code>rst=0x00</code> = salto a 0, stack corrompido.</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f2-recupera">
+        <span class="que">Recuperación del enlace: resetear solo el Mega con el ESP32 en Principal → el enlace vuelve solo</span>
+        <span class="det">En el log del ESP32: <code>[MEGA] REINICIO detectado: up N s -&gt; M s</code>. Con el enlace caído
+          más de 30 s el ESP32 reabre <code>Serial2</code> cada 30 s y escribe <code>[ENLACE] sin Mega hace N s | bytes rx
+          en 30 s: X</code>; X = 0 apunta al cableado o a un Mega colgado, X &gt; 0 con errores de CRC/trama al
+          baudrate o al ruido.</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f2-bootloader">
+        <span class="que">El bootloader sobrevive a un reset por watchdog <span class="opc">verificar una vez</span></span>
+        <span class="det">Algunos stk500v2 viejos del Mega quedan en bucle tras un reset del watchdog (LED parpadeando, sin
+          log). Si alguna vez aparece <code>rst=0x08</code> y el Mega vuelve solo, este bootloader está bien.</span></label></li>
     </ul>
     <label class="notas"><span>Notas</span><textarea data-nota="2"></textarea></label>
   </section>
@@ -290,6 +306,17 @@
       <li><label class="item"><input type="checkbox" data-id="f3-emergencia">
         <span class="que">Botón de emergencia (pin 4) durante una corrida → corte inmediato</span>
         <span class="det">Se distingue de Detener en Resultado. Apretado sin corrida no hace nada.</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f3-margen">
+        <span class="que">Tras los cortes (alerta, Detener, emergencia): margen heap/stack del Mega por encima de ~1000 bytes</span>
+        <span class="det">El ESP32 escribe <code>[MEGA] margen heap/stack minimo: N bytes</code> solo cuando el peor valor
+          empeora; si un corte no la escribe, no empeoró. El corte por alerta es el camino más profundo (en el banco,
+          2026-11-22: 1202 bytes; Detener y emergencia no lo bajaron). Por debajo de ~300 hay algún camino nuevo
+          demasiado profundo: es el cuelgue de fin de corrida volviendo.</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f3-seguidas">
+        <span class="que">Varias corridas seguidas sin reiniciar: el enlace no se pierde y cada corrida se cierra en el monitor</span>
+        <span class="det">Si el Mega se pierde a mitad de corrida, la pantalla va a Resultado y el monitor cierra la corrida
+          como <b>Interrumpido: se perdio la placa de control</b> (<code>reason: lost</code>) en lugar de dejarla
+          abierta esperando datos.</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f3-nulo">
         <span class="que">Modo campo nulo → NO INICIO (falta el mapa)</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f3-enables">

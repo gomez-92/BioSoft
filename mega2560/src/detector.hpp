@@ -7,6 +7,12 @@
 constexpr bool DEBUG_DETECTOR = true;
 
 #define MAX_SOURCES 10
+// Tope de muestras por fuente. Es el mismo numero que
+// DetectorConfigBuilder::MaxBufferSize (la config de la SD no puede pedir
+// mas); un static_assert alla los mantiene iguales.
+#ifndef BUFFER_MAX_SAMPLES
+#define BUFFER_MAX_SAMPLES 32
+#endif
 
 // Forward declarations
 class Source;
@@ -36,7 +42,14 @@ class Buffer {
     bool isInitialized() const;
     const float* data() const;
   private:
-    float* _samples;
+    // Arreglo FIJO y no calloc (2026-11-22). Cada start y cada fin de
+    // experimento hacian free+calloc de este buffer mientras habia
+    // JsonDocuments temporales vivos en el heap: el bloque nuevo quedaba
+    // arriba de ellos, el hueco abajo, y el tope del heap subia un poco en
+    // cada corrida hasta pisarse con el stack (los cuelgues del Mega al
+    // terminar un experimento, ver diag.hpp). 128 bytes por fuente, lo mismo
+    // que pedia el calloc con el bufferSize de fabrica.
+    float _samples[BUFFER_MAX_SAMPLES];
     unsigned int _capacity;
     unsigned int _currentIndex;
     bool _isFull;
@@ -44,8 +57,7 @@ class Buffer {
 };
 
 inline Buffer::Buffer()
-  : _samples(nullptr),
-    _capacity(0),
+  : _capacity(0),
     _currentIndex(0),
     _isFull(false),
     _totalAdded(0)
@@ -63,10 +75,11 @@ inline void Buffer::resize(unsigned int size) {
   clear();
   
   if (size == 0) return;
-  
-  _samples = static_cast<float*>(calloc(size, sizeof(float)));
-  
-  if (_samples == nullptr) return;
+  // La validacion de la config ya rechaza mas de BUFFER_MAX_SAMPLES; si
+  // igual llega, se recorta: una fuente que vigila con menos historia es
+  // mejor que una que no vigila.
+  if (size > BUFFER_MAX_SAMPLES) size = BUFFER_MAX_SAMPLES;
+  memset(_samples, 0, size * sizeof(float));
   
   _capacity = size;
   _currentIndex = 0;
@@ -75,11 +88,6 @@ inline void Buffer::resize(unsigned int size) {
 }
 
 inline void Buffer::clear() {
-  if(_samples != nullptr) {
-    free(_samples);
-    _samples = nullptr;
-  }
-
   _capacity = 0;
   _currentIndex = 0;
   _isFull = false;
@@ -87,7 +95,7 @@ inline void Buffer::clear() {
 }
 
 inline bool Buffer::addSample(float value, float& overwritten) {
-  if(_samples == nullptr || _capacity == 0) return false;
+  if(_capacity == 0) return false;
   
   bool hasOverwritten = _isFull;
   
@@ -143,11 +151,11 @@ inline bool Buffer::full() const {
 }
 
 inline bool Buffer::isInitialized() const {
-  return _samples != nullptr;
+  return _capacity > 0;
 }
 
 inline const float* Buffer::data() const {
-  return _samples;
+  return _capacity > 0 ? _samples : nullptr;
 }
 
 // ===== ===== ===== ===== ===== ===== ===== ===== ===== =====

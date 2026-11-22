@@ -31,6 +31,7 @@ namespace DetectorConfigBuilder {
   // eligio y que igual corta o deja de cortar un experimento.
   constexpr size_t MinBufferSize = 8;
   constexpr size_t MaxBufferSize = 32;
+  static_assert(MaxBufferSize <= BUFFER_MAX_SAMPLES, "el buffer fijo de Source (detector.hpp) no alcanza para MaxBufferSize");
   constexpr uint16_t MaxCooldown = 64;
   constexpr uint16_t MinMaxEvents = 1;
   constexpr uint16_t MaxMaxEvents = 10;

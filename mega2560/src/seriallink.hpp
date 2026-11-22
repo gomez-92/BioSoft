@@ -56,6 +56,10 @@ public:
 
     // Envío
     bool sendCommand(const char* command, JsonDocument& params);
+    // Saca YA, bloqueando, todas las tramas encoladas. Para el unico
+    // mensaje que no se puede perder (result_data): si no entra en la cola,
+    // se vacia y se reintenta. A 9600 baudios la cola entera son ~0.4 s.
+    void flush();
 
     // Último mensaje recibido. Los params ya no se guardan: solo viven
     // durante onCommand() (ver _processFrame).
@@ -74,6 +78,10 @@ public:
     uint32_t getCrcErrors()   { return _crcErrors; }
     uint32_t getFrameErrors() { return _frameErrors; }
     uint32_t getJsonErrors()  { return _jsonErrors; }
+    // Bytes recibidos desde el arranque: con el enlace caido, distingue
+    // "el otro lado no manda nada" (no crece) de "llega basura" (crece y
+    // suben los errores).
+    uint32_t getRxBytes()     { return _rxBytes; }
 
 private:
     Stream& _serial;
@@ -133,6 +141,7 @@ private:
     uint32_t _crcErrors = 0;
     uint32_t _frameErrors = 0;
     uint32_t _jsonErrors = 0;
+    uint32_t _rxBytes = 0;
 
     // =========================
     // Internos
@@ -262,6 +271,13 @@ inline void SerialLink::_sendNextFrame() {
     memmove(_txBuffer, _txBuffer + frameLen, _txLength);
 }
 
+inline void SerialLink::flush() {
+    while (_txLength > 0) {
+        _sendNextFrame();
+    }
+    _lastSend = millis();
+}
+
 
 // =========================
 // LOOP
@@ -297,6 +313,7 @@ inline bool SerialLink::update() {
     while (_serial.available()) {
         uint8_t b = _serial.read();
         _lastByteTime = millis();
+        _rxBytes++;
 
         switch (_state) {
 

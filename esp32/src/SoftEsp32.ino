@@ -241,9 +241,48 @@ void setup() {
   }
 }
 
+// Recuperacion del enlace con el Mega (2026-11-22). Con el enlace caido el
+// SerialLink ya manda un ping cada 10 s; si en 30 s nada lo levanta, se
+// reabre el UART (end + begin) por si el que quedo trabado es el periferico
+// de este lado, y se repite cada 30 s mientras siga caido. Cada intento deja
+// en el log cuantos bytes llegaron desde el anterior: 0 bytes = el Mega no
+// transmite (colgado: lo resuelve su watchdog, ver mega2560/src/diag.hpp);
+// bytes con errores = llega basura (cableado, masa, baudios).
+constexpr unsigned long LinkRecoveryMs = 30000;
+
+void superviseSerialLink() {
+  static unsigned long downSince = 0;
+  static unsigned long lastAttempt = 0;
+  static uint32_t lastRxBytes = 0;
+  unsigned long now = millis();
+
+  if (serial.isConnected()) {
+    downSince = 0;
+    return;
+  }
+  if (downSince == 0) {
+    downSince = now;
+    lastAttempt = now;
+    lastRxBytes = serial.getRxBytes();
+    return;
+  }
+  if (now - lastAttempt < LinkRecoveryMs) return;
+  lastAttempt = now;
+
+  uint32_t rx = serial.getRxBytes();
+  DEBUG_PRINTF(DEBUG_MAIN, "[ENLACE] sin Mega hace %lu s | bytes rx en 30 s: %lu | errores crc=%lu trama=%lu json=%lu -> reabriendo Serial2\n",
+               (unsigned long)((now - downSince) / 1000), (unsigned long)(rx - lastRxBytes),
+               (unsigned long)serial.getCrcErrors(), (unsigned long)serial.getFrameErrors(),
+               (unsigned long)serial.getJsonErrors());
+  lastRxBytes = rx;
+  Serial2.end();
+  Serial2.begin(9600, SERIAL_8N1, RXD2, TXD2);
+}
+
 void loop() {
   display.update();
   mySystem.update();
+  superviseSerialLink();
 }
 
 

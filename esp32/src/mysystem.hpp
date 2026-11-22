@@ -73,6 +73,17 @@ class MySystem :
     // atrasado hasta 5 s: una corrida completa cerraba en 99% / 4m58s.
     // 0 = no hay ack pendiente de usar.
     unsigned long _startAckAt = 0;
+    // Diagnostico que el Mega manda en cada state_data (ver
+    // Engine::_sendState y mega2560/src/diag.hpp). -1 = todavia no llego.
+    // Si `up` baja, el Mega se reinicio: _megaRebooted queda en true hasta
+    // que lo consume el cierre de una corrida perdida (_closeLostRun).
+    long _megaUptime = -1;
+    int _megaMinGap = 32767;
+    bool _megaRebooted = false;
+    uint8_t _megaResetFlags = 0;
+    uint8_t _megaPreviousStage = 0;
+    void _readMegaDiagnostics(JsonVariantConst params);
+    void _closeLostRun();
     SerialLink& _serial;
     Timer& _timer;
     WiFiManager& _wifiManager;
@@ -1278,6 +1289,18 @@ inline void MySystem::_processState(const char* status, bool forceStatus) {
       _data.setState(status);
       return;
     }
+    // Corrida en marcha (o deteniendose) y el Mega dice Ready SIN haber
+    // mandado result_data: termino y no sabemos como -- el Mega se reinicio
+    // o el resultado se perdio. Antes se volvia a Principal en silencio y el
+    // monitor dejaba la corrida abierta para siempre "esperando datos".
+    // result_data siempre sale antes que este ready (misma cola, FIFO), asi
+    // que si estamos aca, no llego.
+    if(current == ScreenType::RUNNING ||
+       (current == ScreenType::BUSY && _data.getState() == StateData::Stopping)) {
+      _data.setState(status);
+      _closeLostRun();
+      return;
+    }
     if(current == ScreenType::BUSY) {
       // Starting: un "ready" que llegue mientras se espera confirmacion de
       // un start es viejo/espureo -- se ignora salvo forceStatus. Stopping
@@ -1367,6 +1390,9 @@ inline void MySystem::onCommand(const char* command, JsonVariantConst params) {
       const char* status = params["status"].as<const char*>();
       DEBUG_PRINT(DEBUG_MYSYSTEM, "status: ");
       DEBUG_PRINTLN(DEBUG_MYSYSTEM, status);
+      // Antes de _processState: si este ready es el de un Mega recien
+      // reiniciado, el cierre de la corrida tiene que saberlo.
+      _readMegaDiagnostics(params);
       _processState(status);
     }
   }
@@ -1537,6 +1563,54 @@ inline void MySystem::onTimer(const char* name) {
   else if(strcmp(name, Tasks::ReSendConfig) == 0) {
     _resendPendingConfig();
   }
+}
+
+// Loguea el diagnostico del Mega cuando dice algo nuevo (no cada 5 s): un
+// reinicio, o un margen heap/stack peor que el peor visto. Ese margen
+// cerca de 0 es la antesala del cuelgue.
+inline void MySystem::_readMegaDiagnostics(JsonVariantConst params) {
+  if (!params["up"].is<long>()) return;   // Mega con firmware anterior
+  long up = params["up"].as<long>();
+  uint8_t rst = params["rst"] | 0;
+  uint8_t stg = params["stg"] | 0;
+  int gap = params["gap"] | 32767;
+  int ram = params["ram"] | -1;
+
+  if (_megaUptime >= 0 && up < _megaUptime) {
+    _megaRebooted = true;
+    _megaMinGap = 32767;
+    DEBUG_PRINTF(DEBUG_MYSYSTEM, "[MEGA] REINICIO detectado: up %ld s -> %ld s | rst=0x%02X etapa=%u\n",
+                 _megaUptime, up, rst, stg);
+  }
+  else if (_megaUptime < 0) {
+    DEBUG_PRINTF(DEBUG_MYSYSTEM, "[MEGA] up=%ld s rst=0x%02X etapa_previa=%u gap=%d ram=%d\n",
+                 up, rst, stg, gap, ram);
+  }
+  if (gap < _megaMinGap) {
+    _megaMinGap = gap;
+    DEBUG_PRINTF(DEBUG_MYSYSTEM, "[MEGA] margen heap/stack minimo: %d bytes (libre ahora %d)\n", gap, ram);
+  }
+  _megaUptime = up;
+  _megaResetFlags = rst;
+  _megaPreviousStage = stg;
+}
+
+// Cierra como "lost" una corrida que el Mega dio por terminada sin informar
+// el resultado. Pasa por _applyResult como cualquier otro fin: snapshot,
+// publicacion al monitor (que asi cierra la corrida) y pantalla Resultado
+// (panel de falla, "MOTIVO DESCONOCIDO", sin REPETIR).
+inline void MySystem::_closeLostRun() {
+  char description[64];
+  if (_megaRebooted) {
+    snprintf(description, sizeof(description), "el Mega se reinicio durante la corrida (rst=0x%02X etapa=%u)",
+             _megaResetFlags, _megaPreviousStage);
+  } else {
+    snprintf(description, sizeof(description), "el Mega volvio a Ready sin informar el fin");
+  }
+  _megaRebooted = false;
+  DEBUG_PRINT(DEBUG_MYSYSTEM, F("[RESULT] corrida perdida: "));
+  DEBUG_PRINTLN(DEBUG_MYSYSTEM, description);
+  _applyResult("lost", description);
 }
 
 inline void MySystem::onSerialConnected() {

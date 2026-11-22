@@ -24,7 +24,7 @@
 #include "emergencybutton.hpp"
 #include "engine.hpp"
 #include "debugconfig.hpp"
-#include <avr/wdt.h>
+#include "diag.hpp"
 
 // Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
 // el interruptor maestro). Apagado (2026-09-01) durante bring-up INT-001
@@ -34,34 +34,48 @@ constexpr bool DEBUG_MAIN = false;
 // Listado de los DS18B20 del bus al arrancar: encendido aunque DEBUG_MAIN no
 // lo este, porque es la forma de leer la direccion de un sensor nuevo.
 constexpr bool DEBUG_ONEWIRE = true;
+// Causa del ultimo reset y donde estaba el loop cuando murio (diag.hpp):
+// encendido siempre, es la primera pista ante un Mega que se reinicio solo.
+constexpr bool DEBUG_RESET = true;
 
+// MCUSR ya no se lee aca: lo captura diag.hpp en .init3, antes de que el
+// core arranque (y antes de que el bootloader o init() lo pisen).
 void printResetCause() {
 
-  uint8_t resetCause = MCUSR;
+  uint8_t resetCause = Diag::resetFlags;
 
-  MCUSR = 0;
-
-  DEBUG_PRINT(DEBUG_MAIN, F("[RESET] MCUSR = 0x"));
-  DEBUG_PRINTLN(DEBUG_MAIN, resetCause, HEX);
+  DEBUG_PRINT(DEBUG_RESET, F("[RESET] MCUSR = 0x"));
+  DEBUG_PRINTLN(DEBUG_RESET, resetCause, HEX);
 
   if (resetCause & _BV(PORF)) {
-    DEBUG_PRINTLN(DEBUG_MAIN, F("[RESET] Power-on reset"));
+    DEBUG_PRINTLN(DEBUG_RESET, F("[RESET] Power-on reset"));
   }
 
   if (resetCause & _BV(EXTRF)) {
-    DEBUG_PRINTLN(DEBUG_MAIN, F("[RESET] External reset"));
+    DEBUG_PRINTLN(DEBUG_RESET, F("[RESET] External reset"));
   }
 
   if (resetCause & _BV(BORF)) {
-    DEBUG_PRINTLN(DEBUG_MAIN, F("[RESET] Brown-out reset"));
+    DEBUG_PRINTLN(DEBUG_RESET, F("[RESET] Brown-out reset"));
   }
 
   if (resetCause & _BV(WDRF)) {
-    DEBUG_PRINTLN(DEBUG_MAIN, F("[RESET] WATCHDOG reset"));
+    DEBUG_PRINTLN(DEBUG_RESET, F("[RESET] WATCHDOG reset (el loop se colgo)"));
   }
 
   if (resetCause & _BV(JTRF)) {
-    DEBUG_PRINTLN(DEBUG_MAIN, F("[RESET] JTAG reset"));
+    DEBUG_PRINTLN(DEBUG_RESET, F("[RESET] JTAG reset"));
+  }
+
+  // Sin ningun flag: nadie reseteo el chip, el programa salto a la
+  // direccion 0. Es la firma de un stack corrupto (heap y stack pisados).
+  if (resetCause == 0) {
+    DEBUG_PRINTLN(DEBUG_RESET, F("[RESET] SIN causa de hardware: salto a 0 (probable stack corrupto)"));
+  }
+
+  if (Diag::previousCrumb != 0) {
+    DEBUG_PRINT(DEBUG_RESET, F("[RESET] etapa al morir = "));
+    DEBUG_PRINTLN(DEBUG_RESET, Diag::previousCrumb);
   }
 }
 
@@ -110,11 +124,7 @@ void printOneWireDevices(DallasTemperature& dallas) {
 }
 
 int freeMemory() {
-    extern int __heap_start, *__brkval;
-    int v;
-    return (int) &v - (__brkval == 0
-    ? (int) &__heap_start
-    : (int) __brkval);
+    return Diag::freeNow();
 }
 
 
@@ -295,11 +305,13 @@ Engine engine(
 
 
 void setup() {
+  // Primero de todo: lee la miga del arranque anterior y pinta la RAM libre
+  // para medir hasta donde llega el stack (diag.hpp).
+  Diag::begin();
   Serial.begin(115200);
-  DEBUG_PRINTLN(DEBUG_MAIN, F(""));
-  DEBUG_PRINTLN(DEBUG_MAIN, F("========== BOOT =========="));
+  DEBUG_PRINTLN(DEBUG_RESET, F(""));
+  DEBUG_PRINTLN(DEBUG_RESET, F("========== BOOT =========="));
   printResetCause();
-  wdt_disable();
 
   Serial1.begin(9600);
   delay(1000);
@@ -401,6 +413,9 @@ void setup() {
   /* ===== engine =====*/
   engine.begin();
 
+  // Al final: setup() bloquea mas de 2 s (delay, escaneo I2C, sensores).
+  // Desde aca, un loop() que no vuelve en 2 s reinicia el Mega.
+  Diag::enableWatchdog();
 }
 
 void loop() {
@@ -410,7 +425,9 @@ void loop() {
     DEBUG_PRINT(DEBUG_MAIN, "[RAM] libre = ");
     DEBUG_PRINTLN(DEBUG_MAIN, freeMemory());
   }
+  Diag::feed();
   engine.update();
+  Diag::mark(Diag::CrumbIdle);
 }
 
 // Duty comun que calcula el lazo (antes de los factores por bobina): es la

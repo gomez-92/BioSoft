@@ -67,6 +67,40 @@ pointer compares (`getState() == StateData::Starting`) valid.
 with `ARDUINOJSON_POOL_CAPACITY=8` (48-byte pools instead of 96). With the
 first round of these it still hung mid-`config_*` burst with 666 bytes free
 at a ping; `Engine::onCommand` alone takes ~245 bytes of stack.
+**The Mega still hung at the end of runs** (2026-11-21: link icon crossed out
+for good, resetting the Mega alone brought it back; other times the board was
+back on Principal with the monitor's run left open). Static RAM is 6344/8192,
+so ~1850 bytes are left for heap + stack, and the cut is the deepest stack path
+(~650 bytes from inside a sensor callback, measured with `-fstack-usage` on a
+non-LTO build). `mega2560/src/diag.hpp` adds a **2 s watchdog** (enabled at
+the end of `setup()`, fed in `loop()`; a WDT reset leaves the pins floating, so
+the coils are cut), captures MCUSR in `.init3` (`0` = jump to 0, i.e. a corrupted
+stack), and keeps a `.noinit` "crumb" showing which step of `Engine::update()`
+was running when it died. `state_data` now carries `up/rst/stg/gap/ram`, and the
+ESP32 logs them. `gap` is the worst heap↔stack margin seen so far. The cut
+now cuts the coils **before** sending `result_data`, and if the queue is full it
+`flush()`es instead of dropping the frame. Copying `ResultData` and running
+`RuntimeState::reset()` used to put 116 + 132 bytes on the stack; both are
+gone. The ESP32 closes a run as `reason: "lost"` when `state_data: ready`
+arrives while it is on En curso (or stopping) without a `result_data`, so the
+monitor closes the run. It also reopens `Serial2` every 30 s while the link is
+down and logs how many bytes arrived. The old stk500v2 bootloader on some Megas
+loops forever after a WDT reset; check that once on the bench.
+Second round (2026-11-22) took static RAM from 6344 to **5380 bytes** (66 %):
+the Adafruit MLX90393 tables (640 bytes) now live in flash, in a **local copy
+of the library in `mega2560/lib/`**. It is no longer in `lib_deps`; if it
+comes back there, those bytes are silently back in RAM. `Buffer` in
+`detector.hpp` is a fixed `float[32]` instead of `calloc`, and
+`_applySourceSettings()` only removes/adds a source when its `enabled`
+changes. Together these stop the per-run free/realloc that was fragmenting the
+heap. Every cut writes its result in place via `RuntimeState::draftResult()` +
+`_finish()`: no `ResultData` locals, each of which also carried a 116-byte init
+template in `.data`.
+Verified on the bench the same day: worst `gap` **1202 bytes**, set by the
+critical-alert cut (the deepest path); Detener and the physical e-stop did not
+lower it, and consecutive runs kept the link. Below ~300 means a new path is
+too deep — the end-of-run hang coming back. `docs/puesta-en-marcha.html`
+(phases 2–3) carries these log lines.
 
 ## Commands
 

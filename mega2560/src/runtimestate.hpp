@@ -74,6 +74,14 @@ class RuntimeState {
     // Version canonica: la de dos argumentos arma un ResultData sin los
     // campos crudos y delega aca.
     void setResult(const ResultData& data);
+    // Variante SIN copia para el corte, que es el camino de stack mas
+    // profundo del Mega: draftResult() limpia el resultado y devuelve una
+    // referencia para llenarlo en el lugar (en vez de armar un ResultData de
+    // 116 bytes en el stack y copiarlo), y publishResult() avisa al listener.
+    // No tiene la guarda de "mismo resultado" de setResult(): cada corte se
+    // informa una vez.
+    ResultData& draftResult();
+    void publishResult();
     void setListener(RuntimeStateListener* listener);
 
   private:
@@ -85,10 +93,14 @@ class RuntimeState {
 
 inline RuntimeState::RuntimeState() : _start(0), _listener(nullptr) {}
 
+// Se limpia EN EL LUGAR y no asignando `= {}`: eso arma un temporal de cada
+// struct en el stack (132 bytes medidos con -fstack-usage), y reset() corre
+// dentro del corte, que es el camino de stack mas profundo del Mega. Los
+// tres structs son POD con defaults todos en cero, asi que memset equivale.
 inline void RuntimeState::reset() {
-  _target = {};
-  _progress = {};
-  _result = {};
+  memset(&_target, 0, sizeof(_target));
+  memset(&_progress, 0, sizeof(_progress));
+  memset(&_result, 0, sizeof(_result));
   strcpy(_progress.elapsed, "00:00:00");
   _start = millis();
 }
@@ -147,6 +159,15 @@ inline void RuntimeState::setResult(const ResultData& data) {
       strcmp(_result.description, data.description) == 0) { return; }
 
   _result = data;
+  notifyResult();
+}
+
+inline ResultData& RuntimeState::draftResult() {
+  memset(&_result, 0, sizeof(_result));
+  return _result;
+}
+
+inline void RuntimeState::publishResult() {
   notifyResult();
 }
 

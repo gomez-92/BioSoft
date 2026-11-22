@@ -28,6 +28,7 @@
 #include "onewireaddress.hpp"
 #include "scenariosensors.hpp"
 #include "debugconfig.hpp"
+#include "diag.hpp"
 
 // Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
 // el interruptor maestro).
@@ -207,7 +208,8 @@ class Engine :
     void _stop();
     void _reset();
     void _finish(const char* reason, const char* description);
-    void _finish(const ResultData& result);
+    // Termina con el resultado ya escrito en _runtimeState.draftResult().
+    void _finish();
     // Aplica al Detector/magnetometros lo que trajo detector.sources. Se
     // llama al arrancar un experimento, NO al recibir la configuracion: ver
     // el comentario de su implementacion.
@@ -356,15 +358,24 @@ inline void Engine::begin() {
   _engineState.setState(State::Ready);
 }
 
+// Cada Diag::mark() deja escrito en RAM no inicializada en que paso esta el
+// loop: si el watchdog reinicia el Mega, el arranque siguiente lo lee y lo
+// informa (diag.hpp). Escribir un byte por paso no cuesta nada.
 inline void Engine::update() {
+  Diag::mark(Diag::CrumbTimer);
   _timer.tick();
+  Diag::mark(Diag::CrumbSerial);
   _serial.update();
+  Diag::mark(Diag::CrumbButton);
   _emergencyButton.update();
   // Un paso acotado por sensor asincrono (a lo sumo una transaccion de bus):
   // el RMS del campo se arma de a muestras, sin bloquear nunca el loop (el
   // boton de emergencia se lee en esta misma vuelta).
+  Diag::mark(Diag::CrumbMagnetometer);
   _magnetometerManager.pollAll();
+  Diag::mark(Diag::CrumbThermometer);
   _thermometerManager.pollAll();
+  Diag::mark(Diag::CrumbSilence);
   _checkSilence();
 }
 
@@ -378,13 +389,7 @@ inline void Engine::update() {
 // estatico y cada trama reserva JsonDocuments en el heap: con menos de
 // ~300 bytes ya se colgo (2026-10-03). -1 fuera del AVR (tests nativos).
 inline int Engine::_freeRam() {
-#ifdef __AVR__
-  extern char __heap_start, *__brkval;
-  char top;
-  return &top - (__brkval == 0 ? &__heap_start : __brkval);
-#else
-  return -1;
-#endif
+  return Diag::freeNow();
 }
 
 inline void Engine::_refuseStart(const char* cause, const char* description) {
@@ -397,13 +402,13 @@ inline void Engine::_refuseStart(const char* cause, const char* description) {
     _serial.sendCommand(Commands::Ack, ack);
   }
 
-  ResultData data;
+  ResultData& data = _runtimeState.draftResult();
   strncpy(data.reason, "refused", sizeof(data.reason) - 1);
   strncpy(data.cause, cause, sizeof(data.cause) - 1);
   strncpy(data.description, description, sizeof(data.description) - 1);
-  // setResult() dispara onResult() -> _sendResultData() en el acto; el
+  // publishResult() dispara onResult() -> _sendResultData() en el acto; el
   // reset posterior deja el resultado vacio para el proximo experimento.
-  _runtimeState.setResult(data);
+  _runtimeState.publishResult();
   _runtimeState.reset();
 }
 
@@ -454,7 +459,7 @@ inline void Engine::_checkControlSilence(unsigned long nowMs) {
   flag["limit"] = config.maxMissedSamples;
   _serial.sendCommand(Commands::OneFlagsData, flag);
 
-  ResultData result;
+  ResultData& result = _runtimeState.draftResult();
   strncpy(result.reason, "critical", sizeof(result.reason) - 1);
   // PSTR: el formato queda en flash, no en los 8 KB de RAM.
   snprintf_P(result.description, sizeof(result.description),
@@ -464,7 +469,7 @@ inline void Engine::_checkControlSilence(unsigned long nowMs) {
   strncpy(result.type, "silence", sizeof(result.type) - 1);
   result.count = (uint16_t)missed;
   result.limit = config.maxMissedSamples;
-  _finish(result);
+  _finish();
 }
 
 inline void Engine::_start() {
@@ -692,8 +697,17 @@ inline void Engine::_applySourceSettings() {
   for (uint8_t i = 0; i < SourceCount; i++) {
     SourceSettings& settings = _sourceSettings[i];
 
-    _detector.removeSource(settings.name);
-    if (settings.enabled) {
+    // Solo se borra o se crea cuando CAMBIA si la fuente se vigila. Antes
+    // se hacia removeSource()+addSource() en cada start (delete + new del
+    // Source con la trama del start todavia viva en el heap), y eso
+    // fragmentaba el heap corrida tras corrida (ver diag.hpp). Una fuente
+    // que se conserva queda igual que una recien creada: el handler de Start
+    // la reconfigura siempre (configureSource -> setConfig -> reset).
+    bool present = _detector.findSource(settings.name) != nullptr;
+    if (present && !settings.enabled) {
+      _detector.removeSource(settings.name);
+    }
+    else if (!present && settings.enabled) {
       _detector.addSource(settings.name);
     }
 
@@ -757,29 +771,50 @@ inline void Engine::_applySourceSettings() {
 // corte de seguridad por flag). _reset() borra el resultado de
 // RuntimeState (via _runtimeState.reset()) y _stop()/_reset() dejan el
 // Engine en Ready antes de que el ESP32 pueda ver "finished" en state_data
-// -- por eso setResult() tiene que llamarse ANTES de _stop(), asi
-// onResult() dispara el envio de result_data mientras el dato todavia es
-// valido.
+// -- por eso el resultado se publica ANTES de _reset(), asi onResult()
+// dispara el envio de result_data mientras el dato todavia es valido.
 inline void Engine::_finish(const char* reason, const char* description) {
-  ResultData data;
+  // draftResult() deja todo en cero: el -1 conserva el terminador.
+  ResultData& data = _runtimeState.draftResult();
   strncpy(data.reason, reason, sizeof(data.reason) - 1);
-  data.reason[sizeof(data.reason) - 1] = '\0';
   strncpy(data.description, description, sizeof(data.description) - 1);
-  data.description[sizeof(data.description) - 1] = '\0';
-  _finish(data);
+  _finish();
 }
 
-// Sigue siendo el UNICO lugar donde termina un experimento: las tres
-// variantes de arriba arman su ResultData y entran por aca.
-inline void Engine::_finish(const ResultData& result) {
-  _runtimeState.setResult(result);
+// Sigue siendo el UNICO lugar donde termina un experimento: cada corte
+// escribe su resultado en _runtimeState.draftResult() (en el lugar, sin
+// copias de 116 bytes en el stack) y entra por aca.
+//
+// Orden: primero se apaga (_stop), despues se informa (publishResult ->
+// onResult -> _sendResultData) y recien despues _reset(), que es lo unico
+// que borra el resultado. Antes se informaba primero: con la cola serie
+// llena, _sendResultData() puede bloquear ~0.4 s vaciandola, y eso no puede
+// demorar el corte de las bobinas.
+inline void Engine::_finish() {
+  Diag::mark(Diag::CrumbFinish);
   _stop();
+  Diag::mark(Diag::CrumbResult);
+  _runtimeState.publishResult();
+  Diag::mark(Diag::CrumbReset);
   _reset();
 }
 
+// Ademas del estado viaja el diagnostico del Mega (diag.hpp), que la ESP32
+// loguea y usa para notar un reinicio a mitad de corrida:
+//   up  segundos desde el arranque (si baja, el Mega se reinicio)
+//   rst MCUSR al arrancar (0 = salto a 0, 8 = watchdog, 1 = encendido...)
+//   stg etapa en la que estaba al morir el arranque anterior (0 = ninguna)
+//   gap bytes que quedaron, en el peor momento, entre heap y stack
+//   ram bytes libres ahora
+// ~70 bytes: entra holgado en el frame.
 inline void Engine::_sendState() {
   JsonDocument doc;
   doc["status"] = _engineState.getState();
+  doc["up"] = millis() / 1000UL;
+  doc["rst"] = Diag::resetFlags;
+  doc["stg"] = Diag::previousCrumb;
+  doc["gap"] = Diag::minGap();
+  doc["ram"] = Diag::freeNow();
   _serial.sendCommand(Commands::StateData, doc);
 }
 
@@ -805,7 +840,10 @@ inline void Engine::_sendProgressData() {
 */
 
 inline void Engine::_sendResultData() {
-  ResultData data = _runtimeState.result();
+  // Referencia y no copia: son 116 bytes de stack en el camino mas profundo
+  // del firmware (el corte por alerta llega aca desde dentro del callback
+  // del sensor).
+  const ResultData& data = _runtimeState.result();
   JsonDocument doc;
   doc["reason"] = data.reason;
   doc["description"] = data.description;
@@ -835,7 +873,18 @@ inline void Engine::_sendResultData() {
     DEBUG_PRINTLN(DEBUG_ENGINE, _freeRam());
   }
 
-  _serial.sendCommand(Commands::ResultData, doc);
+  // Es el UNICO mensaje que no se reintenta y sin el la ESP32 no sabe que
+  // la corrida termino (ni el monitor la cierra). Si la cola no tiene lugar
+  // -- un corte por alerta encola justo antes su flag_data, y puede haber
+  // coil_data/cem_data esperando -- se vacia bloqueando y se reintenta. Las
+  // bobinas ya estan apagadas (ver _finish).
+  if (!_serial.sendCommand(Commands::ResultData, doc)) {
+    DEBUG_PRINTLN(DEBUG_ENGINE, F("[RESULT] cola serie llena: vaciando para no perder result_data"));
+    _serial.flush();
+    if (!_serial.sendCommand(Commands::ResultData, doc)) {
+      DEBUG_PRINTLN(DEBUG_ENGINE, F("[RESULT][ERROR] result_data no entra en el frame"));
+    }
+  }
 }
 
 /*
@@ -1943,12 +1992,12 @@ inline void Engine::onEmergencyButtonPressed() {
     return;
   }
 
-  ResultData result;
+  ResultData& result = _runtimeState.draftResult();
   strncpy(result.reason, "stopped", sizeof(result.reason) - 1);
-  strncpy(result.description, "Parada de emergencia fisica activada por el operador",
-          sizeof(result.description) - 1);
+  strncpy_P(result.description, PSTR("Parada de emergencia fisica activada por el operador"),
+            sizeof(result.description) - 1);
   result.fromEmergency = true;
-  _finish(result);
+  _finish();
 }
 
 // Sample Sensor Callbacks
@@ -2060,17 +2109,18 @@ inline void Engine::onFlag(SourceEvent& event) {
     DEBUG_PRINT(DEBUG_ENGINE, source->getName());
     DEBUG_PRINTLN(DEBUG_ENGINE, F(" -> interrumpiendo experimento"));
 
-    ResultData result;
+    ResultData& result = _runtimeState.draftResult();
     strncpy(result.reason, "critical", sizeof(result.reason) - 1);
-    snprintf(
+    // PSTR: el formato queda en flash, no en RAM.
+    snprintf_P(
         result.description, sizeof(result.description),
-        "%s: limite de alertas %s alcanzado (%u/%u)",
+        PSTR("%s: limite de alertas %s alcanzado (%u/%u)"),
         source->getName(), typeStr, event.count, event.limit
     );
     strncpy(result.source, source->getName(), sizeof(result.source) - 1);
     strncpy(result.type, typeStr, sizeof(result.type) - 1);
     result.count = event.count;
     result.limit = event.limit;
-    _finish(result);
+    _finish();
   }
 }
