@@ -24,6 +24,8 @@ export interface ParsedTargets {
   // Trazabilidad (tarjeta 23): el id de la configuracion con la que corrio
   // (lo calcula la placa, aca no se recalcula) y la mascara de relajaciones.
   configId?: string; relaxations?: number;
+  /** Numero de corrida que asigna la placa (RUN, esp32/src/runcounter.hpp). */
+  runNumber?: number;
 }
 export interface ParsedAlert { source: string; type: string; count: number; limit: number }
 export interface ParsedResult {
@@ -31,6 +33,7 @@ export interface ParsedResult {
   elapsedSeconds?: number; elapsedText?: string; meanMagneticField?: number;
   source?: string; type?: string; count?: number; limit?: number; emergency?: boolean;
   test?: boolean;
+  runNumber?: number;
 }
 
 function asObject(payload: unknown): Record<string, unknown> | null {
@@ -59,6 +62,11 @@ function mascara(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 255
     ? value
     : undefined;
+}
+
+// Numero de corrida: entero positivo (la placa empieza en 1; 0 = sin numero).
+function numeroCorrida(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined;
 }
 
 function str(value: unknown): string | undefined {
@@ -152,7 +160,7 @@ export function parseTargets(payload: unknown): ParsedTargets | null {
   const data = asObject(payload);
   if (!data) return null;
   warnUnknownKeys('targets', data,
-    ['MODE', 'CEM', 'FREQ', 'DUR', 'TOL', 'TNMIN', 'TNMAX', 'TCMIN', 'TCMAX', 'TEST', 'CFG', 'RLX']);
+    ['MODE', 'CEM', 'FREQ', 'DUR', 'TOL', 'TNMIN', 'TNMAX', 'TCMIN', 'TCMAX', 'TEST', 'CFG', 'RLX', 'RUN']);
 
   const parsed: ParsedTargets = {
     mode: str(data.MODE), cem: num(data.CEM), freq: num(data.FREQ),
@@ -165,6 +173,7 @@ export function parseTargets(payload: unknown): ParsedTargets | null {
     test: bool(data.TEST),
     configId: str(data.CFG),
     relaxations: mascara(data.RLX),
+    runNumber: numeroCorrida(data.RUN),
   };
   return Object.values(parsed).some((value) => value !== undefined) ? parsed : null;
 }
@@ -215,7 +224,7 @@ export function parseResult(payload: unknown): ParsedResult | null {
   const data = asObject(payload);
   if (!data) return null;
   warnUnknownKeys('result', data,
-    ['REASON', 'DESC', 'PROGRESS', 'ELAPSED', 'MEAN', 'SRC', 'TYPE', 'COUNT', 'LIMIT', 'emerg', 'TEST']);
+    ['REASON', 'DESC', 'PROGRESS', 'ELAPSED', 'MEAN', 'SRC', 'TYPE', 'COUNT', 'LIMIT', 'emerg', 'TEST', 'RUN']);
 
   const reason = str(data.REASON);
   if (!reason) {
@@ -235,5 +244,6 @@ export function parseResult(payload: unknown): ParsedResult | null {
     limit: num(data.LIMIT),
     emergency: bool(data.emerg),
     test: bool(data.TEST),
+    runNumber: numeroCorrida(data.RUN),
   };
 }

@@ -7,6 +7,8 @@ export interface Targets {
   tnmin?: number; tnmax?: number; tcmin?: number; tcmax?: number;
   test?: boolean;
   configId?: string; relaxations?: number;
+  /** Numero de corrida (RUN); solo en el mensaje en vivo, no en lo guardado. */
+  runNumber?: number;
 }
 
 /** "normal" | "test" | "unknown" (sin marca TEST: firmware viejo o simulador viejo). */
@@ -14,6 +16,8 @@ export type RunType = 'normal' | 'test' | 'unknown';
 
 export interface RunInfo {
   id: string;
+  /** Numero de corrida de la placa (#42); null en corridas viejas. */
+  number: number | null;
   startedAt: string;
   state: string;
   runType: RunType;
@@ -42,6 +46,8 @@ export interface ResultItem {
   source?: string; type?: string; count?: number; limit?: number; emergency?: boolean;
   /** Tipo de la corrida que cerro (lo completa el cliente; la placa no lo manda en result). */
   runType?: RunType;
+  /** Numero de corrida (RUN). */
+  runNumber?: number | null;
 }
 
 export interface Snapshot {
@@ -53,7 +59,7 @@ export interface Snapshot {
   alerts: AlertItem[];
   /** La ultima corrida terminada (solo cuando no hay una en curso). */
   lastRun: {
-    id: string; startedAt: string; endedAt: string | null; state: string; runType: RunType;
+    id: string; number: number | null; startedAt: string; endedAt: string | null; state: string; runType: RunType;
     result: Omit<ResultItem, 'ts'> | null;
   } | null;
   link: { broker: boolean; lastMessageAt: Record<string, string> };

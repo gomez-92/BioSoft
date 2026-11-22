@@ -1,10 +1,7 @@
 #pragma once
 #include <Arduino.h>
-#include "debugconfig.hpp"
+#include "log.hpp"
 
-// Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
-// el interruptor maestro).
-constexpr bool DEBUG_DETECTOR = true;
 
 #define MAX_SOURCES 10
 // Tope de muestras por fuente. Es el mismo numero que
@@ -849,7 +846,5 @@ inline void Detector::setListener(DetectorListener* listener){
 
 inline void Detector::onSourceEvent(SourceEvent& event) {
   if (_listener == nullptr) return;
-  DEBUG_PRINT(DEBUG_DETECTOR, F("Source event! Flag: "));
-  DEBUG_PRINTLN(DEBUG_DETECTOR, event.source->getName());
   _listener->onFlag(event);
 }

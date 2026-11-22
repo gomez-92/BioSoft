@@ -22,6 +22,7 @@ export interface Snapshot {
   deviceId: string;
   run: {
     id: string;
+    number: number | null;
     startedAt: string;
     state: string;
     runType: string;
@@ -43,7 +44,7 @@ export interface Snapshot {
    * resultado solo vivia en la memoria del navegador que lo vio llegar.
    */
   lastRun: {
-    id: string; startedAt: string; endedAt: string | null; state: string; runType: string;
+    id: string; number: number | null; startedAt: string; endedAt: string | null; state: string; runType: string;
     result: Record<string, unknown> | null;
   } | null;
   link: { broker: boolean; lastMessageAt: Record<string, string> };
@@ -78,6 +79,7 @@ export async function buildSnapshot(): Promise<Snapshot> {
     run: run
       ? {
           id: run._id.toString(),
+          number: run.number ?? null,
           startedAt: run.startedAt.toISOString(),
           state: run.state,
           runType: run.runType ?? 'unknown',
@@ -115,6 +117,7 @@ export async function buildSnapshot(): Promise<Snapshot> {
     lastRun: ultima
       ? {
           id: ultima._id.toString(),
+          number: ultima.number ?? null,
           startedAt: ultima.startedAt.toISOString(),
           endedAt: ultima.endedAt?.toISOString() ?? null,
           state: ultima.state,

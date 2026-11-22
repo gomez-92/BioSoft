@@ -65,29 +65,53 @@ async function orphanRun(runId: ObjectId, motivo: string): Promise<void> {
 }
 
 export async function openRun(targets: ParsedTargets, at: Date): Promise<ObjectId> {
-  if (currentRunId) await orphanRun(currentRunId, 'llego un targets nuevo sin result previo');
+  // El numero va arriba en la corrida, no dentro de targets: se busca y se
+  // muestra en listas.
+  const { runNumber, ...objetivos } = targets;
+
+  if (currentRunId) {
+    // Un targets con el MISMO numero que la corrida abierta no es una corrida
+    // nueva: es la ESP32 que se reinicio a mitad de corrida, retomo el numero
+    // del Mega (esp32/src/runcounter.hpp) y volvio a publicar los objetivos.
+    // Abrir otra partiria una corrida en dos, la primera "sin cierre".
+    if (runNumber !== undefined) {
+      const abierta = await Run.findById(currentRunId).select('number').lean();
+      if (abierta?.number === runNumber) {
+        console.log(`[corridas] targets repetido de #${runNumber}: sigue la corrida ${currentRunId.toString()}`);
+        return currentRunId;
+      }
+    }
+    await orphanRun(currentRunId, 'llego un targets nuevo sin result previo');
+  }
 
   const run = await Run.create({
     deviceId: config.deviceId,
     startedAt: at,
     state: 'running',
     runType: runTypeFrom(targets.test),
-    targets,
+    number: runNumber ?? null,
+    targets: objetivos,
     stats: { measureCount: 0, alertCount: 0 },
   });
   currentRunId = run._id as ObjectId;
   console.log(
-    `[corridas] abierta ${currentRunId.toString()} (modo: ${targets.mode ?? '?'}, tipo: ${run.runType})`,
+    `[corridas] abierta ${currentRunId.toString()} #${runNumber ?? '?'} (modo: ${targets.mode ?? '?'}, tipo: ${run.runType})`,
   );
   return currentRunId;
 }
 
-export async function closeRun(result: ParsedResult, at: Date): Promise<ObjectId> {
+export async function closeRun(parsed: ParsedResult, at: Date): Promise<ObjectId> {
+  const { runNumber, ...result } = parsed;
   if (currentRunId) {
     await Run.updateOne(
       { _id: currentRunId },
       { $set: { state: 'finished', endedAt: at, result } },
     );
+    // Como el tipo: completa un numero que faltaba (targets perdido), nunca
+    // pisa el que dio targets.
+    if (runNumber !== undefined) {
+      await Run.updateOne({ _id: currentRunId, number: null }, { $set: { number: runNumber } });
+    }
     // Solo completa un tipo que faltaba: nunca pisa el que dio `targets`.
     if (result.test !== undefined) {
       await Run.updateOne(
@@ -115,6 +139,7 @@ export async function closeRun(result: ParsedResult, at: Date): Promise<ObjectId
     endedAt: at,
     state: 'orphan',
     runType: runTypeFrom(result.test),
+    number: runNumber ?? null,
     result,
     stats: { measureCount: 0, alertCount: 0 },
   });

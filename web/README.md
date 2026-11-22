@@ -44,6 +44,7 @@ telemetria que va llegando. Para que llegue algo sin hardware:
 ```
 node tools/simulador.js                    # corrida normal
 node tools/simulador.js --reason critical   # corrida cortada por alerta
+node tools/simulador-eventos.js             # eventos para la Bitacora
 ```
 
 Diagnostico rapido de cual enlace se cayo:

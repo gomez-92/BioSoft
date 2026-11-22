@@ -188,6 +188,14 @@ export function etiquetaTipoCorrida(runType: string | null | undefined): string 
   return null;
 }
 
+/**
+ * "#42": el numero de corrida que asigna la placa (RUN), el mismo que sale
+ * en los logs USB de las dos placas. null en corridas anteriores al numero.
+ */
+export function numeroCorrida(n: number | null | undefined): string | null {
+  return typeof n === 'number' && n > 0 ? `#${n}` : null;
+}
+
 export function nombreModo(mode: string | null | undefined): string {
   if (!mode) return '--';
   return esCampoNulo(mode) ? 'CAMPO NULO' : 'CAMPO X';

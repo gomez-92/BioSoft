@@ -22,6 +22,10 @@ namespace Intervals {
   // config_coil al Mega (ver mysystem.hpp::_sendMegaConfig()).
   inline unsigned long ReSendConfig          = 4000;
 
+  // Resumen de mediciones en el log (nivel I) durante una corrida. Solo
+  // para el log USB: no viaja a ningun lado.
+  inline unsigned long LogSummary            = 30000;
+
   // Timeouts de pantalla, no periodos de tarea: cuanto se queda el splash
   // antes de emitir su Timeout, y cuanto espera Busy la confirmacion del
   // Mega antes de rendirse y volver a Principal. Configurables por SD como

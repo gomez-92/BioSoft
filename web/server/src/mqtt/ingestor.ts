@@ -65,6 +65,16 @@ export function onPong(handler: (payload: unknown, retained: boolean) => void): 
   pongHandlers.push(handler);
 }
 
+// Bitacora de la placa (domain/bitacora.ts): tampoco es telemetria, no
+// pertenece a ninguna corrida.
+const logHandlers: Array<(payload: unknown, retained: boolean, receivedAt: Date) => void | Promise<void>> = [];
+
+export function onBoardLog(
+  handler: (payload: unknown, retained: boolean, receivedAt: Date) => void | Promise<void>,
+): void {
+  logHandlers.push(handler);
+}
+
 /** Publica hacia la placa (QoS 1, sin retain). */
 export async function publishToBoard(topic: string, payload: string): Promise<void> {
   if (!client || !connected) throw new Error('sin conexion con el broker');
@@ -96,6 +106,7 @@ export function startIngestor(): void {
       `${config.configTopics.currentPrefix}#`,
       config.configTopics.status,
       config.boardTopics.pong,
+      config.boardTopics.log,
     ];
     for (const topic of topics) {
       client!.subscribe(topic, { qos: 1 }, (error) => {
@@ -118,6 +129,21 @@ export function startIngestor(): void {
       let payload: unknown;
       try { payload = JSON.parse(raw.toString()); } catch { return; }
       for (const handler of pongHandlers) handler(payload, packet.retain === true);
+      return;
+    }
+
+    if (topic === config.boardTopics.log) {
+      let payload: unknown;
+      try { payload = JSON.parse(raw.toString()); } catch {
+        console.error(`[mqtt] evento de bitacora no es JSON: ${raw.toString()}`);
+        return;
+      }
+      const receivedAt = new Date();
+      for (const handler of logHandlers) {
+        Promise.resolve(handler(payload, packet.retain === true, receivedAt)).catch((error) =>
+          console.error('[mqtt] handler de bitacora fallo:', error),
+        );
+      }
       return;
     }
 

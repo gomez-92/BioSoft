@@ -13,6 +13,7 @@
 //   node tools/simulador.js --type normal    # marcada como experimento
 //   node tools/simulador.js --type none      # sin marca TEST (firmware viejo)
 //   node tools/simulador.js --type normal --rlx 1  # experimento con el detector apagado
+//   node tools/simulador.js --run 42            # numero de corrida (RUN)
 //   node tools/simulador.js --url mqtt://localhost:1883 --step 500
 //
 // Contra el broker real (OJO: son datos falsos entrando al historico real; por
@@ -55,6 +56,10 @@ const marca = runType === 'none' ? {} : { TEST: runType !== 'normal' };
 // configuracion y la mascara de relajaciones. 4 = CEM1 sin vigilar (el
 // default de fabrica); con --rlx se prueba el aviso de relajaciones.
 const traza = runType === 'none' ? {} : { CFG: arg('cfg', 'default'), RLX: Number(arg('rlx', '4')) };
+// Numero de corrida (RUN), como lo asigna la placa (esp32/src/runcounter.hpp).
+// Por defecto uno alto y al azar, para no confundirlo con los de la placa
+// real; --run N para elegirlo. Sin marca (--type none) no va: firmware viejo.
+const numero = runType === 'none' ? {} : { RUN: Number(arg('run', String(9000 + Math.floor(Math.random() * 999)))) };
 const base = arg('base', 'biosoft/telemetry');
 
 const T = {
@@ -101,7 +106,7 @@ async function run() {
     // mandaba en minutos, y por eso el monitor mostraba bien la duracion del
     // simulador y mal la de la placa real.
     MODE: mode, CEM: 1.5, FREQ: 50, DUR: durationMinutes * 60_000, TOL: 10,
-    TNMIN: 20, TNMAX: 30, TCMIN: 15, TCMAX: 35, ...marca, ...traza,
+    TNMIN: 20, TNMAX: 30, TCMIN: 15, TCMAX: 35, ...marca, ...traza, ...numero,
   }, true);
 
   let health = 'normal';
@@ -168,6 +173,7 @@ async function run() {
     ELAPSED: hhmmss(reason === 'completed' ? durationMinutes * 60 : Math.round(durationMinutes * 33)),
     MEAN: 1.49,
     ...marca,
+    ...numero,
   }, true);
 
   await sleep(300);

@@ -136,6 +136,10 @@ de solo lectura (la placa contesta y no cambia nada), pero si el ACL no lo
 permite la cabecera del monitor muestra **Placa sin respuesta** con la placa
 funcionando — revisar esto antes de buscar el problema en la placa.
 
+La **bitácora** (`biosoft/log`) también: la placa publica y el backend se
+suscribe. Sin permiso en el ACL, la página Bitácora queda vacía sin ningún
+error a la vista.
+
 Sin esa regla, cualquiera con una credencial del broker (el simulador, otra
 placa) puede mandarle una configuración. No hay forma de configurarla desde el
 repositorio: es un paso manual, una sola vez.

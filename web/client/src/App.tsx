@@ -24,6 +24,7 @@ const Configuracion = lazy(() =>
   import('./pages/Configuracion.js').then((m) => ({ default: m.Configuracion })));
 const Usuarios = lazy(() => import('./pages/Usuarios.js').then((m) => ({ default: m.Usuarios })));
 const Cuenta = lazy(() => import('./pages/Cuenta.js').then((m) => ({ default: m.Cuenta })));
+const Bitacora = lazy(() => import('./pages/Bitacora.js').then((m) => ({ default: m.Bitacora })));
 
 export function App() {
   const [sesion, setSesion] = useState<Perfil | null>(null);
@@ -116,6 +117,8 @@ function Contenido({ sesion, onSalir }: { sesion: Perfil; onSalir: () => void })
         {/* Configuracion muestra redes WiFi y broker de la placa: solo admin. */}
         {sesion.role === 'admin' && <NavLink to="/configuracion"><Icono nombre="config" />Configuracion</NavLink>}
         {sesion.role === 'admin' && <NavLink to="/usuarios"><Icono nombre="usuarios" />Usuarios</NavLink>}
+        {/* Diagnostico del sistema (reinicios, enlaces, broker): solo admin. */}
+        {sesion.role === 'admin' && <NavLink to="/bitacora"><Icono nombre="bitacora" />Bitacora</NavLink>}
       </nav>
 
       <BotonArriba />
@@ -124,6 +127,9 @@ function Contenido({ sesion, onSalir }: { sesion: Perfil; onSalir: () => void })
           <Route path="/" element={<Live estado={estado} onVerCorrida={(id) => navigate(`/corrida/${id}`)} />} />
           <Route path="/historial" element={<Historial />} />
           <Route path="/corrida/:id" element={<DetalleCorrida />} />
+          <Route path="/bitacora" element={sesion.role === 'admin'
+            ? <Bitacora enVivo={estado.eventos} />
+            : <p className="empty panel">Solo los administradores ven la bitacora de la placa.</p>} />
           <Route path="/configuracion" element={sesion.role === 'admin'
             ? <Configuracion placa={estado.placa} />
             : <p className="empty panel">Solo los administradores ven y cambian la configuracion de la placa.</p>} />

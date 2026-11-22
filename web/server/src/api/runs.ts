@@ -29,6 +29,11 @@ runsRouter.get('/runs', asincrono(async (req, res) => {
   if (typeof req.query.reason === 'string') filtro['result.reason'] = req.query.reason;
   if (typeof req.query.mode === 'string') filtro['targets.mode'] = req.query.mode;
   if (typeof req.query.state === 'string') filtro.state = req.query.state;
+  // Por numero de corrida ("42" o "#42"): busca esa y nada mas, de cualquier
+  // tipo (quien busca un numero quiere esa corrida, sea prueba o no).
+  const numero = typeof req.query.number === 'string' ? Number(req.query.number.replace(/^#/, '')) : NaN;
+  const porNumero = Number.isInteger(numero) && numero > 0;
+  if (porNumero) filtro.number = numero;
   // Las corridas de prueba NO se mezclan con los experimentos salvo que se
   // pidan: un listado que las incluyera por defecto haria que un promedio o
   // una comparacion hecha desde aca arrastre datos de banco sin que nadie lo
@@ -37,7 +42,8 @@ runsRouter.get('/runs', asincrono(async (req, res) => {
   const tipo = typeof req.query.type === 'string' ? req.query.type : undefined;
   // `unknown` incluye las corridas guardadas ANTES de que existiera el campo:
   // no lo tienen, y `null` en un filtro de Mongo tambien matchea "ausente".
-  if (tipo === 'normal' || tipo === 'test') filtro.runType = tipo;
+  if (porNumero) { /* sin filtro de tipo */ }
+  else if (tipo === 'normal' || tipo === 'test') filtro.runType = tipo;
   else if (tipo === 'unknown') filtro.runType = { $in: ['unknown', null] };
   else if (tipo !== 'all') filtro.runType = { $ne: 'test' };
   if (typeof req.query.from === 'string' || typeof req.query.to === 'string') {
@@ -69,6 +75,7 @@ runsRouter.get('/runs', asincrono(async (req, res) => {
     total, page: pagina, limit: limite, byType,
     items: items.map((run) => ({
       id: run._id.toString(),
+      number: run.number ?? null,
       startedAt: run.startedAt,
       endedAt: run.endedAt ?? null,
       state: run.state,
@@ -100,6 +107,7 @@ runsRouter.get('/runs/:id', asincrono(async (req, res) => {
 
   res.json({
     id: run._id.toString(),
+    number: run.number ?? null,
     deviceId: run.deviceId,
     startedAt: run.startedAt,
     endedAt: run.endedAt ?? null,

@@ -3,11 +3,7 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include "commands.hpp"
-#include "debugconfig.hpp"
-
-// Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
-// el interruptor maestro).
-constexpr bool DEBUG_SERIALLINK = true;
+#include "log.hpp"
 
 // =========================
 // Configuración del protocolo
@@ -164,7 +160,6 @@ private:
 
 inline SerialLink::SerialLink(Stream& serial)
     : _serial(serial), _initialize(false) {
-
 }
 
 inline void SerialLink::begin() {
@@ -285,13 +280,31 @@ inline void SerialLink::flush() {
 
 inline bool SerialLink::update() {
     if(!_initialize) return false;
-    if(_connected && millis() - _lastCommandTime > LAST_COMMAND_INTERVAL_MS) {
-        if(_listener != nullptr) _listener->onSerialDisconnected();
+    if(_connected &&
+       millis() - _lastCommandTime > LAST_COMMAND_INTERVAL_MS) {
+
+        if(_listener) {
+            _listener->onSerialDisconnected();
+        }
+
         _connected = false;
+
         sendPing();
     }
-    else if(!_connected && millis() - _lastPingTime > LAST_PING_INTERVAL_MS) {
-        DEBUG_PRINTLN(DEBUG_SERIALLINK, "Es tiempo de intentar reconectar la comunicación serial");
+    // Keepalive: con el enlace arriba pero sin recibir nada hace media
+    // ventana, se pide un pong. Sin esto el lado que solo TRANSMITE (el Mega
+    // durante una corrida: la ESP32 no tiene nada que mandarle) daba el
+    // enlace por perdido cada 10 s y lo recuperaba con el ping siguiente
+    // (banco, 2026-11-22, visible recien con los logs nuevos).
+    else if(_connected &&
+            millis() - _lastCommandTime > LAST_COMMAND_INTERVAL_MS / 2 &&
+            millis() - _lastPingTime > LAST_COMMAND_INTERVAL_MS / 2) {
+        sendPing();
+    }
+    else if(!_connected &&
+            millis() - _lastPingTime > LAST_PING_INTERVAL_MS) {
+
+
         sendPing();
     }
 
@@ -390,7 +403,6 @@ inline bool SerialLink::update() {
                     }
             }
             else {
-                DEBUG_PRINTLN(DEBUG_SERIALLINK, "ETX FAIL");
                 _frameErrors++;
             }
 
@@ -480,13 +492,6 @@ inline void SerialLink::sendPing() {
     _pingValue = random(1, 100000);
     StaticJsonDocument<32> p;
     p["value"] = _pingValue;
-
-    DEBUG_PRINT(DEBUG_SERIALLINK, "Enviando ping: ");
-    // LOG JSON
-    String json;
-    serializeJson(p, json);
-    DEBUG_PRINTLN(DEBUG_SERIALLINK, json);
-
     sendCommand(Commands::Ping, p);
     _lastPingTime = millis();
 }
@@ -494,13 +499,6 @@ inline void SerialLink::sendPing() {
 inline void SerialLink::sendPong(long value) {
     StaticJsonDocument<32> p;
     p["value"] = value;
-
-    DEBUG_PRINT(DEBUG_SERIALLINK, "Respondiendo pong: ");
-    // LOG JSON
-    String json;
-    serializeJson(p, json);
-    DEBUG_PRINTLN(DEBUG_SERIALLINK, json);
-
     sendCommand(Commands::Pong, p);
 }
 
@@ -511,15 +509,12 @@ inline void SerialLink::sendPong(long value) {
 inline void SerialLink::handlePingResponse(long value) {
     bool result = (value == _pingValue);
     if(result != _connected){
-        DEBUG_PRINT(DEBUG_SERIALLINK, "El estado de la comunicación serial a cambiado a: ");
         _connected = result; 
         if(_listener == nullptr) return;
         if(_connected){
-            DEBUG_PRINTLN(DEBUG_SERIALLINK, "conectado!");
             _listener->onSerialConnected();
         }
         else {
-            DEBUG_PRINTLN(DEBUG_SERIALLINK, "desconectado!");
             _listener->onSerialDisconnected();
         }
     }

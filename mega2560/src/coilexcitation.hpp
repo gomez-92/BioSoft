@@ -1,10 +1,6 @@
 #pragma once
 #include <Arduino.h>
-#include "debugconfig.hpp"
-
-// Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
-// el interruptor maestro).
-constexpr bool DEBUG_COILEXCITATION = true;
+#include "log.hpp"
 
 // Contrato minimo que CoilExcitation necesita de un generador de
 // senal. Existe por el mismo motivo que IMagnetometer en
@@ -100,7 +96,7 @@ inline void CoilExcitation::begin() {
 
 inline bool CoilExcitation::setMode(FieldMode mode) {
   if (_running) {
-    DEBUG_PRINTLN(DEBUG_COILEXCITATION, F("[COIL] RECHAZADO: no se cambia el modo con el experimento en curso"));
+    LOG_W(CONTROL, "no se cambia el modo de campo con la corrida en curso");
     return false;
   }
 
@@ -114,20 +110,16 @@ inline FieldMode CoilExcitation::mode() const {
 }
 
 inline void CoilExcitation::start(float frequency) {
-  DEBUG_PRINT(DEBUG_COILEXCITATION, F("[COIL] Excitando bobinas en modo "));
-  DEBUG_PRINT(DEBUG_COILEXCITATION, _mode == FieldMode::Null ? F("NULO (grupo control)") : F("X"));
-  DEBUG_PRINT(DEBUG_COILEXCITATION, F(" a "));
-  DEBUG_PRINT(DEBUG_COILEXCITATION, frequency);
-  DEBUG_PRINTLN(DEBUG_COILEXCITATION, F(" Hz"));
 
   _generator.setSineWave(frequency);
   _running = true;
+  LOG_D(CONTROL, "excitacion modo=%s freq=%.1f Hz", _mode == FieldMode::Null ? "null" : "x", frequency);
 }
 
 inline void CoilExcitation::stop() {
-  DEBUG_PRINTLN(DEBUG_COILEXCITATION, F("[COIL] Cortando excitacion de bobinas"));
   _generator.off();
   _running = false;
+  LOG_D(CONTROL, "excitacion cortada");
 }
 
 inline bool CoilExcitation::isRunning() const {

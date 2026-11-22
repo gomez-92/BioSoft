@@ -1,13 +1,9 @@
 #pragma once
 #include <Arduino.h>
 #include "pwmdriver.hpp"
-#include "debugconfig.hpp"
+#include "log.hpp"
 
 #define MAX_COIL_CHANNELS 4
-
-// Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
-// el interruptor maestro).
-constexpr bool DEBUG_COILCHANNEL = true;
 
 // Grupo de fase al que pertenece una bobina (cableado, no software): el
 // FIJO recibe la senoidal directa, el INVERTIBLE la que pasa por el mux de
@@ -82,6 +78,8 @@ class CoilChannel {
     float _factor;
     bool _enabled;
     float _appliedDuty;
+    // Para loguear la saturacion por flanco y no en cada escritura.
+    bool _saturated = false;
 };
 
 inline CoilChannel::CoilChannel(PwmDriver& pwm, uint8_t enablePin, const char* name, uint8_t activeLevel, CoilGroup group)
@@ -122,17 +120,17 @@ inline bool CoilChannel::isEnabled() const {
 inline void CoilChannel::setIntensity(float duty) {
   float scaled = duty * _factor;
 
-  if (scaled > 1.0f) {
-    DEBUG_PRINT(DEBUG_COILCHANNEL, F("[COIL] SATURA "));
-    DEBUG_PRINT(DEBUG_COILCHANNEL, _name);
-    DEBUG_PRINT(DEBUG_COILCHANNEL, F(": duty comun "));
-    DEBUG_PRINT(DEBUG_COILCHANNEL, duty, 3);
-    DEBUG_PRINT(DEBUG_COILCHANNEL, F(" x factor "));
-    DEBUG_PRINT(DEBUG_COILCHANNEL, _factor, 3);
-    DEBUG_PRINT(DEBUG_COILCHANNEL, F(" = "));
-    DEBUG_PRINT(DEBUG_COILCHANNEL, scaled, 3);
-    DEBUG_PRINTLN(DEBUG_COILCHANNEL, F(" -- se limita a 1.000, esta bobina queda corta"));
+  bool saturated = scaled > 1.0f;
+  if (saturated) {
     scaled = 1.0f;
+  }
+  if (saturated != _saturated) {
+    _saturated = saturated;
+    if (saturated) {
+      LOG_W(CONTROL, "%s satura: duty comun=%.3f x factor=%.3f > 1, la bobina queda corta", _name, duty, _factor);
+    } else {
+      LOG_I(CONTROL, "%s deja de saturar", _name);
+    }
   }
 
   // PwmDriver ya clampea por abajo, pero un factor negativo mal cargado
@@ -149,9 +147,6 @@ inline float CoilChannel::appliedDuty() const {
 
 inline bool CoilChannel::setCalibrationFactor(float factor) {
   if (factor < 0.1f || factor > 5.0f) {
-    DEBUG_PRINT(DEBUG_COILCHANNEL, F("[COIL] Factor invalido para "));
-    DEBUG_PRINT(DEBUG_COILCHANNEL, _name);
-    DEBUG_PRINTLN(DEBUG_COILCHANNEL, F(" -- se ignora"));
     return false;
   }
   _factor = factor;
@@ -236,11 +231,11 @@ inline CoilChannels::CoilChannels() : _count(0), _inhibited(false), _balance(0.0
 }
 
 inline bool CoilChannels::addChannel(CoilChannel* channel) {
+  if (channel == nullptr) return false;
   if (_count >= MAX_COIL_CHANNELS) {
-    DEBUG_PRINTLN(DEBUG_COILCHANNEL, F("[COIL] ERROR: maximo de canales alcanzado"));
+    LOG_E(CONTROL, "maximo de %d bobinas alcanzado: %s no se registra", MAX_COIL_CHANNELS, channel->getName());
     return false;
   }
-  if (channel == nullptr) return false;
 
   _channels[_count] = channel;
   _count++;
@@ -281,7 +276,6 @@ inline void CoilChannels::beginAll() {
 
 inline void CoilChannels::enableAll() {
   if (_inhibited) {
-    DEBUG_PRINTLN(DEBUG_COILCHANNEL, F("[COIL] salidas bloqueadas (campo sintetico): no se habilita ningun canal"));
     disableAll();
     return;
   }
@@ -320,7 +314,7 @@ inline void CoilChannels::writeAll(float duty) {
 
 inline bool CoilChannels::setBalance(float delta) {
   if (delta > MaxBalance || delta < -MaxBalance) {
-    DEBUG_PRINTLN(DEBUG_COILCHANNEL, F("[COIL] Balance fuera de rango -- se ignora"));
+    LOG_W(CONTROL, "balance=%.3f fuera de +-%.2f: se ignora", delta, MaxBalance);
     return false;
   }
   _balance = delta;

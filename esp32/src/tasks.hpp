@@ -17,4 +17,6 @@ namespace Tasks {
   // remoteconfig.hpp): la cola de publicacion tiene 4 lugares y la
   // configuracion son ~20 bloques.
   constexpr const char* PublishCurrentConfig  = "PUBLISH_CURRENT_CONFIG";
+  // Resumen de mediciones en el log USB mientras corre un experimento.
+  constexpr const char* LogSummary            = "LOG_SUMMARY";
 };

@@ -27,12 +27,9 @@
 #include "sensorchoice.hpp"
 #include "onewireaddress.hpp"
 #include "scenariosensors.hpp"
-#include "debugconfig.hpp"
+#include "log.hpp"
 #include "diag.hpp"
 
-// Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
-// el interruptor maestro).
-constexpr bool DEBUG_ENGINE = true;
 
 class Engine :
   public EngineStateListener,
@@ -164,6 +161,21 @@ class Engine :
     // Detector porque tiene que cortar aunque CEM1 no este vigilada y aunque
     // el Detector este apagado: es seguridad del control, no deteccion.
     unsigned long _lastMagnetometerAliveMs = 0;
+    // Numero de corrida que mando la ESP32 en el start (esp32/src/runcounter.hpp).
+    // Se devuelve en state_data mientras corre: si la ESP32 se reinicia a
+    // mitad de corrida, lo toma de aca en vez de asignar uno nuevo. 0 = sin
+    // corrida (o ESP32 vieja).
+    uint32_t _runNumber = 0;
+    // Zona de cada medicion (0 normal, 1 advertencia, 2 critica) para
+    // loguear por FLANCO cuando sale de normal y cuando vuelve, con el
+    // ultimo valor (que tambien acompana a cada alerta). 9 bytes por fuente.
+    struct ZoneWatch {
+      uint8_t zone = 0;
+      unsigned long since = 0;
+      float last = NAN;
+    };
+    ZoneWatch _cemZone;
+    ZoneWatch _tempZone;
 
   public:
     Engine( 
@@ -222,6 +234,9 @@ class Engine :
     // un experimento en curso.
     void _checkSilence();
     void _checkControlSilence(unsigned long nowMs);
+    // Log de mediciones: rangos al arrancar y cambios de zona.
+    void _logSourceRanges(const char* name, const char* unit);
+    void _watchZone(ZoneWatch& watch, const char* name, float value, const char* unit);
     static ScenarioRanges _scenarioRangesOf(const SourceConfig& config);
     // Duty de partida del lazo en campo X: el del mapa, salvo con la planta
     // del escenario y sin punto mapeado. Ver su implementacion.
@@ -402,6 +417,7 @@ inline void Engine::_refuseStart(const char* cause, const char* description) {
     _serial.sendCommand(Commands::Ack, ack);
   }
 
+  LOG_W(CORRIDA, "start rechazado causa=%s: %s", cause, description);
   ResultData& data = _runtimeState.draftResult();
   strncpy(data.reason, "refused", sizeof(data.reason) - 1);
   strncpy(data.cause, cause, sizeof(data.cause) - 1);
@@ -448,7 +464,6 @@ inline void Engine::_checkControlSilence(unsigned long nowMs) {
   if (missed < config.maxMissedSamples) missed = config.maxMissedSamples;
   if (missed > 65535UL) missed = 65535UL;
 
-  DEBUG_PRINTLN(DEBUG_ENGINE, F("[SILENCE] CEM1 sin lecturas con el lazo activo -> interrumpiendo experimento"));
 
   // Mismo par flag_data + result_data que un corte del Detector, para que
   // la pantalla y el monitor lo muestren igual.
@@ -469,6 +484,8 @@ inline void Engine::_checkControlSilence(unsigned long nowMs) {
   strncpy(result.type, "silence", sizeof(result.type) - 1);
   result.count = (uint16_t)missed;
   result.limit = config.maxMissedSamples;
+  LOG_E(CORRIDA, "fin motivo=critical CEM1 sin lecturas con el lazo activo n=%u/%u",
+        (unsigned)missed, (unsigned)config.maxMissedSamples);
   _finish();
 }
 
@@ -483,6 +500,8 @@ inline void Engine::_start() {
   // handler de Start, que resetean las fuentes.
   _detector.resetSilence(millis());
   _lastMagnetometerAliveMs = millis();
+  _cemZone = ZoneWatch();
+  _tempZone = ZoneWatch();
   // Con un campo que no es el real, nada se energiza: ver _syntheticField.
   // Va ANTES de enableAll(), que es quien lo respeta.
   _coilChannels.setOutputsInhibited(_syntheticField);
@@ -508,24 +527,24 @@ inline void Engine::_start() {
     if (plan.openLoop) {
       // Campo nulo: duty fijo del mapa, el mismo estres que en campo X; el
       // objetivo medido es 0 y no hay lazo que lo persiga.
-      DEBUG_PRINT(DEBUG_ENGINE, F("[START] campo nulo: duty fijo del mapa = "));
-      DEBUG_PRINT(DEBUG_ENGINE, plan.initialDuty, 4);
-      DEBUG_PRINT(DEBUG_ENGINE, F(" balance = "));
-      DEBUG_PRINTLN(DEBUG_ENGINE, plan.balance, 4);
       _coilChannels.writeAll(plan.initialDuty);
+      LOG_I(CONTROL, "campo nulo: duty fijo del mapa=%.3f balance=%.3f", plan.initialDuty, plan.balance);
     } else {
+      float startDuty = _scenarioStartDuty(plan.initialDuty);
       _fieldController.setSetpoint(target.cemTarget);
-      _fieldController.preload(_scenarioStartDuty(plan.initialDuty));
-      DEBUG_PRINT(DEBUG_ENGINE, F("[START] duty inicial del mapa = "));
-      DEBUG_PRINTLN(DEBUG_ENGINE, plan.initialDuty, 4);
+      _fieldController.preload(startDuty);
       _coilChannels.writeAll(_fieldController.getOutput());
+      LOG_I(CONTROL, "lazo desde duty=%.3f origen=%S", startDuty,
+            plan.initialDuty > 0.0f ? PSTR("mapa") : startDuty > 0.0f ? PSTR("escenario") : PSTR("cero"));
     }
     _coilChannels.enableAll();
-  }
-  if (_syntheticField) {
-    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] CEM1 no es el sensor real: etapa de potencia y bobinas BLOQUEADAS (el duty se calcula y se reporta, no sale)"));
   } else {
+    LOG_W(CONTROL, "lazo deshabilitado (control.enabled=false): se mide sin excitar");
+  }
+  if (!_syntheticField) {
     _mainPowerSwitch.enable();
+  } else {
+    LOG_W(CONTROL, "CEM1 no es el sensor real: potencia y bobinas bloqueadas");
   }
   _engineState.setState(State::Running);
 }
@@ -550,6 +569,7 @@ inline void Engine::_reset() {
   _detector.reset();
   _engineState.setState(State::Ready);
   _runtimeState.reset();
+  _runNumber = 0;
 }
 
 // Bring-up temporal INT-001: ver comentario de _controlLoopEnabled en la
@@ -575,8 +595,6 @@ inline float Engine::_scenarioStartDuty(float mappedDuty) {
   SourceSettings* cem = _findSourceSettings("CEM1");
   if (cem == nullptr || cem->sensor != SensorChoice::Scenario) return mappedDuty;
   if (cem->scenario.setpointDuty <= 0.0f) return mappedDuty;
-  DEBUG_PRINT(DEBUG_ENGINE, F("[START] escenario sin punto mapeado: el lazo parte del duty de equilibrio de la planta = "));
-  DEBUG_PRINTLN(DEBUG_ENGINE, cem->scenario.setpointDuty, 4);
   return cem->scenario.setpointDuty;
 }
 
@@ -596,8 +614,47 @@ inline void Engine::_applyNonNegative(JsonVariantConst value, float& target, con
     target = v;
     return;
   }
-  DEBUG_PRINT(DEBUG_ENGINE, F("[CONFIG_SCENARIO] valor negativo -- se ignora: "));
-  DEBUG_PRINTLN(DEBUG_ENGINE, key);
+  LOG_W(CONFIG, "config_scenario %s=%.3f negativo: se ignora", key, v);
+}
+
+// Los rangos con los que el Detector va a juzgar la corrida, una linea por
+// fuente vigilada. Son los que derivan de lo que eligio el operador (CEM1)
+// o los que mando tal cual (TEMP1), mas las reglas de la SD.
+inline void Engine::_logSourceRanges(const char* name, const char* unit) {
+  Source* source = _detector.findSource(name);
+  if (source == nullptr) return;
+  const SourceConfig& c = source->getConfig();
+  LOG_I(DETECTOR, "%s normal=%.3f..%.3f critico=%.3f..%.3f %S ventana=%u reglas critical=%u/%u racha=%u/%u frecuencia=%u/%u",
+        name, c.normalMin, c.normalMax, c.criticalMin, c.criticalMax, unit, (unsigned)c.bufferSize,
+        c.critical.threshold, c.critical.maxEvents, c.streak.threshold, c.streak.maxEvents,
+        c.frequency.threshold, c.frequency.maxEvents);
+}
+
+// Una linea cuando la medicion SALE de normal (o empeora de zona) y otra
+// cuando vuelve, con cuanto estuvo afuera. Solo despues de la
+// estabilizacion, igual que el Detector. Va ANTES de addSample() en los
+// handlers: el log usa stack, y asi no se suma al camino del corte.
+inline void Engine::_watchZone(ZoneWatch& watch, const char* name, float value, const char* unit) {
+  watch.last = value;
+  if (_isSettlingTime) return;
+  Source* source = _detector.findSource(name);
+  if (source == nullptr) return;
+  const SourceConfig& c = source->getConfig();
+  uint8_t zone = (value < c.criticalMin || value > c.criticalMax) ? 2
+               : (value < c.normalMin || value > c.normalMax)     ? 1
+                                                                   : 0;
+  if (zone == watch.zone) return;
+  unsigned long now = millis();
+  if (zone == 0) {
+    LOG_I(DETECTOR, "%s vuelve a normal valor=%.3f %S tras %lu s", name, value, unit, (now - watch.since) / 1000UL);
+  } else if (zone > watch.zone) {
+    LOG_W(DETECTOR, "%s sale de normal valor=%.3f %S zona=%S", name, value, unit,
+          zone == 2 ? PSTR("critica") : PSTR("advertencia"));
+  } else {
+    LOG_I(DETECTOR, "%s vuelve de critica a advertencia valor=%.3f %S", name, value, unit);
+  }
+  if (watch.zone == 0) watch.since = now;
+  watch.zone = zone;
 }
 
 inline void Engine::registerScenarioSensors(MagnetometerScenario* magnetometer, ThermometerScenario* thermometer) {
@@ -655,11 +712,6 @@ inline void Engine::_applyCurrentSensorSettings() {
     if (settings.sensor == nullptr) continue;
 
     if (!settings.enabled) {
-      DEBUG_PRINT(DEBUG_ENGINE, F("[CURRENT] slot 0x"));
-      DEBUG_PRINT(DEBUG_ENGINE, settings.address, HEX);
-      DEBUG_PRINT(DEBUG_ENGINE, F("/"));
-      DEBUG_PRINT(DEBUG_ENGINE, settings.config.channel);
-      DEBUG_PRINTLN(DEBUG_ENGINE, F(": deshabilitado"));
       continue;
     }
 
@@ -711,9 +763,6 @@ inline void Engine::_applySourceSettings() {
       _detector.addSource(settings.name);
     }
 
-    DEBUG_PRINT(DEBUG_ENGINE, F("[SOURCES] "));
-    DEBUG_PRINT(DEBUG_ENGINE, settings.name);
-    DEBUG_PRINTLN(DEBUG_ENGINE, settings.enabled ? F(": detector=on") : F(": detector=off"));
   }
 
   SourceSettings* cem = _findSourceSettings("CEM1");
@@ -729,9 +778,6 @@ inline void Engine::_applySourceSettings() {
   _magnetometerManager.addMagnetometer(magnetometer);
   _syntheticField = (cemSensor != SensorChoice::Real);
 
-  DEBUG_PRINT(DEBUG_ENGINE, F("[SOURCES] CEM1 sensor="));
-  DEBUG_PRINT(DEBUG_ENGINE, SensorChoices::name(cemSensor));
-  DEBUG_PRINTLN(DEBUG_ENGINE, _controlLoopEnabled ? F(" control=on") : F(" control=off"));
 
   // TEMP1: "none" no registra ningun termometro. Es lo que hay que usar sin
   // DS18B20 cableado: registrado, cada medicion dispara una conversion y
@@ -751,20 +797,19 @@ inline void Engine::_applySourceSettings() {
   }
   if (thermometer != nullptr) _thermometerManager.addThermometer(thermometer);
 
-  DEBUG_PRINT(DEBUG_ENGINE, F("[SOURCES] TEMP1 sensor="));
-  DEBUG_PRINTLN(DEBUG_ENGINE, SensorChoices::name(tempSensor));
-  // Vigilar TEMP1 sin termometro no falla: la fuente simplemente no recibe
-  // muestras y nunca corta. Es una combinacion de banco valida, pero en un
-  // experimento significaria no estar mirando la temperatura -- que quede
-  // en el log.
-  if (thermometer == nullptr && temp != nullptr && temp->enabled) {
-    DEBUG_PRINTLN(DEBUG_ENGINE, F("[SOURCES][AVISO] TEMP1 vigilada sin termometro: nunca va a cortar por temperatura"));
-  }
-
   _detector.setEnabled(_detectorEnabled);
-  DEBUG_PRINTLN(DEBUG_ENGINE, _detectorEnabled
-    ? F("[SOURCES] detector=on")
-    : F("[SOURCES][AVISO] detector=off: ninguna fuente puede cortar el experimento"));
+
+  LOG_I(DETECTOR, "fuentes CEM1=%s%S TEMP1=%s%S detector=%S",
+        SensorChoices::name(cemSensor), (cem != nullptr && cem->enabled) ? PSTR("/vigilada") : PSTR(""),
+        SensorChoices::name(tempSensor), (temp != nullptr && temp->enabled) ? PSTR("/vigilada") : PSTR(""),
+        _detectorEnabled ? PSTR("on") : PSTR("off"));
+  if (!_detectorEnabled) {
+    LOG_W(DETECTOR, "detector apagado: ninguna fuente puede cortar la corrida");
+  }
+  // Vigilar TEMP1 sin termometro no falla, pero nunca corta por temperatura.
+  if (thermometer == nullptr && temp != nullptr && temp->enabled) {
+    LOG_W(DETECTOR, "TEMP1 vigilada sin termometro: nunca va a cortar por temperatura");
+  }
 }
 
 // Punto unico donde termina un experimento (tiempo cumplido, stop manual o
@@ -806,7 +851,8 @@ inline void Engine::_finish() {
 //   stg etapa en la que estaba al morir el arranque anterior (0 = ninguna)
 //   gap bytes que quedaron, en el peor momento, entre heap y stack
 //   ram bytes libres ahora
-// ~70 bytes: entra holgado en el frame.
+//   run numero de la corrida en curso (solo corriendo)
+// ~90 bytes: entra holgado en el frame (test_statedata_fits_with_run).
 inline void Engine::_sendState() {
   JsonDocument doc;
   doc["status"] = _engineState.getState();
@@ -815,6 +861,8 @@ inline void Engine::_sendState() {
   doc["stg"] = Diag::previousCrumb;
   doc["gap"] = Diag::minGap();
   doc["ram"] = Diag::freeNow();
+  // Solo con una corrida en marcha (_reset() lo pone en 0).
+  if (_runNumber > 0) doc["run"] = _runNumber;
   _serial.sendCommand(Commands::StateData, doc);
 }
 
@@ -866,11 +914,9 @@ inline void Engine::_sendResultData() {
   }
 
   // Sin heap, ArduinoJson deja los textos en null EN SILENCIO y el frame
-  // sale igual: la ESP32 recibia un result_data con motivo vacio. Que por lo
-  // menos quede dicho en el log, con cuanta RAM habia.
+  // sale igual, con motivo vacio.
   if (doc.overflowed()) {
-    DEBUG_PRINT(DEBUG_ENGINE, F("[RESULT][ERROR] sin memoria para armar result_data | RAM libre "));
-    DEBUG_PRINTLN(DEBUG_ENGINE, _freeRam());
+    LOG_E(ENLACE, "result_data sin memoria ram_libre=%d B", Diag::freeNow());
   }
 
   // Es el UNICO mensaje que no se reintenta y sin el la ESP32 no sabe que
@@ -879,10 +925,10 @@ inline void Engine::_sendResultData() {
   // coil_data/cem_data esperando -- se vacia bloqueando y se reintenta. Las
   // bobinas ya estan apagadas (ver _finish).
   if (!_serial.sendCommand(Commands::ResultData, doc)) {
-    DEBUG_PRINTLN(DEBUG_ENGINE, F("[RESULT] cola serie llena: vaciando para no perder result_data"));
+    LOG_W(ENLACE, "cola llena: se vacia para no perder result_data");
     _serial.flush();
     if (!_serial.sendCommand(Commands::ResultData, doc)) {
-      DEBUG_PRINTLN(DEBUG_ENGINE, F("[RESULT][ERROR] result_data no entra en el frame"));
+      LOG_E(ENLACE, "result_data no se pudo enviar");
     }
   }
 }
@@ -906,11 +952,11 @@ inline void Engine::_applyIntervalParam(JsonVariantConst params, const char* key
 
   unsigned long value = params[key].as<unsigned long>();
   if (value == 0) {
-    DEBUG_PRINT(DEBUG_ENGINE, F("[CONFIG_INTERVALS] Valor invalido para "));
-    DEBUG_PRINTLN(DEBUG_ENGINE, key);
+    LOG_W(CONFIG, "config_intervals %s=0 invalido: se ignora", key);
     return;
   }
   target = value;
+  LOG_D(CONFIG, "config_intervals %s=%lu ms", key, value);
 }
 
 inline void Engine::_readRule(JsonVariantConst json, Rule& rule) {
@@ -1003,7 +1049,6 @@ inline void Engine::_sendCoilData() {
 
 // Engine State Callbacks
 inline void Engine::onReady() {
-  DEBUG_PRINTLN(DEBUG_ENGINE, "On Ready!");
   _timer.removeTask(Tasks::SendResult);
   _timer.addTask(Tasks::SendState, Intervals::SendState);
 }
@@ -1059,19 +1104,9 @@ inline void Engine::onTimer(const char* name) {
   }
   else if(strcmp(name, Tasks::MeasureTemperature) == 0) {
     _thermometerManager.updateAll();
-    JsonDocument doc;
-    _thermometerManager.publishMeasures(doc);
-    DEBUG_PRINT(DEBUG_ENGINE, F("[TEMP] JSON: "));
-    serializeJson(doc, Serial);
-    DEBUG_PRINTLN(DEBUG_ENGINE, );
   }
   else if(strcmp(name, Tasks::MeasureCurrent) == 0) {
     _currentSensorsManager.updateAll();
-    JsonDocument doc;
-    _currentSensorsManager.publishMeasures(doc);
-    DEBUG_PRINT(DEBUG_ENGINE, F("[CURRENT] JSON: "));
-    serializeJson(doc, Serial);
-    DEBUG_PRINTLN(DEBUG_ENGINE, );
 
     // coil_data sale de ACA y no del callback del sensor de corriente: el
     // frame lleva tambien el duty, que no depende de que haya un SCT013.
@@ -1095,11 +1130,13 @@ inline void Engine::onTimer(const char* name) {
   }
   else if(strcmp(name, Tasks::SettlingTime) == 0) {
     _isSettlingTime = false;
+    LOG_D(DETECTOR, "fin de la estabilizacion: el detector evalua");
     // Desde aca el silencio corta, igual que el resto de las reglas.
     _detector.armSilence();
     _timer.removeTask(Tasks::SettlingTime);
   }
   else if(strcmp(name, Tasks::Finish) == 0) {
+    LOG_I(CORRIDA, "fin motivo=completed duracion cumplida");
     _finish("completed", "Duracion completa alcanzada");
   }
 }
@@ -1110,25 +1147,19 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
   if (strcmp(command, Commands::Ping) == 0) {
 
     if (!params["value"].is<long>()) {
-      DEBUG_PRINTLN(DEBUG_ENGINE, F("[PING][ERROR] Parametro 'value' invalido o ausente"));
       return;
     }
 
     long value = params["value"].as<long>();
-    // Unica señal en el monitor del Mega de que la linea ESP32 -> Mega
-    // funciona (en Ready no se loguea nada mas), y testigo del margen de
-    // RAM: con <~300 bytes el Mega ya se colgo al procesar tramas.
-    DEBUG_PRINT(DEBUG_ENGINE, F("[PING] recibido "));
-    DEBUG_PRINT(DEBUG_ENGINE, value);
-    DEBUG_PRINT(DEBUG_ENGINE, F(" -> respondiendo pong | RAM libre "));
-    DEBUG_PRINTLN(DEBUG_ENGINE, _freeRam());
+    // Testigo de que la linea ESP32 -> Mega funciona y del margen de RAM:
+    // con <~300 bytes el Mega ya se colgo al procesar tramas.
+    LOG_D(ENLACE, "ping ram_libre=%d B gap=%d B", Diag::freeNow(), Diag::minGap());
     _serial.sendPong(value);
   }
 
   else if (strcmp(command, Commands::Pong) == 0) {
 
     if (!params["value"].is<long>()) {
-      DEBUG_PRINTLN(DEBUG_ENGINE, F("[PONG][ERROR] Parametro 'value' invalido o ausente"));
       return;
     }
 
@@ -1144,71 +1175,46 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
 
   else if (strcmp(command, Commands::Start) == 0) {
 
-    DEBUG_PRINTLN(DEBUG_ENGINE, );
-    DEBUG_PRINTLN(DEBUG_ENGINE, F("========================================"));
-    DEBUG_PRINT(DEBUG_ENGINE, F("[START] Comando START recibido | RAM libre "));
-    DEBUG_PRINTLN(DEBUG_ENGINE, _freeRam());
-    DEBUG_PRINTLN(DEBUG_ENGINE, F("========================================"));
 
     // ========================================================
     // CONFIGURANDO TARGETS
     // ========================================================
 
-    DEBUG_PRINTLN(DEBUG_ENGINE, F("Configurando targets..."));
 
     // --- CEM ---
-    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Validando parametro 'cem'..."));
 
     if (!params["cem"].is<float>()) {
-      DEBUG_PRINTLN(DEBUG_ENGINE, F("[START][ERROR] Parametro 'cem' invalido o ausente"));
+      LOG_W(CORRIDA, "start rechazado: parametro cem invalido o ausente");
       return;
     }
 
     float cemTarget = params["cem"].as<float>();
 
-    DEBUG_PRINT(DEBUG_ENGINE, F("[START] cemTarget = "));
-    DEBUG_PRINTLN(DEBUG_ENGINE, cemTarget, 4);
-
-
     // --- FRECUENCIA ---
-    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Validando parametro 'freq'..."));
 
     if (!params["freq"].is<int>()) {
-      DEBUG_PRINTLN(DEBUG_ENGINE, F("[START][ERROR] Parametro 'freq' invalido o ausente"));
+      LOG_W(CORRIDA, "start rechazado: parametro freq invalido o ausente");
       return;
     }
 
     int freqTarget = params["freq"].as<int>();
 
-    DEBUG_PRINT(DEBUG_ENGINE, F("[START] freqTarget = "));
-    DEBUG_PRINTLN(DEBUG_ENGINE, freqTarget);
-
-
     // --- DURACION ---
-    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Validando parametro 'dur'..."));
 
     if (!params["dur"].is<unsigned long>()) {
-      DEBUG_PRINTLN(DEBUG_ENGINE, F("[START][ERROR] Parametro 'dur' invalido o ausente"));
+      LOG_W(CORRIDA, "start rechazado: parametro dur invalido o ausente");
       return;
     }
 
     unsigned long durTarget = params["dur"].as<unsigned long>();
 
-    DEBUG_PRINT(DEBUG_ENGINE, F("[START] durTarget = "));
-    DEBUG_PRINTLN(DEBUG_ENGINE, durTarget);
-
-
     // --- GUARDAR TARGETS ---
-    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Guardando targets en RuntimeState..."));
 
     _runtimeState.setTarget(
       cemTarget,
       freqTarget,
       durTarget
     );
-
-    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Targets configuradas correctamente"));
-
 
     // ========================================================
     // MODO DE EXPERIMENTO (campo X / campo nulo)
@@ -1226,10 +1232,6 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
       if (strcmp(modeParam, "null") == 0) {
         mode = FieldMode::Null;
       }
-      DEBUG_PRINT(DEBUG_ENGINE, F("[START] mode recibido = "));
-      DEBUG_PRINTLN(DEBUG_ENGINE, modeParam);
-    } else {
-      DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] sin parametro 'mode', se asume campo X"));
     }
 
     // Campo nulo sin punto mapeado para esta intensidad y frecuencia (o con
@@ -1239,15 +1241,11 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
     // muestra en la pantalla Resultado como "no inicio" (_refuseStart).
     StartPlan startPlan = planStart(_controlMap, mode, cemTarget, (float)freqTarget, _balanceMax);
     if (startPlan.refusal != StartRefusal::None) {
-      DEBUG_PRINT(DEBUG_ENGINE, F("[START][ERROR] Campo nulo rechazado: "));
       if (startPlan.refusal == StartRefusal::NoMappedPoint) {
-        DEBUG_PRINTLN(DEBUG_ENGINE, F("no hay punto del mapa para esta intensidad y frecuencia (config_map)"));
         _refuseStart("nomap", "Campo nulo sin punto en el mapa");
       } else {
-        DEBUG_PRINTLN(DEBUG_ENGINE, F("el balance del punto supera control.balanceMax"));
         _refuseStart("balance", "Balance fuera de tope");
       }
-      DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Abortando comando START"));
       return;
     }
 
@@ -1266,7 +1264,6 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
     // configurar. Si corriera despues, la config se perderia en silencio
     // (Source::addSample() no hace nada si _configured es false, asi que el
     // Detector nunca evaluaria esa fuente sin importar los rangos).
-    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Aplicando configuracion de fuentes..."));
 
     _applySourceSettings();
     _applyCurrentSensorSettings();
@@ -1276,25 +1273,12 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
     // CONFIGURACION SOURCE CEM
     // ========================================================
 
-    DEBUG_PRINTLN(DEBUG_ENGINE, );
-    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Configurando source CEM1..."));
-
-    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Validando parametro 'tol'..."));
-
     if (!params["tol"].is<int>()) {
-      DEBUG_PRINTLN(DEBUG_ENGINE, F("[START][ERROR] Parametro 'tol' invalido o ausente"));
-      DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Abortando comando START"));
+      LOG_W(CORRIDA, "start rechazado: parametro tol invalido o ausente");
       return;
     }
 
     int cemTol = params["tol"].as<int>();
-
-    DEBUG_PRINT(DEBUG_ENGINE, F("[START] cemTol = "));
-    DEBUG_PRINT(DEBUG_ENGINE, cemTol);
-    DEBUG_PRINTLN(DEBUG_ENGINE, F("%"));
-
-
-    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Calculando configuracion de CEM1..."));
 
     // Copia de la plantilla (bufferSize + reglas, ya sea los defaults
     // compilados o lo que pisó la SD) mas los rangos derivados de lo que
@@ -1315,21 +1299,6 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
         configCem, cemTarget, cemTol, cemSettings->criticalMultiplier);
     }
 
-    DEBUG_PRINT(DEBUG_ENGINE, F("[START] CEM criticalMin = "));
-    DEBUG_PRINTLN(DEBUG_ENGINE, configCem.criticalMin, 4);
-
-    DEBUG_PRINT(DEBUG_ENGINE, F("[START] CEM normalMin   = "));
-    DEBUG_PRINTLN(DEBUG_ENGINE, configCem.normalMin, 4);
-
-    DEBUG_PRINT(DEBUG_ENGINE, F("[START] CEM normalMax   = "));
-    DEBUG_PRINTLN(DEBUG_ENGINE, configCem.normalMax, 4);
-
-    DEBUG_PRINT(DEBUG_ENGINE, F("[START] CEM criticalMax = "));
-    DEBUG_PRINTLN(DEBUG_ENGINE, configCem.criticalMax, 4);
-
-
-    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Aplicando configuracion a CEM1..."));
-
     _detector.configureSource("CEM1", configCem);
     // Los niveles del escenario se miden contra ESTOS rangos (scenario.hpp):
     // se pasan aunque CEM1 no use el escenario, es barato y deja al sensor
@@ -1338,130 +1307,93 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
       _scenarioMagnetometer->setRanges(_scenarioRangesOf(configCem));
     }
 
-    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Source CEM1 configurada correctamente"));
-
-
     // ========================================================
     // CONFIGURACION SOURCE TEMP
     // ========================================================
 
-    DEBUG_PRINTLN(DEBUG_ENGINE, );
-    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Configurando source TEMP1..."));
-
-
     // --- TEMP NORMAL MIN ---
-    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Validando parametro 'tnmin'..."));
 
     if (!params["tnmin"].is<float>()) {
-      DEBUG_PRINTLN(DEBUG_ENGINE, F("[START][ERROR] Parametro 'tnmin' invalido o ausente"));
+      LOG_W(CORRIDA, "start rechazado: parametro tnmin invalido o ausente");
       return;
     }
 
     float tempNormalMin = params["tnmin"].as<float>();
 
-    DEBUG_PRINT(DEBUG_ENGINE, F("[START] TEMP normalMin = "));
-    DEBUG_PRINTLN(DEBUG_ENGINE, tempNormalMin, 2);
-
-
     // --- TEMP NORMAL MAX ---
-    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Validando parametro 'tnmax'..."));
 
     if (!params["tnmax"].is<float>()) {
-      DEBUG_PRINTLN(DEBUG_ENGINE, F("[START][ERROR] Parametro 'tnmax' invalido o ausente"));
+      LOG_W(CORRIDA, "start rechazado: parametro tnmax invalido o ausente");
       return;
     }
 
     float tempNormalMax = params["tnmax"].as<float>();
 
-    DEBUG_PRINT(DEBUG_ENGINE, F("[START] TEMP normalMax = "));
-    DEBUG_PRINTLN(DEBUG_ENGINE, tempNormalMax, 2);
-
-
     // --- TEMP CRITICAL MIN ---
-    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Validando parametro 'tcmin'..."));
 
     if (!params["tcmin"].is<float>()) {
-      DEBUG_PRINTLN(DEBUG_ENGINE, F("[START][ERROR] Parametro 'tcmin' invalido o ausente"));
+      LOG_W(CORRIDA, "start rechazado: parametro tcmin invalido o ausente");
       return;
     }
 
     float tempCriticalMin = params["tcmin"].as<float>();
 
-    DEBUG_PRINT(DEBUG_ENGINE, F("[START] TEMP criticalMin = "));
-    DEBUG_PRINTLN(DEBUG_ENGINE, tempCriticalMin, 2);
-
-
     // --- TEMP CRITICAL MAX ---
-    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Validando parametro 'tcmax'..."));
 
     if (!params["tcmax"].is<float>()) {
-      DEBUG_PRINTLN(DEBUG_ENGINE, F("[START][ERROR] Parametro 'tcmax' invalido o ausente"));
+      LOG_W(CORRIDA, "start rechazado: parametro tcmax invalido o ausente");
       return;
     }
 
     float tempCriticalMax = params["tcmax"].as<float>();
-
-    DEBUG_PRINT(DEBUG_ENGINE, F("[START] TEMP criticalMax = "));
-    DEBUG_PRINTLN(DEBUG_ENGINE, tempCriticalMax, 2);
-
-
-    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Calculando configuracion de TEMP1..."));
 
     SourceConfig configTemp = _findSourceSettings("TEMP1")->config;
     configTemp.sampleIntervalMs = Intervals::MeasureTemperature;
     DetectorConfigBuilder::applyTempRanges(
       configTemp, tempNormalMin, tempNormalMax, tempCriticalMin, tempCriticalMax);
 
-    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Aplicando configuracion a TEMP1..."));
 
     _detector.configureSource("TEMP1", configTemp);
     if (_scenarioThermometer != nullptr) {
       _scenarioThermometer->setRanges(_scenarioRangesOf(configTemp));
     }
-
-    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Source TEMP1 configurada correctamente"));
-
+    _logSourceRanges("CEM1", PSTR("mT"));
+    _logSourceRanges("TEMP1", PSTR("C"));
 
     // ========================================================
     // ACK
     // ========================================================
 
-    DEBUG_PRINTLN(DEBUG_ENGINE, );
-    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Preparando ACK..."));
 
     JsonDocument doc;
 
     doc["command"] = Commands::Start;
 
-    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Enviando ACK..."));
 
     _serial.sendCommand(
       Commands::Ack,
       doc
     );
 
-    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] ACK enviado correctamente"));
-
-
     // ========================================================
     // INICIO
     // ========================================================
 
-    DEBUG_PRINTLN(DEBUG_ENGINE, );
-    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Iniciando experimento..."));
-
+    // `run` es el numero de corrida de la ESP32 (runcounter.hpp): solo para
+    // este log, asi la linea del Mega se busca por el mismo #N que el monitor
+    // y el log de la ESP32. Ausente (ESP32 vieja) sale #0.
+    _runNumber = params["run"] | 0UL;
+    LOG_I(CORRIDA, "inicio corrida=#%lu cem=%.3f mT freq=%d Hz dur=%lu s tol=%d %% modo=%S",
+          (unsigned long)_runNumber, cemTarget, freqTarget, durTarget / 1000UL, cemTol,
+          mode == FieldMode::Null ? PSTR("null") : PSTR("x"));
     _start();
 
-    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] _start() finalizado"));
 
-    DEBUG_PRINTLN(DEBUG_ENGINE, F("========================================"));
-    DEBUG_PRINTLN(DEBUG_ENGINE, F("[START] Comando START procesado"));
-    DEBUG_PRINTLN(DEBUG_ENGINE, F("========================================"));
-    DEBUG_PRINTLN(DEBUG_ENGINE, );
   }
 
   else if (strcmp(command, Commands::Stop) == 0) {
 
+    LOG_I(CORRIDA, "fin motivo=stopped detenido por el operador");
     _finish("stopped", "Detenido manualmente por el operador");
 
     JsonDocument doc;
@@ -1475,6 +1407,7 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
 
   else if (strcmp(command, Commands::Reset) == 0) {
 
+    LOG_D(CORRIDA, "reset");
     _reset();
 
     JsonDocument doc;
@@ -1517,13 +1450,13 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
   else if (strcmp(command, Commands::ConfigControl) == 0) {
 
     if (params["kp"].is<float>() && !_fieldController.setKp(params["kp"].as<float>())) {
-      DEBUG_PRINTLN(DEBUG_ENGINE, F("[CONFIG_CONTROL] kp invalido -- se ignora"));
+      LOG_W(CONFIG, "config_control kp=%.4f invalido: se ignora", params["kp"].as<float>());
     }
     if (params["maxStep"].is<float>() && !_fieldController.setMaxStep(params["maxStep"].as<float>())) {
-      DEBUG_PRINTLN(DEBUG_ENGINE, F("[CONFIG_CONTROL] maxStep invalido -- se ignora"));
+      LOG_W(CONFIG, "config_control maxStep=%.4f invalido: se ignora", params["maxStep"].as<float>());
     }
     if (params["deadBand"].is<float>() && !_fieldController.setDeadBand(params["deadBand"].as<float>())) {
-      DEBUG_PRINTLN(DEBUG_ENGINE, F("[CONFIG_CONTROL] deadBand invalido -- se ignora"));
+      LOG_W(CONFIG, "config_control deadBand=%.4f invalido: se ignora", params["deadBand"].as<float>());
     }
     // Tope del balance del campo nulo: se rechaza entero si esta fuera de
     // 0..MaxBalance (CoilChannels), igual que los demas valores de control.
@@ -1532,16 +1465,18 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
       if (balanceMax >= 0.0f && balanceMax <= CoilChannels::MaxBalance) {
         _balanceMax = balanceMax;
       } else {
-        DEBUG_PRINTLN(DEBUG_ENGINE, F("[CONFIG_CONTROL] balanceMax invalido -- se ignora"));
+        LOG_W(CONFIG, "config_control balanceMax=%.3f fuera de 0..%.2f: se ignora", balanceMax,
+              CoilChannels::MaxBalance);
       }
     }
     // En false el lazo mide pero no toca el PWM (lo que antes eran los
     // testMode 1/4, "solo sensado").
     if (params["enabled"].is<bool>()) {
       _controlLoopEnabled = params["enabled"].as<bool>();
-      DEBUG_PRINT(DEBUG_ENGINE, F("[CONFIG_CONTROL] lazo de intensidad="));
-      DEBUG_PRINTLN(DEBUG_ENGINE, _controlLoopEnabled ? F("on") : F("off"));
     }
+    LOG_D(CONFIG, "config_control kp=%.4f maxStep=%.4f deadBand=%.4f balanceMax=%.3f lazo=%d",
+          _fieldController.kp(), _fieldController.maxStep(), _fieldController.deadBand(), _balanceMax,
+          _controlLoopEnabled);
 
     JsonDocument doc;
     doc["command"] = Commands::ConfigControl;
@@ -1562,7 +1497,7 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
   else if (strcmp(command, Commands::ConfigMap) == 0) {
 
     if (!params["k"].is<int>() || !params["n"].is<int>()) {
-      DEBUG_PRINTLN(DEBUG_ENGINE, F("[CONFIG_MAP][ERROR] Falta 'k' o 'n' -- sin ack"));
+      LOG_W(CONFIG, "config_map sin k o n: sin ack");
       return;
     }
     int k = params["k"].as<int>();
@@ -1572,19 +1507,21 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
       // Tarjeta sin mapa: se vacia el que el Mega tuviera de una conexion
       // anterior, o el campo nulo correria con puntos que esta tarjeta no dice.
       _controlMap.clear();
-      DEBUG_PRINTLN(DEBUG_ENGINE, F("[CONFIG_MAP] tarjeta sin mapa, se vacia el mapa del Mega"));
-    } else if (n < 0 || n > ControlMap::MaxPoints || k < 0 || k >= n) {
-      DEBUG_PRINTLN(DEBUG_ENGINE, F("[CONFIG_MAP] indice o cantidad fuera de rango -- se ignora"));
-    } else {
+      LOG_D(CONFIG, "config_map vacio: se borra el mapa");
+    } else if (n > 0 && n <= ControlMap::MaxPoints && k >= 0 && k < n) {
       _controlMap.setCount((uint8_t)n);
       float balance = params["b"].is<float>() ? params["b"].as<float>() : 0.0f;
       bool stored = params["i"].is<float>() && params["f"].is<float>() && params["d"].is<float>() &&
                     _controlMap.setPoint((uint8_t)k, params["i"].as<float>(), params["f"].as<float>(),
                                          params["d"].as<float>(), balance);
-      if (!stored) {
-        DEBUG_PRINT(DEBUG_ENGINE, F("[CONFIG_MAP] punto invalido, queda vacio: "));
-        DEBUG_PRINTLN(DEBUG_ENGINE, k);
+      if (stored) {
+        LOG_D(CONFIG, "config_map punto %d/%d i=%.3f f=%.1f d=%.3f b=%.3f", k + 1, n, params["i"].as<float>(),
+              params["f"].as<float>(), params["d"].as<float>(), balance);
+      } else {
+        LOG_W(CONFIG, "config_map punto %d/%d invalido: queda vacio", k + 1, n);
       }
+    } else {
+      LOG_W(CONFIG, "config_map indice k=%d n=%d fuera de rango: se ignora", k, n);
     }
 
     JsonDocument doc;
@@ -1601,22 +1538,32 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
 
     const char* coilName = params["name"];
     if (coilName == nullptr) {
-      DEBUG_PRINTLN(DEBUG_ENGINE, F("[CONFIG_COIL][ERROR] Parametro 'name' ausente -- sin ack"));
+      LOG_W(CONFIG, "config_coil sin name: sin ack");
       return;
     }
 
     CoilChannel* channel = _coilChannels.findByName(coilName);
     if (channel == nullptr) {
-      DEBUG_PRINT(DEBUG_ENGINE, F("[CONFIG_COIL] Canal desconocido: "));
-      DEBUG_PRINTLN(DEBUG_ENGINE, coilName);
+      // Una bobina que la tarjeta declara deshabilitada y el Mega no tiene
+      // registrada es lo esperado (se monta despues): solo en detalle.
+      if (params["enabled"].is<bool>() && !params["enabled"].as<bool>()) {
+        LOG_D(CONFIG, "config_coil %s deshabilitada y no registrada: nada que hacer", coilName);
+      } else {
+        LOG_W(CONFIG, "config_coil bobina %s habilitada en la tarjeta pero no registrada en el Mega: se ignora",
+              coilName);
+      }
     } else {
       if (params["enabled"].is<bool>()) {
         if (params["enabled"].as<bool>()) channel->enable();
         else channel->disable();
       }
-      if (params["calibrationFactor"].is<float>()) {
-        channel->setCalibrationFactor(params["calibrationFactor"].as<float>());
+      if (params["calibrationFactor"].is<float>() &&
+          !channel->setCalibrationFactor(params["calibrationFactor"].as<float>())) {
+        LOG_W(CONFIG, "config_coil %s calibrationFactor=%.3f fuera de 0.1..5.0: se ignora", coilName,
+              params["calibrationFactor"].as<float>());
       }
+      LOG_D(CONFIG, "config_coil %s enabled=%d factor=%.3f", coilName, channel->isEnabled(),
+            channel->calibrationFactor());
     }
 
     // El frame llego bien aunque el canal no exista -- el ack lleva `name`
@@ -1646,8 +1593,7 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
     const char* sourceName = params["name"];
     SourceSettings* settings = _findSourceSettings(sourceName);
     if (settings == nullptr) {
-      DEBUG_PRINT(DEBUG_ENGINE, F("[CONFIG_SOURCE][ERROR] Fuente desconocida o sin 'name': "));
-      DEBUG_PRINTLN(DEBUG_ENGINE, sourceName == nullptr ? "(ausente)" : sourceName);
+      LOG_W(CONFIG, "config_source fuente desconocida %s: sin ack", sourceName ? sourceName : "-");
       return;
     }
 
@@ -1660,8 +1606,7 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
     if (params["sensor"].is<const char*>()) {
       const char* value = params["sensor"].as<const char*>();
       if (!SensorChoices::parse(settings->name, value, settings->sensor)) {
-        DEBUG_PRINT(DEBUG_ENGINE, F("[CONFIG_SOURCE] sensor no valido para esta fuente -- se ignora: "));
-        DEBUG_PRINTLN(DEBUG_ENGINE, value);
+        LOG_W(CONFIG, "config_source %s sensor=%s no vale para esta fuente: se ignora", settings->name, value);
       }
     }
 
@@ -1670,7 +1615,8 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
       if (DetectorConfigBuilder::isValidBufferSize(bufferSize)) {
         settings->config.bufferSize = bufferSize;
       } else {
-        DEBUG_PRINTLN(DEBUG_ENGINE, F("[CONFIG_SOURCE] bufferSize fuera de rango -- se ignora"));
+        LOG_W(CONFIG, "config_source %s bufferSize=%u fuera de rango: se ignora", settings->name,
+              (unsigned)bufferSize);
       }
     }
 
@@ -1679,7 +1625,7 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
       if (DetectorConfigBuilder::isValidMaxMissedSamples(missed)) {
         settings->config.maxMissedSamples = (uint16_t)missed;
       } else {
-        DEBUG_PRINTLN(DEBUG_ENGINE, F("[CONFIG_SOURCE] maxMissedSamples fuera de rango (1 a 20) -- se ignora"));
+        LOG_W(CONFIG, "config_source %s maxMissedSamples=%lu fuera de 1..20: se ignora", settings->name, missed);
       }
     }
 
@@ -1694,22 +1640,16 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
       uint8_t address[OneWireAddress::Length];
       OneWireAddress::ParseResult result = OneWireAddress::parse(text, address);
       if (strcmp(settings->name, "TEMP1") != 0) {
-        DEBUG_PRINTLN(DEBUG_ENGINE, F("[CONFIG_SOURCE] 'address' solo vale para TEMP1 -- se ignora"));
+        LOG_W(CONFIG, "config_source address solo vale para TEMP1: se ignora");
       } else if (result != OneWireAddress::ParseResult::Ok) {
-        DEBUG_PRINT(DEBUG_ENGINE, F("[CONFIG_SOURCE][ERROR] direccion del DS18B20 rechazada ("));
-        // F() y no una tabla de textos: en AVR los literales sin F() ocupan RAM.
-        if (result == OneWireAddress::ParseResult::BadFormat) DEBUG_PRINT(DEBUG_ENGINE, F("no son 16 digitos hex"));
-        else if (result == OneWireAddress::ParseResult::NotDs18b20) DEBUG_PRINT(DEBUG_ENGINE, F("no empieza con 28, no es un DS18B20"));
-        else DEBUG_PRINT(DEBUG_ENGINE, F("el CRC no coincide, digito mal copiado"));
-        DEBUG_PRINT(DEBUG_ENGINE, F("): "));
-        DEBUG_PRINTLN(DEBUG_ENGINE, text);
+        LOG_W(CONFIG, "config_source TEMP1 address rechazada (%S): queda la anterior",
+              result == OneWireAddress::ParseResult::BadFormat    ? PSTR("no son 16 digitos hex")
+              : result == OneWireAddress::ParseResult::NotDs18b20 ? PSTR("no empieza con 28")
+                                                                   : PSTR("CRC no coincide"));
       } else {
         memcpy(settings->address, address, OneWireAddress::Length);
         settings->hasAddress = true;
-        char formatted[OneWireAddress::TextLength];
-        OneWireAddress::format(address, formatted);
-        DEBUG_PRINT(DEBUG_ENGINE, F("[CONFIG_SOURCE] TEMP1 DS18B20 en "));
-        DEBUG_PRINTLN(DEBUG_ENGINE, formatted);
+        LOG_I(CONFIG, "config_source TEMP1 address=%s aplicada", text);
         if (strcmp(_engineState.getState(), State::Running) != 0 && _realThermometer != nullptr) {
           _realThermometer->setAddress(address);
         }
@@ -1721,9 +1661,12 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
       if (DetectorConfigBuilder::isValidCriticalMultiplier(multiplier)) {
         settings->criticalMultiplier = multiplier;
       } else {
-        DEBUG_PRINTLN(DEBUG_ENGINE, F("[CONFIG_SOURCE] criticalMultiplier fuera de rango -- se ignora"));
+        LOG_W(CONFIG, "config_source %s criticalMultiplier=%.3f fuera de rango: se ignora", settings->name,
+              multiplier);
       }
     }
+    LOG_D(CONFIG, "config_source %s enabled=%d sensor=%s bufferSize=%u", settings->name, settings->enabled,
+          SensorChoices::name(settings->sensor), (unsigned)settings->config.bufferSize);
 
     JsonDocument doc;
     doc["command"] = Commands::ConfigSource;
@@ -1746,7 +1689,7 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
     SourceSettings* settings = _findSourceSettings(sourceName);
 
     if (settings == nullptr || ruleName == nullptr) {
-      DEBUG_PRINTLN(DEBUG_ENGINE, F("[CONFIG_RULE][ERROR] 'source' o 'rule' ausente o desconocido"));
+      LOG_W(CONFIG, "config_rule sin source o rule validos: sin ack");
       return;
     }
 
@@ -1756,8 +1699,7 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
     else if (strcmp(ruleName, "frequency") == 0) target = &settings->config.frequency;
 
     if (target == nullptr) {
-      DEBUG_PRINT(DEBUG_ENGINE, F("[CONFIG_RULE][ERROR] Regla desconocida: "));
-      DEBUG_PRINTLN(DEBUG_ENGINE, ruleName);
+      LOG_W(CONFIG, "config_rule %s regla desconocida %s: sin ack", settings->name, ruleName);
       return;
     }
 
@@ -1768,18 +1710,10 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
       target->threshold = candidate.threshold;
       target->cooldown = candidate.cooldown;
       target->maxEvents = candidate.maxEvents;
-
-      DEBUG_PRINT(DEBUG_ENGINE, F("[CONFIG_RULE] "));
-      DEBUG_PRINT(DEBUG_ENGINE, settings->name);
-      DEBUG_PRINT(DEBUG_ENGINE, F("/"));
-      DEBUG_PRINT(DEBUG_ENGINE, ruleName);
-      DEBUG_PRINTLN(DEBUG_ENGINE, F(" aplicada"));
+      LOG_D(CONFIG, "config_rule %s/%s threshold=%u cooldown=%u maxEvents=%u", settings->name, ruleName,
+            (unsigned)target->threshold, (unsigned)target->cooldown, (unsigned)target->maxEvents);
     } else {
-      DEBUG_PRINT(DEBUG_ENGINE, F("[CONFIG_RULE] "));
-      DEBUG_PRINT(DEBUG_ENGINE, settings->name);
-      DEBUG_PRINT(DEBUG_ENGINE, F("/"));
-      DEBUG_PRINT(DEBUG_ENGINE, ruleName);
-      DEBUG_PRINTLN(DEBUG_ENGINE, F(" fuera de rango -- se descarta entera"));
+      LOG_W(CONFIG, "config_rule %s/%s fuera de rango: queda la anterior", settings->name, ruleName);
     }
 
     JsonDocument doc;
@@ -1804,7 +1738,7 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
   else if (strcmp(command, Commands::ConfigCurrent) == 0) {
 
     if (!params["address"].is<uint8_t>() || !params["channel"].is<uint8_t>()) {
-      DEBUG_PRINTLN(DEBUG_ENGINE, F("[CONFIG_CURRENT][ERROR] Falta 'address' o 'channel' -- sin ack"));
+      LOG_W(CONFIG, "config_current sin address o channel: sin ack");
       return;
     }
 
@@ -1812,12 +1746,7 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
     uint8_t channel = params["channel"].as<uint8_t>();
     CurrentSensorSettings* settings = _findCurrentSensorSettings(address, channel);
 
-    if (settings == nullptr) {
-      DEBUG_PRINT(DEBUG_ENGINE, F("[CONFIG_CURRENT] Sin slot para 0x"));
-      DEBUG_PRINT(DEBUG_ENGINE, address, HEX);
-      DEBUG_PRINT(DEBUG_ENGINE, F("/"));
-      DEBUG_PRINTLN(DEBUG_ENGINE, channel);
-    } else {
+    if (settings != nullptr) {
       if (params["enabled"].is<bool>()) {
         settings->enabled = params["enabled"].as<bool>();
       }
@@ -1845,6 +1774,9 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
       // adentro del JsonDocument del frame recibido.
       settings->sensor->setConfig(settings->config);
       settings->config.name = nullptr;
+      LOG_D(CONFIG, "config_current 0x%02X/%u enabled=%d", address, channel, settings->enabled);
+    } else {
+      LOG_W(CONFIG, "config_current sin slot para 0x%02X/%u: se ignora", address, channel);
     }
 
     JsonDocument doc;
@@ -1869,8 +1801,7 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
     const char* sourceName = params["name"];
     SourceSettings* settings = _findSourceSettings(sourceName);
     if (settings == nullptr) {
-      DEBUG_PRINT(DEBUG_ENGINE, F("[CONFIG_SCENARIO][ERROR] Fuente desconocida o sin 'name': "));
-      DEBUG_PRINTLN(DEBUG_ENGINE, sourceName == nullptr ? "(ausente)" : sourceName);
+      LOG_W(CONFIG, "config_scenario fuente desconocida %s: sin ack", sourceName ? sourceName : "-");
       return;
     }
 
@@ -1885,12 +1816,11 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
     if (params["d"].is<float>()) {
       float v = params["d"].as<float>();
       if (v >= 0.0f && v <= 1.0f) signal.setpointDuty = v;
-      else DEBUG_PRINTLN(DEBUG_ENGINE, F("[CONFIG_SCENARIO] setpointDuty fuera de 0..1 -- se ignora"));
+      else LOG_W(CONFIG, "config_scenario setpointDuty=%.3f fuera de 0..1: se ignora", v);
     }
+    LOG_D(CONFIG, "config_scenario %s noise=%.3f oscAmp=%.3f oscPeriod=%.1f dropAt=%.1f duty=%.3f", settings->name,
+          signal.noise, signal.oscAmp, signal.oscPeriod, signal.dropAt, signal.setpointDuty);
 
-    DEBUG_PRINT(DEBUG_ENGINE, F("[CONFIG_SCENARIO] "));
-    DEBUG_PRINT(DEBUG_ENGINE, settings->name);
-    DEBUG_PRINTLN(DEBUG_ENGINE, F(" guardado (vale desde el proximo start)"));
 
     JsonDocument doc;
     doc["command"] = Commands::ConfigScenario;
@@ -1912,8 +1842,7 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
     const char* sourceName = params["name"];
     SourceSettings* settings = _findSourceSettings(sourceName);
     if (settings == nullptr) {
-      DEBUG_PRINT(DEBUG_ENGINE, F("[CONFIG_SCENARIO_PTS][ERROR] Fuente desconocida o sin 'name': "));
-      DEBUG_PRINTLN(DEBUG_ENGINE, sourceName == nullptr ? "(ausente)" : sourceName);
+      LOG_W(CONFIG, "config_scenario_pts fuente desconocida %s: sin ack", sourceName ? sourceName : "-");
       return;
     }
 
@@ -1931,25 +1860,20 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
       }
       if (refusal == PointsRefusal::None) refusal = Scenario::applyPoints(settings->scenario, flat, length);
     }
-
-    DEBUG_PRINT(DEBUG_ENGINE, F("[CONFIG_SCENARIO_PTS] "));
-    DEBUG_PRINT(DEBUG_ENGINE, settings->name);
-    if (refusal != PointsRefusal::None) {
-      DEBUG_PRINT(DEBUG_ENGINE, F(" RECHAZADO, sigue con los puntos anteriores: "));
-      switch (refusal) {
-        case PointsRefusal::OddLength:  DEBUG_PRINTLN(DEBUG_ENGINE, F("cantidad impar de valores")); break;
-        case PointsRefusal::TooMany:    DEBUG_PRINTLN(DEBUG_ENGINE, F("mas de 8 puntos")); break;
-        case PointsRefusal::BadTime:    DEBUG_PRINTLN(DEBUG_ENGINE, F("segundo no entero o fuera de 0..65535")); break;
-        case PointsRefusal::BadLevel:   DEBUG_PRINTLN(DEBUG_ENGINE, F("nivel fuera de -10..10")); break;
-        case PointsRefusal::Unordered:  DEBUG_PRINTLN(DEBUG_ENGINE, F("segundos no ordenados")); break;
-        case PointsRefusal::NotNumeric: DEBUG_PRINTLN(DEBUG_ENGINE, F("valor no numerico")); break;
-        default:                        DEBUG_PRINTLN(DEBUG_ENGINE, F("falta 'p'")); break;
-      }
+    if (refusal == PointsRefusal::None) {
+      LOG_D(CONFIG, "config_scenario_pts %s puntos=%u", settings->name, (unsigned)(list.size() / 2));
     } else {
-      DEBUG_PRINT(DEBUG_ENGINE, F(": "));
-      DEBUG_PRINT(DEBUG_ENGINE, settings->scenario.pointCount);
-      DEBUG_PRINTLN(DEBUG_ENGINE, F(" puntos (valen desde el proximo start)"));
+      // Textos en flash: como literales costaban ~150 bytes de RAM.
+      LOG_W(CONFIG, "config_scenario_pts %s rechazados (%S): quedan los anteriores", settings->name,
+            refusal == PointsRefusal::OddLength    ? PSTR("cantidad impar de valores")
+            : refusal == PointsRefusal::TooMany    ? PSTR("mas de 8 puntos")
+            : refusal == PointsRefusal::BadTime    ? PSTR("segundo no entero o fuera de 0..65535")
+            : refusal == PointsRefusal::BadLevel   ? PSTR("nivel fuera de -10..10")
+            : refusal == PointsRefusal::Unordered  ? PSTR("segundos no ordenados")
+            : refusal == PointsRefusal::NotNumeric ? PSTR("valor no numerico")
+                                                   : PSTR("falta p"));
     }
+
 
     JsonDocument doc;
     doc["command"] = Commands::ConfigScenarioPoints;
@@ -1962,10 +1886,9 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
   else if (strcmp(command, Commands::ConfigDetector) == 0) {
     if (params["enabled"].is<bool>()) {
       _detectorEnabled = params["enabled"].as<bool>();
-      DEBUG_PRINT(DEBUG_ENGINE, F("[CONFIG_DETECTOR] enabled="));
-      DEBUG_PRINTLN(DEBUG_ENGINE, _detectorEnabled ? F("true (desde el proximo start)") : F("false (desde el proximo start)"));
+      LOG_D(CONFIG, "config_detector enabled=%d (vale desde el proximo start)", _detectorEnabled);
     } else {
-      DEBUG_PRINTLN(DEBUG_ENGINE, F("[CONFIG_DETECTOR] sin 'enabled' booleano -- se ignora"));
+      LOG_W(CONFIG, "config_detector sin enabled booleano: se ignora");
     }
 
     JsonDocument doc;
@@ -1978,20 +1901,25 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
   }
 }
 
-inline void Engine::onSerialConnected() {}
-inline void Engine::onSerialDisconnected() {}
+inline void Engine::onSerialConnected() {
+  LOG_I(ENLACE, "conectado con la ESP32");
+}
+
+inline void Engine::onSerialDisconnected() {
+  LOG_W(ENLACE, "enlace con la ESP32 perdido");
+}
 
 inline void Engine::onEmergencyButtonPressed() {
-  DEBUG_PRINTLN(DEBUG_ENGINE, F("[EMERGENCY] Pulsador de parada de emergencia presionado"));
 
   // Si no hay experimento corriendo, no hay nada que detener -- evita
   // mandarle a la ESP32 un result_data "stopped" para un experimento que
   // nunca arranco (la llevaria a la pantalla Resultado sin motivo).
   if (strcmp(_engineState.getState(), State::Running) != 0) {
-    DEBUG_PRINTLN(DEBUG_ENGINE, F("[EMERGENCY] Ignorado: no hay experimento en curso"));
+    LOG_D(CORRIDA, "parada de emergencia sin corrida: se ignora");
     return;
   }
 
+  LOG_W(CORRIDA, "fin motivo=stopped parada de emergencia");
   ResultData& result = _runtimeState.draftResult();
   strncpy(result.reason, "stopped", sizeof(result.reason) - 1);
   strncpy_P(result.description, PSTR("Parada de emergencia fisica activada por el operador"),
@@ -2014,15 +1942,12 @@ inline void Engine::onMagnetometerSample(IMagnetometer* magnetometer) {
     _fieldController.update(magnetometer->getMagneticField());
     float duty = _fieldController.getOutput();
     _coilChannels.writeAll(duty);
+    LOG_D(CONTROL, "campo=%.4f mT consigna=%.4f mT duty=%.3f", magnetometer->getMagneticField(),
+          _runtimeState.target().cemTarget, duty);
 
-    DEBUG_PRINT(DEBUG_ENGINE, F("[CONTROL][PWM] "));
-    DEBUG_PRINT(DEBUG_ENGINE, magnetometer->getName());
-    DEBUG_PRINT(DEBUG_ENGINE, F("="));
-    DEBUG_PRINT(DEBUG_ENGINE, magnetometer->getMagneticField(), 4);
-    DEBUG_PRINT(DEBUG_ENGINE, F(" duty="));
-    DEBUG_PRINTLN(DEBUG_ENGINE, duty, 4);
   }
 
+  _watchZone(_cemZone, magnetometer->getName(), magnetometer->getMagneticField(), PSTR("mT"));
   if(!_isSettlingTime) {
     _detector.addSample(magnetometer->getName(), magnetometer->getMagneticField());
   }
@@ -2037,6 +1962,7 @@ inline void Engine::onMagnetometerSample(IMagnetometer* magnetometer) {
 inline void Engine::onThermometerSample(IThermometer* thermometer) {
   _detector.noteAlive(thermometer->getName(), millis());
 
+  _watchZone(_tempZone, thermometer->getName(), thermometer->getTemperature(), PSTR("C"));
   if(!_isSettlingTime) {
     _detector.addSample(thermometer->getName(), thermometer->getTemperature());
   }
@@ -2049,11 +1975,6 @@ inline void Engine::onThermometerSample(IThermometer* thermometer) {
 }
 
 inline void Engine::onCurrentSensorSample(ICurrentSensor* sensor) {
-  DEBUG_PRINT(DEBUG_ENGINE, F("[CURRENT] sample "));
-  DEBUG_PRINT(DEBUG_ENGINE, sensor->getName());
-  DEBUG_PRINT(DEBUG_ENGINE, F(" = "));
-  DEBUG_PRINT(DEBUG_ENGINE, sensor->getCurrent());
-  DEBUG_PRINTLN(DEBUG_ENGINE, F(" A"));
 
   // addSample() aca es un no-op en la practica: "SCT013-1" nunca se
   // registra como source del Detector (detector.addSource en el .ino) --
@@ -2088,26 +2009,26 @@ inline void Engine::onFlag(SourceEvent& event) {
   }
   sourceData["type"] = typeStr;
 
-  DEBUG_PRINT(DEBUG_ENGINE, F("[FLAG] "));
-  DEBUG_PRINT(DEBUG_ENGINE, source->getName());
-  DEBUG_PRINT(DEBUG_ENGINE, F(" tipo="));
-  DEBUG_PRINT(DEBUG_ENGINE, typeStr);
-  DEBUG_PRINT(DEBUG_ENGINE, F(" count="));
-  DEBUG_PRINT(DEBUG_ENGINE, event.count);
-  DEBUG_PRINT(DEBUG_ENGINE, F("/"));
-  DEBUG_PRINTLN(DEBUG_ENGINE, event.limit);
 
   _serial.sendCommand(Commands::OneFlagsData, sourceData);
+  bool cut = event.limit > 0 && event.count >= event.limit;
+  // Ultimo valor de la fuente: dice con que medicion se disparo la regla.
+  float last = strcmp(source->getName(), "CEM1") == 0 ? _cemZone.last
+             : strcmp(source->getName(), "TEMP1") == 0 ? _tempZone.last : NAN;
+  if (cut) {
+    LOG_E(CORRIDA, "fin motivo=critical %s tipo=%s n=%u/%u ultimo=%.3f", source->getName(), typeStr, event.count,
+          event.limit, last);
+  } else {
+    LOG_W(DETECTOR, "%s alerta tipo=%s n=%u/%u ultimo=%.3f", source->getName(), typeStr, event.count, event.limit,
+          last);
+  }
 
   // Corta el experimento cuando CUALQUIERA de los 3 tipos de regla llega a
   // su propio maxEvents -- no es exclusivo del tipo "critical". Una racha
   // (streak) o una inestabilidad sostenida (frequency) que se repitan
   // suficientes veces cortan igual, aunque la muestra individual nunca haya
   // sido "critica".
-  if(event.limit > 0 && event.count >= event.limit) {
-    DEBUG_PRINT(DEBUG_ENGINE, F("[FLAG] limite alcanzado para "));
-    DEBUG_PRINT(DEBUG_ENGINE, source->getName());
-    DEBUG_PRINTLN(DEBUG_ENGINE, F(" -> interrumpiendo experimento"));
+  if (cut) {
 
     ResultData& result = _runtimeState.draftResult();
     strncpy(result.reason, "critical", sizeof(result.reason) - 1);

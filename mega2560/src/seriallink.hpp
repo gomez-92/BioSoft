@@ -3,12 +3,8 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include "commands.hpp"
-#include "debugconfig.hpp"
+#include "log.hpp"
 
-// Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
-// el interruptor maestro). Apagado (2026-09-01) durante bring-up INT-001
-// centrado en el circuito de campo magnetico -- no aporta a esa depuracion.
-constexpr bool DEBUG_SERIALLINK = false;
 // =========================
 // Configuración del protocolo
 // =========================
@@ -164,7 +160,6 @@ private:
 
 inline SerialLink::SerialLink(Stream& serial)
     : _serial(serial), _initialize(false) {
-
 }
 
 inline void SerialLink::begin() {
@@ -296,10 +291,19 @@ inline bool SerialLink::update() {
 
         sendPing();
     }
+    // Keepalive: con el enlace arriba pero sin recibir nada hace media
+    // ventana, se pide un pong. Sin esto el lado que solo TRANSMITE (el Mega
+    // durante una corrida: la ESP32 no tiene nada que mandarle) daba el
+    // enlace por perdido cada 10 s y lo recuperaba con el ping siguiente
+    // (banco, 2026-11-22, visible recien con los logs nuevos).
+    else if(_connected &&
+            millis() - _lastCommandTime > LAST_COMMAND_INTERVAL_MS / 2 &&
+            millis() - _lastPingTime > LAST_COMMAND_INTERVAL_MS / 2) {
+        sendPing();
+    }
     else if(!_connected &&
             millis() - _lastPingTime > LAST_PING_INTERVAL_MS) {
 
-        DEBUG_PRINTLN(DEBUG_SERIALLINK, "Es tiempo de intentar reconectar la comunicación serial");
 
         sendPing();
     }
@@ -399,7 +403,6 @@ inline bool SerialLink::update() {
                     }
             }
             else {
-                DEBUG_PRINTLN(DEBUG_SERIALLINK, "ETX FAIL");
                 _frameErrors++;
             }
 

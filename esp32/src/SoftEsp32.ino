@@ -11,11 +11,9 @@
 #include "configloader.hpp"
 #include "testrunnotice.hpp"
 #include "mysystem.hpp"
-#include "debugconfig.hpp"
+#include "log.hpp"
+#include "eventlog.hpp"
 
-// Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
-// el interruptor maestro).
-constexpr bool DEBUG_MAIN = true;
 
 #define SERIAL_RX_BUFFER_SIZE 512
 // Pines de la JC2432W328C. En la 2432S028R anterior eran RX 22 / TX 27, pero
@@ -116,8 +114,8 @@ constexpr bool CONECTAR_ANTES_DE_LA_UI = false;
 // falle igual. Lo segundo se ataca destruyendo las pantallas que no estan a
 // la vista; esto de aca resuelve el arranque.
 static void conectarAntesDeLaInterfaz() {
-  DEBUG_PRINTLN(DEBUG_MAIN, F("[MAIN] Conectando antes de crear la UI (pantalla en negro)"));
 
+  LOG_I(SISTEMA, "conectando antes de crear la UI (pantalla en negro)");
   unsigned long inicio = millis();
   while (millis() - inicio < ESPERA_CONEXION_MS) {
     // Reusa el camino real -- update de WiFi, gate de NTP y loop del broker --
@@ -126,29 +124,72 @@ static void conectarAntesDeLaInterfaz() {
     mySystem.remoteUpdate();
 
     if (brokerManager.isConnected()) {
-      DEBUG_PRINTF(DEBUG_MAIN, "[MAIN] Broker conectado en %lu ms\n", millis() - inicio);
+      LOG_I(SISTEMA, "broker conectado antes de la UI en %lu ms", millis() - inicio);
       return;
     }
     delay(50);
   }
+  LOG_W(SISTEMA, "sin broker al vencer el plazo: se sigue arrancando");
+}
 
-  DEBUG_PRINTLN(DEBUG_MAIN, F("[MAIN] Sin broker al vencer el plazo: se sigue arrancando"));
+// Causa del ultimo reinicio de la ESP32. Un panic, un watchdog o una baja
+// de tension es un error: la placa se reinicio sola. Se guarda aca y sale
+// en el evento "arranque", despues de leer la SD, junto con la config.
+static const char* resetCauseText = "desconocida";
+static bool resetAbnormal = true;
+
+static void readResetCause() {
+  esp_reset_reason_t reason = esp_reset_reason();
+  const char* text = "desconocida";
+  bool abnormal = true;
+  switch (reason) {
+    case ESP_RST_POWERON:  text = "encendido"; abnormal = false; break;
+    case ESP_RST_EXT:      text = "reset externo"; abnormal = false; break;
+    case ESP_RST_SW:       text = "reinicio por software"; abnormal = false; break;
+    case ESP_RST_PANIC:    text = "panic (excepcion)"; break;
+    case ESP_RST_INT_WDT:  text = "watchdog de interrupciones"; break;
+    case ESP_RST_TASK_WDT: text = "watchdog de tareas"; break;
+    case ESP_RST_WDT:      text = "watchdog"; break;
+    case ESP_RST_BROWNOUT: text = "baja tension"; break;
+    case ESP_RST_DEEPSLEEP: text = "salida de deep sleep"; abnormal = false; break;
+    default: break;
+  }
+  resetCauseText = text;
+  resetAbnormal = abnormal;
+}
+
+// Evento de arranque (bitacora remota): causa del reinicio y que
+// configuracion corre. Con la config de la SD ignorada, un segundo evento lo
+// dice: la placa anda, pero con los valores de fabrica.
+static void logStartup() {
+  const char* status = ConfigLoader::loadStatus();
+  if (resetAbnormal) {
+    EVENTO_E(SISTEMA, arranque, "arranque tras reinicio anormal causa=%s config=%s configId=%s heap_libre=%u B",
+             resetCauseText, status, ConfigLoader::configId(), (unsigned)ESP.getFreeHeap());
+  } else {
+    EVENTO_I(SISTEMA, arranque, "arranque causa=%s config=%s configId=%s heap_libre=%u B", resetCauseText, status,
+             ConfigLoader::configId(), (unsigned)ESP.getFreeHeap());
+  }
+  if (strcmp(status, "unreadable") == 0 || strcmp(status, "invalid") == 0 || strcmp(status, "schema") == 0 ||
+      strcmp(status, "experiment") == 0) {
+    EVENTO_W(CONFIG, config_ignorada, "la configuracion de la SD se ignora (%s): corren los valores de fabrica",
+             status);
+  }
 }
 
 void setup() {
   Serial.begin(115200);
+  // Todos los LOG_* salen por el USB. Sin esta linea los logs no hacen nada.
+  Log::begin([](const char* data, size_t length) { Serial.write((const uint8_t*)data, length); });
   Serial2.begin(9600, SERIAL_8N1, RXD2, TXD2);
   delay(2000);
 
   // Referencia inicial: cuanto heap hay ANTES de crear nada. Contra la
   // medicion de despues de mySystem.begin() dice exactamente cuanto se
   // lleva LVGL, que es contra quien compite el handshake TLS.
-  DEBUG_PRINTF(DEBUG_MAIN, "[MAIN] Heap al arrancar: libre %u, bloque mayor %u\n",
-               (unsigned) ESP.getFreeHeap(), (unsigned) ESP.getMaxAllocHeap());
+  readResetCause();
 
-  if (!sdStorage.begin()) {
-    DEBUG_PRINTLN(DEBUG_MAIN, F("[SD] Continuando sin tarjeta SD"));
-  }
+  sdStorage.begin();
 
   // Tiene que correr ANTES de que MySystem registre sus tareas y de que la
   // pantalla Configuracion arme sus dropdowns: pisa los intervalos y las
@@ -156,6 +197,7 @@ void setup() {
   // defaults compilados y el arranque sigue igual -- no hay rama de error
   // que atender acá.
   ConfigLoader::load(sdStorage);
+  logStartup();
 
   if (!BENCH_SIN_RED) {
     // Redes: si la tarjeta trae alguna, REEMPLAZAN a las compiladas. No se
@@ -199,9 +241,6 @@ void setup() {
     config.rootCA   = ROOT_CA_CERT;
     brokerManager.begin(config);
   }
-  else {
-    DEBUG_PRINTLN(DEBUG_MAIN, F("[BENCH] BENCH_SIN_RED: WiFi y broker deshabilitados"));
-  }
 
   // ANTES de mySystem.begin(), que es quien crea las pantallas de LVGL: el
   // handshake TLS necesita el heap sin fragmentar (ver el comentario de
@@ -220,8 +259,11 @@ void setup() {
   // de LVGL, que con LV_USE_STDLIB_MALLOC en CLIB salen de este mismo heap y
   // no de un pool propio. Lo que quede aca es contra lo que compite el
   // handshake TLS, que necesita del orden de 40-50 KB contiguos.
-  DEBUG_PRINTF(DEBUG_MAIN, "[MAIN] Heap tras inicializar la UI: libre %u, bloque mayor %u\n",
-               (unsigned) ESP.getFreeHeap(), (unsigned) ESP.getMaxAllocHeap());
+  LOG_D(SISTEMA, "heap tras la UI libre=%u B bloque_mayor=%u B", (unsigned)ESP.getFreeHeap(),
+        (unsigned)ESP.getMaxAllocHeap());
+  if (BENCH_SIN_RED) {
+    LOG_W(SISTEMA, "BENCH_SIN_RED: wifi y broker deshabilitados");
+  }
 
   if (!BENCH_SIN_RED) {
     // Core 0, NO core 1: en el 1 corren loop() y con el LVGL, y un handshake
@@ -244,10 +286,8 @@ void setup() {
 // Recuperacion del enlace con el Mega (2026-11-22). Con el enlace caido el
 // SerialLink ya manda un ping cada 10 s; si en 30 s nada lo levanta, se
 // reabre el UART (end + begin) por si el que quedo trabado es el periferico
-// de este lado, y se repite cada 30 s mientras siga caido. Cada intento deja
-// en el log cuantos bytes llegaron desde el anterior: 0 bytes = el Mega no
-// transmite (colgado: lo resuelve su watchdog, ver mega2560/src/diag.hpp);
-// bytes con errores = llega basura (cableado, masa, baudios).
+// de este lado, y se repite cada 30 s mientras siga caido. Si el colgado es
+// el Mega, lo resuelve su watchdog (ver mega2560/src/diag.hpp).
 constexpr unsigned long LinkRecoveryMs = 30000;
 
 void superviseSerialLink() {
@@ -269,12 +309,15 @@ void superviseSerialLink() {
   if (now - lastAttempt < LinkRecoveryMs) return;
   lastAttempt = now;
 
+  // Cuantos bytes llegaron desde el intento anterior: 0 = el Mega no
+  // transmite (colgado o cableado); bytes con errores = llega basura
+  // (masa, baudios, ruido).
   uint32_t rx = serial.getRxBytes();
-  DEBUG_PRINTF(DEBUG_MAIN, "[ENLACE] sin Mega hace %lu s | bytes rx en 30 s: %lu | errores crc=%lu trama=%lu json=%lu -> reabriendo Serial2\n",
-               (unsigned long)((now - downSince) / 1000), (unsigned long)(rx - lastRxBytes),
-               (unsigned long)serial.getCrcErrors(), (unsigned long)serial.getFrameErrors(),
-               (unsigned long)serial.getJsonErrors());
+  LOG_W(ENLACE, "sin Mega hace %lu s rx=%lu B crc=%lu trama=%lu json=%lu: se reabre Serial2",
+        (now - downSince) / 1000UL, (unsigned long)(rx - lastRxBytes), (unsigned long)serial.getCrcErrors(),
+        (unsigned long)serial.getFrameErrors(), (unsigned long)serial.getJsonErrors());
   lastRxBytes = rx;
+
   Serial2.end();
   Serial2.begin(9600, SERIAL_8N1, RXD2, TXD2);
 }
@@ -287,12 +330,9 @@ void loop() {
 
 
 void communicationTask(void* parameter) {
-  DEBUG_PRINTLN(DEBUG_MAIN, "[COMM TASK] iniciada");
   for (;;) {
     mySystem.remoteUpdate();
     vTaskDelay(pdMS_TO_TICKS(10));
   }
 }
-
-
 

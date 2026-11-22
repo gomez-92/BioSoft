@@ -13,6 +13,8 @@ const TRAZOS: Record<string, string> = {
   luna: 'M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z',
   // medio circulo lleno: "como el sistema"
   auto: 'M12 21a9 9 0 1 1 0-18 9 9 0 0 1 0 18zM12 3v18',
+  // libreta con renglones
+  bitacora: 'M6 3h11a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6zM6 3v18M10 8h5M10 12h5M10 16h3',
   // lineas de campo entre dos polos
   campo: 'M4 12c4-7 12-7 16 0M4 12c4 7 12 7 16 0M4 12h16',
 };

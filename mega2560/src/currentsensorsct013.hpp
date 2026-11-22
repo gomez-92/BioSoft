@@ -3,13 +3,10 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <Adafruit_ADS1X15.h>
-#include "debugconfig.hpp"
+#include "log.hpp"
 #include "currentmanager.hpp"
 #include "rmscalculator.hpp"
 
-// Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
-// el interruptor maestro).
-constexpr bool DEBUG_CURRENTSENSOR = true;
 
 /*
  * ============================================================================
@@ -136,8 +133,6 @@ class CurrentSensorSct013 : public ICurrentSensor {
     const char* getName() const override;
 };
 
-
-
 //=============================================================================
 // Constructor
 //=============================================================================
@@ -166,8 +161,6 @@ inline void CurrentSensorSct013::setConfig(const CurrentSensorConfig& config) {
   _isValid = false;
 }
 
-
-
 //=============================================================================
 // Inicialización
 //=============================================================================
@@ -193,28 +186,18 @@ inline void CurrentSensorSct013::begin() {
   // {0,1} caeria en el `default` de readRaw(), que devuelve 0 -- un sensor
   // que mide 0 A para siempre y parece estar funcionando. Se rechaza acá.
   if (_config.channel > 1) {
-    DEBUG_PRINT(DEBUG_CURRENTSENSOR, F("[CURRENT] "));
-    DEBUG_PRINT(DEBUG_CURRENTSENSOR, _name);
-    DEBUG_PRINT(DEBUG_CURRENTSENSOR, F(": canal invalido "));
-    DEBUG_PRINT(DEBUG_CURRENTSENSOR, _config.channel);
-    DEBUG_PRINTLN(DEBUG_CURRENTSENSOR, F(" (el ADS1115 solo tiene los pares 0 y 1)"));
+    LOG_W(CORRIENTE, "%s canal=%u invalido: el ADS1115 solo tiene los pares 0 y 1", _name, _config.channel);
     return;
   }
 
   Wire.beginTransmission(_config.address);
   if (Wire.endTransmission() != 0) {
-    DEBUG_PRINT(DEBUG_CURRENTSENSOR, F("[CURRENT] "));
-    DEBUG_PRINT(DEBUG_CURRENTSENSOR, _name);
-    DEBUG_PRINT(DEBUG_CURRENTSENSOR, F(": no hay ADS1115 en 0x"));
-    DEBUG_PRINT(DEBUG_CURRENTSENSOR, _config.address, HEX);
-    DEBUG_PRINTLN(DEBUG_CURRENTSENSOR, F(" -- sensor deshabilitado (no se mide, pero el sistema sigue)"));
+    LOG_W(CORRIENTE, "%s sin ADS1115 en 0x%02X: no se mide", _name, _config.address);
     return;
   }
 
   if (!_ads.begin(_config.address)) {
-    DEBUG_PRINT(DEBUG_CURRENTSENSOR, F("[CURRENT] "));
-    DEBUG_PRINT(DEBUG_CURRENTSENSOR, _name);
-    DEBUG_PRINTLN(DEBUG_CURRENTSENSOR, F(": el ADS1115 contesta pero begin() fallo"));
+    LOG_W(CORRIENTE, "%s el ADS1115 en 0x%02X contesta pero no inicializa", _name, _config.address);
     return;
   }
 
@@ -226,16 +209,8 @@ inline void CurrentSensorSct013::begin() {
   _ads.setDataRate(RATE_ADS1115_860SPS);
 
   _moduleReady = true;
-
-  DEBUG_PRINT(DEBUG_CURRENTSENSOR, F("[CURRENT] "));
-  DEBUG_PRINT(DEBUG_CURRENTSENSOR, _name);
-  DEBUG_PRINT(DEBUG_CURRENTSENSOR, F(": listo en 0x"));
-  DEBUG_PRINT(DEBUG_CURRENTSENSOR, _config.address, HEX);
-  DEBUG_PRINT(DEBUG_CURRENTSENSOR, F(" canal "));
-  DEBUG_PRINTLN(DEBUG_CURRENTSENSOR, _config.channel);
+  LOG_I(CORRIENTE, "%s listo en 0x%02X canal=%u", _name, _config.address, _config.channel);
 }
-
-
 
 //=============================================================================
 // Lectura diferencial
@@ -251,8 +226,6 @@ inline int16_t CurrentSensorSct013::readRaw() {
       return 0;
   }
 }
-
-
 
 //=============================================================================
 // Actualización de la medición RMS
@@ -309,9 +282,8 @@ inline void CurrentSensorSct013::update() {
       _config.calibration;
 
   _isValid = true;
+  LOG_D(CORRIENTE, "%s rms=%.3f A", _name, _currentRms);
 }
-
-
 
 //=============================================================================
 // Getters

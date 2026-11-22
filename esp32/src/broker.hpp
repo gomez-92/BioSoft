@@ -4,11 +4,9 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <PubSubClient.h>
-#include "debugconfig.hpp"
+#include "log.hpp"
+#include "eventlog.hpp"
 
-// Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
-// el interruptor maestro).
-constexpr bool DEBUG_BROKER = true;
 
 /* ============================================================
  *  CONFIG
@@ -101,6 +99,14 @@ class BrokerManager {
     unsigned long _reconnectInterval = 5000;
     bool _wasConnected = false;
     unsigned long _connectedSince = 0;
+    // Logs por flanco: un broker caido reintenta cada 5 s y cada publicacion
+    // con la cola llena descarta una; sin esto serian lineas sin fin.
+    bool _connectFailing = false;
+    // Para el evento broker_ok: cuanto estuvo caido (no en la primera
+    // conexion, que no es una vuelta).
+    bool _everConnected = false;
+    unsigned long _disconnectedAt = 0;
+    uint32_t _dropped = 0;
 
     /* ---------------- COLA MESSAGES ---------------- */
     QueueHandle_t _publishQueue = nullptr;
@@ -150,15 +156,12 @@ inline void BrokerManager::begin(const MqttConfig& config) {
     // 3 grupos periodicos cayendo juntos, y se drenan en el tick siguiente.
     _publishQueue = xQueueCreate(4, sizeof(PublishMessage));
     if (_publishQueue == nullptr) {
-        DEBUG_PRINTLN(DEBUG_BROKER, "[BROKER] ERROR creando publish queue");
-    }
-    else {
-        DEBUG_PRINTLN(DEBUG_BROKER, "[BROKER] Publish queue creada");
+        LOG_E(BROKER, "no se pudo crear la cola de publicacion: no se publica nada");
     }
     _config = config;
     _initialized = true;
     if (!_client.setBufferSize(BrokerBufferSize)) {
-        DEBUG_PRINTLN(DEBUG_BROKER, "[BROKER] ERROR: no se pudo agrandar el buffer MQTT");
+        LOG_E(BROKER, "no se pudo agrandar el buffer MQTT a %u B", (unsigned)BrokerBufferSize);
     }
     _client.setKeepAlive(BrokerKeepAliveSeconds);
     _client.setSocketTimeout(BrokerSocketTimeoutSeconds);
@@ -180,6 +183,14 @@ inline void BrokerManager::loop() {
     if (nowConnected && !_wasConnected) {
         _wasConnected = true;
         _connectedSince = millis();
+        _connectFailing = false;
+        if (_everConnected) {
+            EVENTO_I(BROKER, broker_ok, "conectado tras %lu s sin broker heap_libre=%u B",
+                     (unsigned long)((millis() - _disconnectedAt) / 1000UL), (unsigned)ESP.getFreeHeap());
+        } else {
+            LOG_I(BROKER, "conectado heap_libre=%u B", (unsigned)ESP.getFreeHeap());
+        }
+        _everConnected = true;
         if (_listener)
             _listener->onBrokerConnected();
     }
@@ -189,11 +200,10 @@ inline void BrokerManager::loop() {
         // (solo el "Conectando..." del reintento), y no habia forma de
         // distinguir un keepalive vencido de un socket cerrado por la red.
         int state = _client.state();
-        DEBUG_PRINTF(DEBUG_BROKER,
-                     "[BROKER] Desconectado: %s (state=%d) tras %lu s conectado -- WiFi %s, RSSI %d, heap libre %u\n",
-                     stateName(state), state, (unsigned long) ((millis() - _connectedSince) / 1000UL),
-                     WiFi.status() == WL_CONNECTED ? "ok" : "caida", (int) WiFi.RSSI(),
-                     (unsigned) ESP.getFreeHeap());
+        _disconnectedAt = millis();
+        EVENTO_W(BROKER, broker_caido, "desconectado: %s (state=%d) tras %lu s conectado wifi=%s rssi=%d dBm heap_libre=%u B",
+              stateName(state), state, (unsigned long)((millis() - _connectedSince) / 1000UL),
+              WiFi.status() == WL_CONNECTED ? "ok" : "caida", (int)WiFi.RSSI(), (unsigned)ESP.getFreeHeap());
         if (_listener)
             _listener->onBrokerDisconnected();
     }
@@ -250,9 +260,8 @@ inline bool BrokerManager::reconnect() {
     // de ~16 KB cada uno). Por eso se loguea tambien el bloque mayor y no
     // solo el total: se puede tener 60 KB libres fragmentados en pedazos
     // chicos y fallar igual con -32512 (MBEDTLS_ERR_SSL_ALLOC_FAILED).
-    DEBUG_PRINTF(DEBUG_BROKER, "[BROKER] Conectando a %s:%u -- heap libre %u, bloque mayor %u\n",
-                 _config.server ? _config.server : "(sin host)", (unsigned) _config.port,
-                 (unsigned) ESP.getFreeHeap(), (unsigned) ESP.getMaxAllocHeap());
+    LOG_D(BROKER, "conectando a %s:%u heap_libre=%u B bloque_mayor=%u B", _config.server ? _config.server : "-",
+          (unsigned)_config.port, (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
 
     bool connected;
 
@@ -263,15 +272,20 @@ inline bool BrokerManager::reconnect() {
     }
 
     if (connected) {
-        DEBUG_PRINTLN(DEBUG_BROKER, "[BROKER] Conectado");
         subscribeAll();
         return true;
     }
 
     // state() es el codigo de PubSubClient, no el de TLS: el -32512 o el
-    // -9984 los imprime mbedTLS por su cuenta arriba de esta linea.
-    DEBUG_PRINTF(DEBUG_BROKER, "[BROKER] Fallo la conexion: %s (state=%d, heap libre %u)\n",
-                 stateName(_client.state()), _client.state(), (unsigned) ESP.getFreeHeap());
+    // -9984 los imprime mbedTLS por su cuenta arriba de esta linea. El
+    // primer fallo sale como advertencia; los reintentos, solo en detalle.
+    if (!_connectFailing) {
+        _connectFailing = true;
+        LOG_W(BROKER, "no conecta: %s (state=%d) heap_libre=%u B bloque_mayor=%u B", stateName(_client.state()),
+              _client.state(), (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
+    } else {
+        LOG_D(BROKER, "reintento fallido: %s (state=%d)", stateName(_client.state()), _client.state());
+    }
     return false;
 }
 
@@ -324,7 +338,6 @@ inline void BrokerManager::processPublishQueue() {
         return;
     PublishMessage msg;
     while (xQueuePeek(_publishQueue, &msg, 0) == pdTRUE) {
-        DEBUG_PRINTF(DEBUG_BROKER, "[BROKER] Publishing topic=%s\n", msg.topic);
 
         bool success = _client.publish(msg.topic, msg.payload, msg.retain);
         if (!success) {
@@ -334,16 +347,16 @@ inline void BrokerManager::processPublishQueue() {
             // transitoria: ahi el mensaje se conserva y se reintenta.
             size_t packet = strlen(msg.topic) + strlen(msg.payload) + 16;
             if (packet > BrokerBufferSize) {
-                DEBUG_PRINTF(DEBUG_BROKER, "[BROKER] Mensaje de %u bytes no entra en el buffer -> descartado\n",
-                             (unsigned) packet);
+                LOG_E(BROKER, "mensaje de %u B no entra en el buffer: descartado topic=%s", (unsigned)packet,
+                      msg.topic);
                 PublishMessage oversized;
                 xQueueReceive(_publishQueue, &oversized, 0);
                 continue;
             }
-            DEBUG_PRINTLN(DEBUG_BROKER, "[BROKER] Publish fallo, mensaje queda en cola");
             break;
         }
 
+        LOG_D(BROKER, "publicado %s (%u B)", msg.topic, (unsigned)strlen(msg.payload));
         // Solamente ahora lo eliminamos
         PublishMessage sent;
         xQueueReceive(_publishQueue, &sent, 0);
@@ -357,7 +370,6 @@ inline bool BrokerManager::isPublishQueueEmpty() {
 
 inline bool BrokerManager::publish(const char* topic, const char* message, bool retain) {
     if (_publishQueue == nullptr) {
-        DEBUG_PRINTLN(DEBUG_BROKER, "[BROKER] Queue no inicializada");
         return false;
     }
 
@@ -368,6 +380,11 @@ inline bool BrokerManager::publish(const char* topic, const char* message, bool 
 
     // Intento normal
     if (xQueueSend(_publishQueue, &msg, 0) == pdTRUE) {
+        if (_dropped > 0) {
+            EVENTO_W(BROKER, cola_llena, "cola de publicacion normal: se descartaron %lu mensajes",
+                     (unsigned long)_dropped);
+            _dropped = 0;
+        }
         return true;
     }
 
@@ -375,14 +392,15 @@ inline bool BrokerManager::publish(const char* topic, const char* message, bool 
     PublishMessage discarded;
 
     if (xQueueReceive(_publishQueue, &discarded, 0) == pdTRUE) {
-        DEBUG_PRINTLN(DEBUG_BROKER, "[BROKER] Queue llena -> descartando mensaje mas antiguo");
+        if (_dropped++ == 0) {
+            LOG_W(BROKER, "cola de publicacion llena: se descartan los mensajes mas viejos (%s)", discarded.topic);
+        }
         // Intentar nuevamente
         if (xQueueSend(_publishQueue, &msg, 0) == pdTRUE) {
             return true;
         }
     }
 
-    DEBUG_PRINTLN(DEBUG_BROKER, "[BROKER] ERROR: no se pudo agregar mensaje");
     return false;
 }
 
@@ -420,8 +438,6 @@ inline void BrokerManager::subscribeAll() {
         _client.subscribe(_topics[i]);
     }
 }
-
-
 
 /* ============================================================
  *  LISTENER

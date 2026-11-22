@@ -5,11 +5,8 @@
 #include "configurationoptions.hpp"
 #include "intervals.hpp"
 #include "topics.hpp"
-#include "debugconfig.hpp"
+#include "log.hpp"
 
-// Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
-// el interruptor maestro).
-constexpr bool DEBUG_CONFIGLOADER = true;
 
 // Lee /biosoft/config.json de la SD y puebla con el los valores que hasta
 // ahora eran constantes de compilacion. Contrato completo en
@@ -377,31 +374,13 @@ namespace ConfigLoader {
       dest[ConfigurationOptions::MaxLabelLength - 1] = '\0';
     }
 
-    inline void logMenuLoaded(const char* name, uint8_t loaded, size_t available, uint8_t maxOptions = ConfigurationOptions::MaxOptions) {
-      DEBUG_PRINT(DEBUG_CONFIGLOADER, F("[CONFIG] menu "));
-      DEBUG_PRINT(DEBUG_CONFIGLOADER, name);
-      DEBUG_PRINT(DEBUG_CONFIGLOADER, F(": "));
-      DEBUG_PRINT(DEBUG_CONFIGLOADER, loaded);
-      DEBUG_PRINT(DEBUG_CONFIGLOADER, F(" opciones"));
-      if (available > loaded) {
-        DEBUG_PRINT(DEBUG_CONFIGLOADER, F(" (el archivo traia "));
-        DEBUG_PRINT(DEBUG_CONFIGLOADER, available);
-        DEBUG_PRINT(DEBUG_CONFIGLOADER, F(", se ignora el resto por el tope de "));
-        DEBUG_PRINT(DEBUG_CONFIGLOADER, maxOptions);
-        DEBUG_PRINT(DEBUG_CONFIGLOADER, F(")"));
-      }
-      DEBUG_PRINTLN(DEBUG_CONFIGLOADER, );
-    }
-
     // Un menu presente pero vacio se trata como ausente: dejar un dropdown
     // sin opciones haria imposible configurar el experimento desde la
     // pantalla, que es peor que ignorar la seccion.
     inline bool menuIsUsable(JsonArrayConst array, const char* name) {
       if (array.isNull()) return false;
       if (array.size() == 0) {
-        DEBUG_PRINT(DEBUG_CONFIGLOADER, F("[CONFIG] menu "));
-        DEBUG_PRINT(DEBUG_CONFIGLOADER, name);
-        DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F(" vacio: se conservan los defaults"));
+        LOG_W(CONFIG, "menu %s vacio: quedan los valores compilados", name);
         return false;
       }
       return true;
@@ -415,9 +394,7 @@ namespace ConfigLoader {
 
       unsigned long parsed = value.as<unsigned long>();
       if (parsed == 0) {
-        DEBUG_PRINT(DEBUG_CONFIGLOADER, F("[CONFIG] intervalo "));
-        DEBUG_PRINT(DEBUG_CONFIGLOADER, name);
-        DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F(" en 0: se ignora"));
+        LOG_W(CONFIG, "intervalo %s=0 invalido: se ignora", name);
         return;
       }
       target = parsed;
@@ -434,11 +411,8 @@ namespace ConfigLoader {
 
       unsigned long parsed = value.as<unsigned long>();
       if (parsed < MinScreenTimeout) {
-        DEBUG_PRINT(DEBUG_CONFIGLOADER, F("[CONFIG] timeout de pantalla "));
-        DEBUG_PRINT(DEBUG_CONFIGLOADER, name);
-        DEBUG_PRINT(DEBUG_CONFIGLOADER, F(" por debajo de "));
-        DEBUG_PRINT(DEBUG_CONFIGLOADER, MinScreenTimeout);
-        DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F(" ms: se ignora"));
+        LOG_W(CONFIG, "timeout de pantalla %s=%lu ms por debajo de %lu ms: se ignora", name, parsed,
+              MinScreenTimeout);
         return;
       }
       target = parsed;
@@ -446,7 +420,6 @@ namespace ConfigLoader {
 
     inline void loadMenus(JsonObjectConst menus) {
       if (menus.isNull()) {
-        DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] sin seccion 'menus': se conservan los defaults"));
         return;
       }
 
@@ -454,86 +427,79 @@ namespace ConfigLoader {
       if (menuIsUsable(intensity, "fieldIntensity")) {
         uint8_t i = 0;
         for (JsonObjectConst option : intensity) {
-          if (i >= ConfigurationOptions::MaxFieldIntensityOptions) break;
+          if (i >= ConfigurationOptions::MaxFieldIntensityOptions) { LOG_W(CONFIG, "menu con mas de %u opciones: se ignoran las sobrantes", (unsigned)ConfigurationOptions::MaxFieldIntensityOptions); break; }
           copyLabel(ConfigurationOptions::optionsFieldIntensity[i].label, option["label"] | "");
           ConfigurationOptions::optionsFieldIntensity[i].intensity = option["value"] | 0.0f;
           i++;
         }
         ConfigurationOptions::countFieldIntensity = i;
-        logMenuLoaded("fieldIntensity", i, intensity.size(), ConfigurationOptions::MaxFieldIntensityOptions);
       }
 
       JsonArrayConst frequency = menus["frequency"];
       if (menuIsUsable(frequency, "frequency")) {
         uint8_t i = 0;
         for (JsonObjectConst option : frequency) {
-          if (i >= ConfigurationOptions::MaxFrequencyOptions) break;
+          if (i >= ConfigurationOptions::MaxFrequencyOptions) { LOG_W(CONFIG, "menu con mas de %u opciones: se ignoran las sobrantes", (unsigned)ConfigurationOptions::MaxFrequencyOptions); break; }
           copyLabel(ConfigurationOptions::optionsFrequency[i].label, option["label"] | "");
           ConfigurationOptions::optionsFrequency[i].freq = option["value"] | 0;
           i++;
         }
         ConfigurationOptions::countFrequency = i;
-        logMenuLoaded("frequency", i, frequency.size(), ConfigurationOptions::MaxFrequencyOptions);
       }
 
       JsonArrayConst duration = menus["duration"];
       if (menuIsUsable(duration, "duration")) {
         uint8_t i = 0;
         for (JsonObjectConst option : duration) {
-          if (i >= ConfigurationOptions::MaxOptions) break;
+          if (i >= ConfigurationOptions::MaxOptions) { LOG_W(CONFIG, "menu con mas de %u opciones: se ignoran las sobrantes", (unsigned)ConfigurationOptions::MaxOptions); break; }
           copyLabel(ConfigurationOptions::optionsDuration[i].label, option["label"] | "");
           ConfigurationOptions::optionsDuration[i].duration = option["value"] | 0UL;
           i++;
         }
         ConfigurationOptions::countDuration = i;
-        logMenuLoaded("duration", i, duration.size());
       }
 
       JsonArrayConst tolerance = menus["fieldTolerance"];
       if (menuIsUsable(tolerance, "fieldTolerance")) {
         uint8_t i = 0;
         for (JsonObjectConst option : tolerance) {
-          if (i >= ConfigurationOptions::MaxOptions) break;
+          if (i >= ConfigurationOptions::MaxOptions) { LOG_W(CONFIG, "menu con mas de %u opciones: se ignoran las sobrantes", (unsigned)ConfigurationOptions::MaxOptions); break; }
           copyLabel(ConfigurationOptions::optionsTolFieldIntensity[i].label, option["label"] | "");
           ConfigurationOptions::optionsTolFieldIntensity[i].tol = option["value"] | 0;
           i++;
         }
         ConfigurationOptions::countTolFieldIntensity = i;
-        logMenuLoaded("fieldTolerance", i, tolerance.size());
       }
 
       JsonArrayConst normalTemp = menus["temperatureNormal"];
       if (menuIsUsable(normalTemp, "temperatureNormal")) {
         uint8_t i = 0;
         for (JsonObjectConst option : normalTemp) {
-          if (i >= ConfigurationOptions::MaxOptions) break;
+          if (i >= ConfigurationOptions::MaxOptions) { LOG_W(CONFIG, "menu con mas de %u opciones: se ignoran las sobrantes", (unsigned)ConfigurationOptions::MaxOptions); break; }
           copyLabel(ConfigurationOptions::optionsRangeNormalTemperature[i].label, option["label"] | "");
           ConfigurationOptions::optionsRangeNormalTemperature[i].tmin = option["min"] | 0.0f;
           ConfigurationOptions::optionsRangeNormalTemperature[i].tmax = option["max"] | 0.0f;
           i++;
         }
         ConfigurationOptions::countRangeNormalTemperature = i;
-        logMenuLoaded("temperatureNormal", i, normalTemp.size());
       }
 
       JsonArrayConst criticalTemp = menus["temperatureCritical"];
       if (menuIsUsable(criticalTemp, "temperatureCritical")) {
         uint8_t i = 0;
         for (JsonObjectConst option : criticalTemp) {
-          if (i >= ConfigurationOptions::MaxOptions) break;
+          if (i >= ConfigurationOptions::MaxOptions) { LOG_W(CONFIG, "menu con mas de %u opciones: se ignoran las sobrantes", (unsigned)ConfigurationOptions::MaxOptions); break; }
           copyLabel(ConfigurationOptions::optionsRangeCriticalTemperature[i].label, option["label"] | "");
           ConfigurationOptions::optionsRangeCriticalTemperature[i].tmin = option["min"] | 0.0f;
           ConfigurationOptions::optionsRangeCriticalTemperature[i].tmax = option["max"] | 0.0f;
           i++;
         }
         ConfigurationOptions::countRangeCriticalTemperature = i;
-        logMenuLoaded("temperatureCritical", i, criticalTemp.size());
       }
     }
 
     inline void loadIntervals(JsonObjectConst intervals) {
       if (intervals.isNull()) {
-        DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] sin seccion 'intervals': se conservan los defaults"));
         return;
       }
 
@@ -556,7 +522,6 @@ namespace ConfigLoader {
       applyScreenTimeout(esp32["splashTimeout"], Intervals::SplashTimeout, "splashTimeout");
       applyScreenTimeout(esp32["busyTimeout"], Intervals::BusyTimeout, "busyTimeout");
 
-      DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] intervalos de la ESP32 aplicados"));
     }
 
     // Mismo criterio de rechazo que applyInterval (0/negativo se ignora),
@@ -570,9 +535,6 @@ namespace ConfigLoader {
 
       unsigned long parsed = value.as<unsigned long>();
       if (parsed == 0) {
-        DEBUG_PRINT(DEBUG_CONFIGLOADER, F("[CONFIG] intervalo (mega) "));
-        DEBUG_PRINT(DEBUG_CONFIGLOADER, name);
-        DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F(" en 0: se ignora"));
         return;
       }
       target.has = true;
@@ -585,7 +547,6 @@ namespace ConfigLoader {
 
       JsonObjectConst mega = intervals["mega"];
       if (mega.isNull()) {
-        DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] sin seccion 'intervals.mega': el Mega arranca con sus defaults"));
         return;
       }
 
@@ -599,13 +560,11 @@ namespace ConfigLoader {
       applyMegaInterval(mega["sendResult"], _megaIntervalsConfig.sendResult, "sendResult");
       applyMegaInterval(mega["settlingTime"], _megaIntervalsConfig.settlingTime, "settlingTime");
 
-      DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] intervalos del Mega leidos, se reenvian al conectar"));
     }
 
     inline void loadControl(JsonObjectConst control) {
       _controlConfig = ControlConfig();
       if (control.isNull()) {
-        DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] sin seccion 'control': el Mega arranca con sus defaults"));
         return;
       }
 
@@ -634,12 +593,12 @@ namespace ConfigLoader {
       if (!map.isNull()) {
         for (JsonObjectConst point : map) {
           if (_controlConfig.mapCount >= MaxMapPoints) {
-            DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] control.map: se ignoran los puntos que exceden el tope de 3 x 3"));
+            LOG_W(CONFIG, "control.map con mas de %u puntos: se ignoran los sobrantes", (unsigned)MaxMapPoints);
             break;
           }
           if (!point["intensity"].is<float>() || !point["frequency"].is<float>() ||
               !point["duty"].is<float>() || !point["balance"].is<float>()) {
-            DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] control.map: punto sin alguna de intensity/frequency/duty/balance, se ignora"));
+            LOG_W(CONFIG, "control.map: punto sin intensity/frequency/duty/balance, se ignora");
             continue;
           }
           ControlMapPoint& entry = _controlConfig.map[_controlConfig.mapCount++];
@@ -650,7 +609,6 @@ namespace ConfigLoader {
         }
       }
 
-      DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] seccion 'control' leida, se reenvia al conectar"));
     }
 
     inline void loadScenarioValue(JsonObjectConst scenario, const char* key, ScenarioValue& target) {
@@ -671,7 +629,7 @@ namespace ConfigLoader {
       // regenera con el generador, que convierte el formato viejo al abrirlo.
       if (!scenario["base"].isNull() || !scenario["ramp"].isNull()
           || !scenario["stepAt"].isNull() || !scenario["step"].isNull()) {
-        DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG][AVISO] escenario con claves viejas (base/ramp/stepAt/step): se ignoran, regenerar el archivo con el generador"));
+        LOG_W(CONFIG, "escenario con claves viejas (base/ramp/stepAt/step): se ignoran, regenerar con el generador");
       }
 
       JsonArrayConst points = scenario["points"];
@@ -690,8 +648,9 @@ namespace ConfigLoader {
           }
         }
         if (!target.pointsValid) {
+          LOG_W(CONFIG, "escenario: points tiene que ser hasta %u pares [segundo, nivel]: no se manda",
+                (unsigned)MaxScenarioPoints);
           target.pointCount = 0;
-          DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG][ERROR] escenario: 'points' tiene que ser hasta 8 pares [segundo, nivel] -- no se manda"));
         }
       }
 
@@ -726,7 +685,6 @@ namespace ConfigLoader {
     inline void loadDetectorSources(JsonObjectConst detector) {
       _sourceConfigCount = 0;
       if (detector.isNull()) {
-        DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] sin seccion 'detector': el Mega arranca con sus defaults"));
         return;
       }
 
@@ -736,7 +694,7 @@ namespace ConfigLoader {
         _detectorConfig.hasEnabled = true;
         _detectorConfig.enabled = detector["enabled"].as<bool>();
         if (!_detectorConfig.enabled) {
-          DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG][AVISO] detector.enabled=false: ninguna fuente va a poder cortar el experimento"));
+          LOG_W(CONFIG, "detector.enabled=false: ninguna fuente va a poder cortar la corrida");
         }
       }
 
@@ -745,13 +703,14 @@ namespace ConfigLoader {
 
       for (JsonObjectConst source : sources) {
         if (_sourceConfigCount >= MaxDetectorSources) {
-          DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] 'detector.sources' excede el tope de 2: se ignora el resto"));
+          LOG_W(CONFIG, "detector.sources con mas de %u fuentes: se ignoran las sobrantes",
+                (unsigned)MaxDetectorSources);
           break;
         }
 
         const char* name = source["name"] | "";
         if (name[0] == '\0') {
-          DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] fuente sin 'name': se ignora"));
+          LOG_W(CONFIG, "fuente sin name: se ignora");
           continue;
         }
 
@@ -787,9 +746,8 @@ namespace ConfigLoader {
           if (ok && digits == 16) {
             entry.hasAddress = true;
           } else {
+            LOG_W(CONFIG, "%s address no son 16 digitos hex: se ignora", name);
             entry.address[0] = '\0';
-            DEBUG_PRINT(DEBUG_CONFIGLOADER, F("[CONFIG] 'address' de la fuente no son 16 digitos hex: se ignora: "));
-            DEBUG_PRINTLN(DEBUG_CONFIGLOADER, text);
           }
         }
         if (source["bufferSize"].is<unsigned long>()) {
@@ -819,9 +777,6 @@ namespace ConfigLoader {
         _sourceConfigCount++;
       }
 
-      DEBUG_PRINT(DEBUG_CONFIGLOADER, F("[CONFIG] 'detector.sources': "));
-      DEBUG_PRINT(DEBUG_CONFIGLOADER, _sourceConfigCount);
-      DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F(" fuentes leidas, se reenvian al conectar"));
     }
 
     // `address` y `channel` son obligatorios: son la identidad fisica de la
@@ -831,18 +786,18 @@ namespace ConfigLoader {
     inline void loadCurrentSensors(JsonArrayConst sensors) {
       _currentSensorConfigCount = 0;
       if (sensors.isNull()) {
-        DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] sin seccion 'currentSensors': el Mega arranca con sus defaults"));
         return;
       }
 
       for (JsonObjectConst sensor : sensors) {
         if (_currentSensorConfigCount >= MaxCurrentSensors) {
-          DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] 'currentSensors' excede el tope de 4: se ignora el resto"));
+          LOG_W(CONFIG, "currentSensors con mas de %u canales: se ignoran los sobrantes",
+                (unsigned)MaxCurrentSensors);
           break;
         }
 
         if (!sensor["address"].is<uint8_t>() || !sensor["channel"].is<uint8_t>()) {
-          DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] canal de corriente sin 'address'/'channel': se ignora"));
+          LOG_W(CONFIG, "canal de corriente sin address/channel: se ignora");
           continue;
         }
 
@@ -880,9 +835,6 @@ namespace ConfigLoader {
         _currentSensorConfigCount++;
       }
 
-      DEBUG_PRINT(DEBUG_CONFIGLOADER, F("[CONFIG] 'currentSensors': "));
-      DEBUG_PRINT(DEBUG_CONFIGLOADER, _currentSensorConfigCount);
-      DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F(" canales leidos, se reenvian al conectar"));
     }
 
     // Un campo ausente conserva su default compilado (nombre Y enabled): es
@@ -948,19 +900,18 @@ namespace ConfigLoader {
       _wifiNetworkCount = 0;
 
       if (networks.isNull()) {
-        DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] sin seccion 'wifi': se usan las redes compiladas"));
         return;
       }
 
       for (JsonObjectConst network : networks) {
         if (_wifiNetworkCount >= MaxWifiNetworks) {
-          DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] mas redes que lugares: se ignoran las sobrantes"));
+          LOG_W(CONFIG, "wifi con mas de %u redes: se ignoran las sobrantes", (unsigned)MaxWifiNetworks);
           break;
         }
 
         WifiNetworkConfig& entry = _wifiNetworks[_wifiNetworkCount];
         if (!copyString(network["ssid"], entry.ssid, MaxSsidLength) || entry.ssid[0] == '\0') {
-          DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] red sin ssid: se ignora"));
+          LOG_W(CONFIG, "red wifi sin ssid: se ignora");
           continue;
         }
         // Una red abierta es legitima: password ausente queda en vacio.
@@ -969,12 +920,11 @@ namespace ConfigLoader {
       }
 
       if (_wifiNetworkCount == 0) {
-        DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] 'wifi' vacia o invalida: se usan las redes compiladas"));
+        LOG_W(CONFIG, "wifi vacia o invalida: se usan las redes compiladas");
         return;
       }
+      LOG_D(CONFIG, "redes wifi del archivo=%u", (unsigned)_wifiNetworkCount);
 
-      DEBUG_PRINT(DEBUG_CONFIGLOADER, F("[CONFIG] redes wifi cargadas: "));
-      DEBUG_PRINTLN(DEBUG_CONFIGLOADER, _wifiNetworkCount);
     }
 
     // A diferencia de wifi, el broker se aplica clave por clave: cada una
@@ -982,7 +932,6 @@ namespace ConfigLoader {
     // cambiar solo el host sin tener que repetir usuario y contrasena.
     inline void loadBroker(JsonObjectConst broker) {
       if (broker.isNull()) {
-        DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] sin seccion 'broker': se usan los datos compilados"));
         return;
       }
 
@@ -996,11 +945,9 @@ namespace ConfigLoader {
       if (broker["port"].is<uint16_t>()) {
         uint16_t port = broker["port"].as<uint16_t>();
         if (port > 0) _brokerConfig.port = port;
-        else DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] broker.port en 0: se ignora"));
+        else LOG_W(CONFIG, "broker.port=0: se ignora");
       }
 
-      DEBUG_PRINT(DEBUG_CONFIGLOADER, F("[CONFIG] broker: "));
-      DEBUG_PRINTLN(DEBUG_CONFIGLOADER, _brokerConfig.server[0] != '\0' ? _brokerConfig.server : "(compilado)");
     }
 
     // El tipo de corrida es una DECLARACION del usuario, no un modo de
@@ -1043,20 +990,17 @@ namespace ConfigLoader {
 
     inline void loadRunType(JsonVariantConst value) {
       if (value.isNull()) {
-        DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] sin 'runType': corridas normales"));
         return;
       }
       const char* text = value.as<const char*>();
       if (text != nullptr && strcmp(text, "test") == 0) {
         _testRun = true;
-        DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] runType: test -- las corridas se marcan como PRUEBA"));
       }
       else if (text != nullptr && strcmp(text, "normal") == 0) {
         _testRun = false;
-        DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] runType: normal"));
       }
       else {
-        DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] runType invalido (se espera \"normal\" o \"test\"): corridas normales"));
+        LOG_W(CONFIG, "runType invalido (se espera normal o test): corridas normales");
       }
     }
 
@@ -1067,12 +1011,12 @@ namespace ConfigLoader {
     inline void loadRequireMega(JsonVariantConst value) {
       if (value.isNull()) return;
       if (!value.is<bool>()) {
-        DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] requireMega no es booleano: se exige el Mega"));
+        LOG_W(CONFIG, "requireMega no es booleano: se exige el Mega");
         return;
       }
       _requireMega = value.as<bool>();
       if (!_requireMega) {
-        DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG][AVISO] requireMega=false: se puede iniciar sin la placa de control"));
+        LOG_W(CONFIG, "requireMega=false: se puede iniciar sin la placa de control");
       }
     }
 
@@ -1127,7 +1071,6 @@ namespace ConfigLoader {
 
     inline void loadTelemetry(JsonObjectConst telemetry) {
       if (telemetry.isNull()) {
-        DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] sin seccion 'telemetry': se conservan los defaults"));
         return;
       }
 
@@ -1150,7 +1093,6 @@ namespace ConfigLoader {
         applyTelemetryField(fields, "elapsedTime", Topics::ElapsedTime);
       }
 
-      DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] telemetria aplicada"));
     }
 
     // Rango 0.1-5.0 de calibrationFactor NO se valida acá -- lo hace
@@ -1160,19 +1102,18 @@ namespace ConfigLoader {
     inline void loadCoils(JsonArrayConst coils) {
       _coilConfigCount = 0;
       if (coils.isNull()) {
-        DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] sin seccion 'coils': el Mega arranca con sus defaults"));
         return;
       }
 
       for (JsonObjectConst coil : coils) {
         if (_coilConfigCount >= MaxCoils) {
-          DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] 'coils' excede el tope de 4: se ignora el resto"));
+          LOG_W(CONFIG, "coils con mas de %u bobinas: se ignoran las sobrantes", (unsigned)MaxCoils);
           break;
         }
 
         const char* name = coil["name"] | "";
         if (name[0] == '\0') {
-          DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] entrada de 'coils' sin 'name': se ignora"));
+          LOG_W(CONFIG, "bobina sin name: se ignora");
           continue;
         }
 
@@ -1192,9 +1133,6 @@ namespace ConfigLoader {
         _coilConfigCount++;
       }
 
-      DEBUG_PRINT(DEBUG_CONFIGLOADER, F("[CONFIG] 'coils': "));
-      DEBUG_PRINT(DEBUG_CONFIGLOADER, _coilConfigCount);
-      DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F(" canales leidos, se reenvian al conectar"));
     }
 
   }
@@ -1203,19 +1141,16 @@ namespace ConfigLoader {
   // NO es un error que haya que manejar: significa que quedaron vigentes los
   // defaults compilados, que es un estado de arranque perfectamente valido.
   inline bool load(SdStorage& storage) {
-    DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] ----------------------------------------"));
 
     if (!storage.isReady()) {
       _loadStatus = "nosd";
-      DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] sin tarjeta SD: se usan los defaults compilados"));
+      LOG_I(CONFIG, "sin tarjeta SD: valores compilados");
       return false;
     }
 
     if (!storage.exists(ConfigPath)) {
       _loadStatus = "nofile";
-      DEBUG_PRINT(DEBUG_CONFIGLOADER, F("[CONFIG] no existe "));
-      DEBUG_PRINT(DEBUG_CONFIGLOADER, ConfigPath);
-      DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F(": se usan los defaults compilados"));
+      LOG_I(CONFIG, "no existe %s: valores compilados", ConfigPath);
       return false;
     }
 
@@ -1233,7 +1168,7 @@ namespace ConfigLoader {
     if (!storage.readFile(ConfigPath, buffer, MaxFileSize, &length)) {
       _currentText[0] = '\0';
       _loadStatus = "unreadable";
-      DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] no se pudo leer el archivo: se usan los defaults"));
+      LOG_W(CONFIG, "%s ilegible: se ignora y quedan los valores compilados", ConfigPath);
       return false;
     }
 
@@ -1244,42 +1179,31 @@ namespace ConfigLoader {
     _currentText[0] = '\0';
     if (error) {
       _loadStatus = "invalid";
-      DEBUG_PRINT(DEBUG_CONFIGLOADER, F("[CONFIG] JSON invalido ("));
-      DEBUG_PRINT(DEBUG_CONFIGLOADER, error.c_str());
-      DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("): se descarta entero, se usan los defaults"));
+      LOG_W(CONFIG, "JSON invalido (%s): se descarta entero y quedan los valores compilados", error.c_str());
       return false;
     }
 
     int version = doc["schemaVersion"] | 0;
     if (version != SupportedSchemaVersion) {
       _loadStatus = "schema";
-      DEBUG_PRINT(DEBUG_CONFIGLOADER, F("[CONFIG] schemaVersion "));
-      DEBUG_PRINT(DEBUG_CONFIGLOADER, version);
-      DEBUG_PRINT(DEBUG_CONFIGLOADER, F(" no soportada (se espera "));
-      DEBUG_PRINT(DEBUG_CONFIGLOADER, SupportedSchemaVersion);
-      DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("): se descarta el archivo"));
+      LOG_W(CONFIG, "schemaVersion=%d no soportada (se espera %d): se descarta el archivo", version,
+            (int)SupportedSchemaVersion);
       return false;
     }
 
     const char* incoherence = experimentIncoherence(doc.as<JsonVariantConst>());
     if (incoherence != nullptr) {
       _loadStatus = "experiment";
-      DEBUG_PRINT(DEBUG_CONFIGLOADER, F("[CONFIG] "));
-      DEBUG_PRINT(DEBUG_CONFIGLOADER, incoherence);
-      DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F(": se descarta la configuracion, se usan los defaults"));
+      LOG_W(CONFIG, "%s: se descarta la configuracion (la red y el broker del archivo se respetan)", incoherence);
       // La red y el broker SI se toman del archivo: son conectividad, no
       // condicion experimental. Descartarlos dejaba la placa con los de
       // secrets.h -- sin conexion si esos no sirven -- y entonces ni podia
       // avisarle al monitor por que corre con los valores de fabrica.
-      DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] la red y el broker del archivo se respetan igual"));
       loadWifi(doc["wifi"]);
       loadBroker(doc["broker"]);
       return false;
     }
 
-    DEBUG_PRINT(DEBUG_CONFIGLOADER, F("[CONFIG] archivo leido, "));
-    DEBUG_PRINT(DEBUG_CONFIGLOADER, length);
-    DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F(" bytes"));
 
     loadRunType(doc["runType"]);
     // El id se calcula al final, sobre el mismo documento: ver configId().
@@ -1297,10 +1221,8 @@ namespace ConfigLoader {
 
     computeConfigId(doc);
     _loadStatus = "ok";
-    DEBUG_PRINT(DEBUG_CONFIGLOADER, F("[CONFIG] configId="));
-    DEBUG_PRINTLN(DEBUG_CONFIGLOADER, _configId);
-    DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] configuracion aplicada"));
-    DEBUG_PRINTLN(DEBUG_CONFIGLOADER, F("[CONFIG] ----------------------------------------"));
+    LOG_I(CONFIG, "configuracion cargada %u B configId=%s runType=%s relajaciones=0x%02X", (unsigned)length,
+          _configId, _testRun ? "test" : "normal", (unsigned)relaxationMask());
     return true;
   }
 
@@ -1431,8 +1353,8 @@ namespace ConfigLoader {
     strcpy(_fallbackNetwork.ssid, ssid);
     strcpy(_fallbackNetwork.password, password);
     _hasFallback = true;
-    DEBUG_PRINT(DEBUG_CONFIGLOADER, F("[CONFIG] red de respaldo (en uso, pendiente de quitar): "));
-    DEBUG_PRINTLN(DEBUG_CONFIGLOADER, _fallbackNetwork.ssid);
+    LOG_I(CONFIG, "red de respaldo pendiente de quitar (la que estaba en uso)");
+    LOG_D(CONFIG, "red de respaldo ssid=%s", _fallbackNetwork.ssid);
   }
 
   inline bool writeWifiFallback(SdStorage& storage, const char* ssid, const char* password) {

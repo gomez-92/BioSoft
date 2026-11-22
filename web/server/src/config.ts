@@ -98,6 +98,8 @@ export const config = {
   boardTopics: {
     ping: env('TOPIC_BOARD_PING', 'biosoft/ping'),
     pong: env('TOPIC_BOARD_PONG', 'biosoft/pong'),
+    // Bitacora de la placa (esp32/src/eventlog.hpp, domain/bitacora.ts).
+    log: env('TOPIC_BOARD_LOG', 'biosoft/log'),
   },
   boardPingSeconds: Number(env('BOARD_PING_SECONDS', '15')),
 

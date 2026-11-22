@@ -125,16 +125,21 @@ se están midiendo, no aplicando.
 
 En el monitor serie del Mega, con `DEBUG_ENABLED` activo:
 
-- **Campo medido**: la traza de `MagnetometerMlx90393` imprime µT y mT en cada
+- **Antes de empezar**, prender el detalle de los dos modulos que se miran:
+  `-D LOG_DEBUG_CAMPO=1 -D LOG_DEBUG_CONTROL=1` en `build_flags` del Mega
+  (`mega2560/platformio.ini`). Por defecto el firmware solo escribe hasta el
+  nivel `I`, y estas trazas son periodicas (nivel `D`). Sacarlos al terminar.
+- **Campo medido**: la linea `D CAMPO CEM1 rms=… uT (… mT)` sale en cada
   lectura. El sistema entero trabaja en **mT**; el valor en µT está para
   distinguir "el sensor no lee" de "el campo ambiente realmente es así de
   chico", porque cerca de ambiente los mT redondean a 0,0000.
 - **Duty aplicado**: la línea de `Engine::onMagnetometerSample`, que imprime
-  campo y duty juntos, con la etiqueta `[CONTROL][PWM]` (firmware anterior al
-  2026-10-05: `[TESTMODE][PWM]`, herencia del combo `testMode` que ya no existe).
+  campo, consigna y duty juntos: `D CONTROL campo=… mT consigna=… mT duty=…`
+  (firmware anterior al 2026-11-22: `[CONTROL][PWM]`).
 - **Saturación de un canal**: si `duty × f_i` supera 1,0, `CoilChannel` recorta
-  **y lo registra**. Durante la calibración esa línea no es ruido: es el
-  síntoma que se está buscando.
+  **y lo registra** (`W CONTROL BOB1 satura: …`, una vez al empezar a
+  saturar y `I CONTROL BOB1 deja de saturar` al salir). Durante la
+  calibración esa línea no es ruido: es el síntoma que se está buscando.
 
 ---
 
@@ -329,8 +334,9 @@ fuera de rango: revisar el balance, o la etapa de fase (ADR-001).
   esa frecuencia, un equipo cercano), así que para juzgar un mínimo de balance
   conviene repetir con el entorno quieto.
 - **Verificar en banco el piso de ruido del RMS.** Con las bobinas apagadas y
-  el sensor montado, el log de `[MLX90393]` informa el RMS de cada ventana de
-  2 s (`RMS = ... uT`), los grupos usados y los descartados. Ese valor no es
+  el sensor montado, la linea `D CAMPO` informa el RMS de cada ventana de
+  2 s (`rms=... uT`), los grupos usados y los descartados (con
+  `LOG_DEBUG_CAMPO=1`, ver arriba). Ese valor no es
   cero (el ruido de las muestras suma una cota positiva) y es el mínimo que
   se puede distinguir en campo nulo. Si los descartados son muchos a 100 Hz,
   el bus está ocupado: probar `Wire.setClock(400000)` u `OSR_1` (el plan se

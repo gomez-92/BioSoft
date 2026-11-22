@@ -60,6 +60,12 @@ const runSchema = new Schema({
   // cientificos de datos de prueba, por eso vive arriba y con indice, y no
   // solo dentro de targets: el historial filtra por esto en cada consulta.
   runType: { type: String, enum: ['normal', 'test', 'unknown'], default: 'unknown', index: true },
+  // Numero de corrida (#42) que asigna la PLACA (esp32/src/runcounter.hpp) y
+  // manda como RUN en targets y result: el mismo que imprimen los logs USB de
+  // las dos placas, que es para lo que existe. null en corridas anteriores al
+  // numero. No es unico a proposito: borrar la flash de la ESP32 reinicia el
+  // contador, y se busca por numero + fecha.
+  number: { type: Number, default: null, index: true },
   targets: targetsSchema,
   result: resultSchema,
   stats: {
@@ -222,3 +228,41 @@ const settingSchema = new Schema({
 });
 
 export const Setting = model('Setting', settingSchema);
+
+/* ------------------- bitacora de la placa (esp32/src/eventlog.hpp) ------------------- */
+
+// Eventos curados que publica la placa en biosoft/log: reinicios, enlaces
+// caidos, corridas perdidas, configuracion ignorada... No es el log USB.
+// `code` es estable (el monitor filtra y cuenta por el); `message` es texto
+// libre que puede cambiar de redaccion entre firmwares. `seq`/`uptimeSeconds`
+// son de la placa: seq vuelve a 1 en cada arranque, y un hueco en seq dentro
+// de un mismo arranque son eventos que no llegaron.
+// No va atado a una corrida: los eventos se encolan con el broker caido y
+// llegan tarde, asi que el detalle de una corrida los busca por rango de
+// fechas, no por un runId puesto al recibirlos.
+// Se guardan UNA SEMANA (decision del 2026-11-22): sirven para diagnosticar
+// lo reciente, no son un registro historico. Lo borra Mongo solo (indice TTL,
+// su monitor pasa cada ~60 s). El TTL va sobre receivedAt y no sobre ts
+// porque ts ya tiene su indice comun y Mongo no admite dos indices sobre la
+// misma clave; la diferencia entre los dos son minutos. OJO: cambiar
+// BITACORA_RETENCION_S no modifica un indice ya creado -- hay que hacer
+// collMod a mano (o borrar el indice receivedAt_1 y dejar que se recree).
+export const BITACORA_RETENCION_S = 7 * 24 * 3600;
+
+const boardEventSchema = new Schema({
+  ts: { type: Date, required: true, index: true },
+  receivedAt: { type: Date, required: true, expires: BITACORA_RETENCION_S },
+  deviceId: String,
+  level: { type: String, enum: ['E', 'W', 'I'], required: true, index: true },
+  code: { type: String, required: true, index: true },
+  message: { type: String, default: '' },
+  seq: Number,
+  uptimeSeconds: Number,
+  // Eventos que la placa piso en su buffer (lleno) justo antes de este.
+  dropped: { type: Number, default: 0 },
+  // Numero de la corrida en curso cuando paso (RUN de la placa), o null.
+  // Manda sobre la fecha al asignar el evento a una corrida (bitacora.ts).
+  runNumber: { type: Number, default: null },
+}, { versionKey: false });
+
+export const BoardEvent = model('BoardEvent', boardEventSchema);

@@ -25,13 +25,12 @@ touches no firmware:
   below) — plus, locally, deleting runs and managing users, all admin-only.
 
 There is no shared source directory — `esp32/src/seriallink.hpp` and
-`mega2560/src/seriallink.hpp` (and `commands.hpp`, `timer.hpp`, `debugconfig.hpp`)
+`mega2560/src/seriallink.hpp` (and `commands.hpp`, `timer.hpp`, `log.hpp`)
 are **meant to be duplicated, byte-for-byte, in each project**. When changing the
-serial protocol, edit both copies and keep them in sync manually. In practice
-`seriallink.hpp` has already drifted — the ESP32 copy has extra
-`Serial.print`-era logging (ping/pong, connection-state changes) the Mega copy
-never had; the framing/CRC/queue logic itself is still identical. Don't assume
-the two copies are interchangeable without diffing first.
+serial protocol, edit both copies and keep them in sync manually. They had
+drifted (the ESP32 `seriallink.hpp` carried extra logging, `timer.hpp` a
+trailing newline); since the log rewrite of 2026-11-22 all four are
+identical again — `cmp` them after any edit.
 Their sizes (`MAX_TASKS`, `MAX_TASK_NAME`, `TX_BUFFER_SIZE`) are `#ifndef`
 defaults and the Mega overrides them in its `platformio.ini` (10 / 24 / 384),
 so the files stay identical. That is a RAM fix, not tuning: at the defaults
@@ -74,9 +73,15 @@ so ~1850 bytes are left for heap + stack, and the cut is the deepest stack path
 (~650 bytes from inside a sensor callback, measured with `-fstack-usage` on a
 non-LTO build). `mega2560/src/diag.hpp` adds a **2 s watchdog** (enabled at
 the end of `setup()`, fed in `loop()`; a WDT reset leaves the pins floating, so
-the coils are cut), captures MCUSR in `.init3` (`0` = jump to 0, i.e. a corrupted
-stack), and keeps a `.noinit` "crumb" showing which step of `Engine::update()`
-was running when it died. `state_data` now carries `up/rst/stg/gap/ram`, and the
+the coils are cut), captures MCUSR in `.init3` and keeps a `.noinit` "crumb"
+showing which step of `Engine::update()` was running when it died. **MCUSR is
+useless with this board's stk500v2 bootloader**: it reads MCUSR, clears it to
+stop the watchdog and jumps to the app without passing it on, so `rst` is
+always `0x00` — a firmware upload or opening the serial monitor looked like
+"jump to 0" until 2026-11-22. Only power-on is knowable (the `.noinit` magic is
+missing); a reboot mid-run is caught by the ESP32 because `up` goes down.
+Watchdog interrupt+reset mode (to record the cause in the ISR) was rejected: a
+hang with interrupts off would never reset. `state_data` now carries `up/rst/stg/gap/ram`, and the
 ESP32 logs them. `gap` is the worst heap↔stack margin seen so far. The cut
 now cuts the coils **before** sending `result_data`, and if the queue is full it
 `flush()`es instead of dropping the frame. Copying `ResultData` and running
@@ -220,8 +225,10 @@ toolchain) with the Unity test framework and the `ArduinoFake` library to
 mock `Arduino.h`/`Serial`. See `mega2560/test/test_detector/` for the first
 suite and `mega2560/test/support/arduino_fakes.hpp` for the shared
 `silenceSerial()` helper — call it from `setUp()` in any suite that touches
-code with `Serial.print` tracing (most of it), otherwise ArduinoFake's mock
-throws on the first unstubbed call and crashes the test binary.
+code that writes to `Serial` directly, otherwise ArduinoFake's mock throws on
+the first unstubbed call and crashes the test binary. The `LOG_*` macros need
+none of that: with no sink set (`Log::begin` is only called by the boards)
+they return before touching `millis()` or `Serial`.
 `test_build_src = no` in the `[env:native]` section keeps this test build
 from pulling in the real `.ino` and hardware-facing managers — tests
 `#include` the relevant `src/*.hpp` headers directly instead, since
@@ -475,7 +482,7 @@ Key collaborators:
   a bad one keeps the previous; applied on receipt when not Running (so the
   screen reads it without a start), else at the next start, through
   `IThermometer::setAddress()`. `setup()` prints every DS18B20 on the bus
-  (`[ONEWIRE]`, own debug flag) in the file's format — that is how you get
+  (`I TEMP DS18B20 address=…`, always on) in the file's format — that is how you get
   the address of a new sensor. The ESP32 sends it without separators for the
   frame budget. Its error strings are `F()` and `format()` has no hex table
   on purpose: as plain literals they cost ~130 bytes of the Mega's RAM.
@@ -986,7 +993,9 @@ and `StateListener` (own app state, from `SystemData`).
   colours inverted (white→black, blue→orange — fixed by `TFT_INVERSION_ON`
   in `platformio.ini`, which the R must *not* have) and a permanent "touch"
   in one corner, because the XPT2046 library reads a floating MISO
-  (`raw=(-4096,-4096)` / `(4095,4095)` in the `[TOUCH]` trace). The CST816S
+  (`raw=(-4096,-4096)` / `(4095,4095)` in a raw-coordinate trace — there
+  is none any more, by user decision touch is not logged; add one
+  temporarily to diagnose this). The CST816S
   driver is hand-written in `display.hpp` (5 registers over `Wire`, no
   library) and disables the chip's auto-sleep, since LVGL polls it instead
   of using INT. Switching boards means flipping `TOUCH_KIND` *and* the
@@ -1019,7 +1028,7 @@ and `StateListener` (own app state, from `SystemData`).
   `setRescanAllowed(!experimentInProgress())`; reconnecting with WiFi down
   still scans); `BrokerManager` sets keepalive 60 s / socket timeout 5 s
   (`BrokerKeepAliveSeconds`, `BrokerSocketTimeoutSeconds`); and a drop now
-  logs `[BROKER] Desconectado: <reason> (state=N) tras X s conectado`, with
+  logs `W BROKER desconectado: <reason> (state=N) tras X s conectado`, with
   WiFi status, RSSI and heap — before, a drop left no line at all. Don't
   enlarge the publish queue to hide drops: each slot is ~640 bytes of the
   heap the TLS handshake needs.
@@ -1126,6 +1135,68 @@ and `StateListener` (own app state, from `SystemData`).
   timestamps: two pings in one millisecond tied by date. The EMQX ACL must
   allow these topics too. `web/tools/simulador-config.js` answers pings
   (`--sin-pong` to play a hung board).
+- **Run number (`runcounter.hpp`, 2026-11-22)**: `#42`, the one identifier
+  shared by the ESP32 screen-side logs, the Mega's USB log and the monitor
+  (En curso, Historial with a search box, run detail, bitacora tags). The
+  **board** generates it (user decision) because only it sees every run: the
+  monitor infers runs and the Mega knows nothing of earlier ones. It lives in
+  the ESP32's **NVS** (`Preferences`, namespace `biosoft`, key `corrida`), not
+  the SD: survives reboots and uploads, independent of the card; `pio run -t
+  erase` resets it to 0. **Reserved** at `start` (`RunCounter::next()`, same
+  value on every resend) and **committed** on entering Running, so a refused
+  start burns no number — no gaps that send someone looking for a run that
+  never existed. Travels as `run` in `start` (the Mega only prints it:
+  `I CORRIDA inicio corrida=#N …`; absent from an old ESP32 ⇒ `#0`; the
+  10-key frame is pinned in `test_start_fits_with_field_mode`) and as `RUN`
+  in `targets` and `result` (so an orphan built from `result` keeps it). The
+  monitor stores it as `Run.number` (top level, not inside `targets`; `result`
+  only fills a missing one, like `runType`), **not unique** on purpose (an
+  erased flash restarts it) — search is number + date; `GET /api/runs?number=`
+  ignores the type tabs. **An ESP32 rebooting mid-run keeps the number**: the
+  Mega stores `run` from `start` (`Engine::_runNumber`, 4 bytes, zeroed by
+  `_reset()`) and echoes it in `state_data` while running; on entering
+  Running the ESP32 takes the Mega's number over `RunCounter::next()` (which,
+  after a reboot, is already one past it) and logs `W … se retoma con el
+  numero del Mega`. The monitor then gets `targets` again with the same `RUN`:
+  `openRun()` treats a `targets` whose `RUN` equals the open run's number as
+  the same run (no orphan, no second run), and `useLive` keeps what the page
+  already shows. `test_statedata_fits_with_run` pins the frame. `tools/simulador.js --run N` (default a
+  random 9000+ so it never collides with the board's).
+- **Remote bitacora (`eventlog.hpp`, 2026-11-22)**: a handful of curated
+  events published on `biosoft/log` `{n, ts, up, lv, c, m, d}` — **not** the
+  USB log mirrored (that one is the bench tool; mirroring it would also loop,
+  each publish logging its own publish). `EVENTO_E/W/I(MOD, code, fmt, ...)`
+  writes the USB line too, so no `LOG_*` beside it; the event is stored even
+  if `LOG_LEVEL` drops the line. Codes are a **closed list** (`EventCodes`,
+  same trick as the log modules: an unknown one does not compile), stable
+  across firmwares while the text may change; the monitor filters by code.
+  `web/client/src/lib/bitacora.ts` (`CODIGOS`) mirrors it and
+  `bitacora.test.ts` fails when they differ. Stricter than the log: no SSID
+  or broker host either — the monitor shows it to admins only, but the board
+  does not decide who reads it. Events wait in a
+  16-entry RAM ring (~2.3 KB static, spinlock: `BrokerManager` records from
+  the comms core) and `_publishEvents()` sends one per `update()` only with
+  the publish queue idle, so it never evicts telemetry and the ones from a
+  broker outage go out on reconnect. A full ring overwrites the oldest and
+  the next event carries `d` = how many were lost; `n` restarts at each boot.
+  `ts` is computed **at publish time** as now − age (millis), so boot events
+  from before NTP get their real time. What happens right before an ESP32
+  reboot is lost with the RAM — which is why the reset cause travels in the
+  next `arranque`, now emitted after `ConfigLoader::load()` (it carries
+  `loadStatus` and `configId`; `logResetCause()` became `readResetCause()` +
+  `logStartup()`). `mega_margen_bajo` fires only on crossing 500 B, later
+  minima stay in the USB log. `corrida_inicio`/`corrida_fin` (2026-11-22)
+  put every run's start and end in the same timeline (`fin` is W for
+  critical/unknown, I otherwise; a `lost` run ends with `corrida_perdida`
+  instead). Every event recorded while a run is active carries its number
+  as `run` (`EventLog::activeRun`, set on entering Running, cleared after
+  the end event and on Ready/Idle): the monitor assigns events to runs **by
+  number first** (nearest run with that number within 24 h) and by date
+  only without it — `corrida_inicio` happens a moment *before* the monitor
+  opens the run (it opens on `targets`, published right after), so by date
+  alone it fell outside. QoS 0, no retain. The Mega sends no log over
+  the cable: its events are inferred from what already travels (`up` going
+  down, `gap`, `result_data`).
 - **`runType` (`"normal"` | `"test"`, top-level in the SD config, schema
   §15) is a declaration, not an operating mode.** It switches nothing on or
   off — every relaxation (detector, sources, sensors, control loop) lives in
@@ -1314,6 +1385,13 @@ NULO"` placeholder the SquareLine export ships with.
   "ghost" Running screen with a freshly-reset counter that will never receive
   a finish signal. Fixed (2026-08-29) to call `_processState(StateData::Ready)`
   for the Stopping case too, matching the Starting case.
+  The opposite race was still open until 2026-11-22: a periodic `state_data:
+  running` sent by the Mega *before* it processed the `stop` re-entered
+  Running from the Busy screen — progress clock and run statistics zeroed,
+  En curso shown again, `targets` republished (the monitor orphaned the run
+  and opened another; seen as `marcada huerfana (llego un targets nuevo…)`
+  right before a `stopped` close). `_processState(Running)` now ignores it
+  while on Busy in `Stopping`.
 - `loop()` runs the LVGL display + `MySystem::update()` on the main core; a
   separate FreeRTOS task pinned to core 1 (`communicationTask`) drives
   `MySystem::remoteUpdate()` (WiFi + MQTT) independently, so blocking network I/O
@@ -1740,6 +1818,37 @@ Other things worth knowing before touching it:
   (`biosoft-scenarios`) and the outcome (`biosoft-scenario-result`).
   `Scenario.init()` before seeding: without the unique index built, a
   create racing it duplicated a name in tests.
+- **Bitacora** (`domain/bitacora.ts`, `api/bitacora.ts`, collection
+  `BoardEvent`, page `Bitacora.tsx`): the board's `biosoft/log` events, on
+  their own ingestor path (they belong to no run). Same rules as telemetry:
+  retained ignored, persist then emit (`board:event`). The stored `ts` is the
+  board's when credible (≥ 2025, ≤ 5 min ahead of the server), else the
+  receipt time — events queued through a broker outage arrive late and must
+  sort by when they happened, which is also why the page sorts the merged
+  REST + live list by `ts`, not arrival. **Not tied to a run in the DB**: the run is
+  computed **at query time** by date (`corridaDe()`: the run whose
+  `[startedAt, endedAt ?? now]` contains the event's `ts`) and returned as
+  `run` on every event, REST and live alike — a `runId` stamped on receipt
+  would put an event that waited in the board's ring into the *next* run.
+  Only runs that can still hold events are loaded (ended within the
+  retention + 1 day, or open), which keeps the `$or`/`$nor` of windows behind
+  `scope=in|out` small. `run=<id>` filters one run's exact window (404 if the
+  run does not exist); the run detail still shows `[start − 1 min, end + 1
+  min]` and links to `/bitacora?corrida=<id>` for the exact one. The page
+  also has a "Corrida #" search box (`number=42`, most recent run with that
+  number; the response carries `run` so the client learns the id).
+  **Admin-only** (user decision, 2026-11-22: system diagnostics, not the
+  experiment): `requireAdmin` on `GET /api/events`, the nav entry and the run
+  detail's section hidden for viewers, and `board:event` goes out through
+  `emitAdmins()`, which reads the roles from the DB **on every emit** (like
+  `requireAdmin` per request) — a role cached at connect would keep feeding a
+  just-demoted user until reload. Events are a few per hour, so the query is
+  cheap. **Kept one week** (user decision): a TTL index on `receivedAt`
+  (`BITACORA_RETENCION_S`), not on `ts`, because `ts` already has a plain
+  index and Mongo allows one index per key. Changing the constant does not
+  alter an existing TTL index — `collMod` it by hand. Runs older than a week
+  show a note instead of an empty events section. `web/tools/simulador-eventos.js` publishes a sample
+  batch (`--atrasados N` to play events that waited in the ring).
 - **One scroll per page, the page's own** (user requirement, 2026-11-21):
   no inner scroll boxes. The embedded generator does not scroll: it posts
   its content height (`biosoft-altura`, header + main measured with a
@@ -1843,13 +1952,55 @@ firmware. The `MODE` bug above is what that gap looks like when it bites.
 - Heavy use of the listener/observer pattern for decoupling between managers;
   when adding behavior, look for the relevant `*Listener` interface before adding
   direct calls between classes.
-- Extensive debug tracing (especially around `start`/`ack` handling) is
-  intentional for on-device debugging over USB serial — match this style when
-  touching those code paths rather than stripping it out. It goes through
-  `debugconfig.hpp`'s `DEBUG_PRINT`/`DEBUG_PRINTLN`/`DEBUG_PRINTF` macros now,
-  not raw `Serial.print`/`println`/`printf` — every `.hpp`/`.ino` that logs
-  declares its own `constexpr bool DEBUG_<MODULE>` near its includes, gated by
-  the global `DEBUG_ENABLED` in `debugconfig.hpp` (duplicated per board like the
-  files above). Both flags are compile-time constants, so a disabled log is
-  dead-code-eliminated, not just skipped at runtime. New logging in an existing
-  file should reuse its `DEBUG_<MODULE>` flag; a new file needs to declare one.
+- **Logging is `log.hpp`, the same file on both boards** (rewritten from
+  scratch 2026-11-22: every old `DEBUG_PRINT*` and per-module `DEBUG_<MODULE>`
+  flag was deleted, then the logs were recreated against a standard).
+  `LOG_E/W/I/D(MODULE, "fmt", ...)` writes **one whole line** per call —
+  `    12.345 I CORRIDA    inicio …` (uptime s.ms, level, module padded to 10,
+  message) — never pieces, which interleaved when two modules wrote at once
+  (on the ESP32 a line is built in a 192-byte buffer and leaves in one write,
+  so the two cores don't mix lines). Modules are a closed list in `log.hpp`
+  (`SISTEMA ENLACE CORRIDA CONFIG DETECTOR CONTROL CAMPO TEMP CORRIENTE I2C
+  PANTALLA REMOTA WIFI BROKER TELEMETRIA SD`); an unknown one does not compile.
+  Levels: **E** a function was lost or the run affected, **W** input rejected
+  or degraded but going on, **I** one line per event/transition, **D** detail
+  and anything periodic. `LOG_LEVEL` defaults to I and is compile-time (lower
+  levels are not in the binary); D is enabled per module with
+  `-D LOG_DEBUG_<MODULE>=1` (the calibration protocol needs CAMPO and CONTROL).
+  Rules: Spanish without accents, lowercase start, data as `key=value` with
+  units, **never** passwords/tokens/config contents, SSID and broker host only
+  at D, and a condition that repeats is logged **on its edge** (starts / ends:
+  broker connect failures, publish-queue drops, coil saturation, MLX health),
+  not every tick. **Touch is not logged at all** (user decision: no line per
+  tap); the screen module logs operator *decisions* (`operador: iniciar`).
+  On the Mega the format is moved to flash by the macro (`PSTR`) and written
+  with `vfprintf_P` char by char — no line buffer — and `%S` prints a flash
+  string (AVR only: don't use it in headers compiled by `pio test -e native`).
+  `%f` needs `printf_flt`, linked in the Mega's `platformio.ini` (~1.5 KB
+  flash, 0 RAM). Stack matters there: the cut path is the deepest one, so the
+  end-of-run lines are logged by the *callers* (`onFlag`, the Stop handler,
+  `_checkControlSilence`, the emergency button, `Tasks::Finish`) before they
+  call `_finish()`, never inside it. `test_log` (native) pins the line format.
+  `docs/puesta-en-marcha.html`, the manual and the calibration protocol quote
+  these lines — change them together.
+  **Measurements in the log** (user request: the log has to explain what the
+  monitor shows). ESP32: one `I CORRIDA #N t=… campo=… temp=… B1=…%/…A salud=…
+  alertas=… mega=… broker=…` line every `Intervals::LogSummary` (30 s, task
+  `LOG_SUMMARY`, only while Running), each alert with the source's last value,
+  and an end-of-run `resumen` with min/mean/max and sample count per
+  measurement (a low `n` = a measurement stopped arriving). Mega: the ranges
+  and rules each watched source is judged by, at `start`, and zone changes
+  **on the edge** (`sale de normal … zona=advertencia|critica`, `vuelve a
+  normal … tras N s`) via `Engine::_watchZone()`, called *before*
+  `addSample()` so its stack is not added to the cut path; alerts carry
+  `ultimo=` too. Cost on the Mega: 18 bytes of RAM (`ZoneWatch` ×2).
+  The logs immediately showed a bug nobody had seen: the **Mega dropped and
+  recovered the link every 10 s during a run**, because liveness is "a frame
+  received in 10 s" and the ESP32 has nothing to send to the Mega mid-run.
+  `SerialLink::update()` now sends a keepalive ping after 5 s with nothing
+  received while connected; the pong counts as a received frame.
+  Second one: a Mega that reboots in under 10 s (firmware upload, reset
+  button) never drops the ESP32's link, so `onSerialConnected()` did not fire
+  and the Mega ran on its **compiled defaults** (CEM1 on the unwired real MLX
+  → silence cut at the end of settling). `_readMegaDiagnostics()` now calls
+  `_sendMegaConfig()` when `up` goes down.

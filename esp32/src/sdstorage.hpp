@@ -2,11 +2,7 @@
 #include <Arduino.h>
 #include <SPI.h>
 #include <SD.h>
-#include "debugconfig.hpp"
-
-// Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
-// el interruptor maestro).
-constexpr bool DEBUG_SDSTORAGE = true;
+#include "log.hpp"
 
 // Modulo generico de almacenamiento en tarjeta SD -- agnostico del
 // significado de los datos que guarda (contrato MOD-020). Expone
@@ -85,8 +81,10 @@ inline SdStorage::SdStorage(uint8_t csPin, uint8_t sckPin, uint8_t misoPin, uint
 inline bool SdStorage::begin() {
   _spi.begin(_sckPin, _misoPin, _mosiPin, _csPin);
   _ready = SD.begin(_csPin, _spi);
-  if (!_ready) {
-    DEBUG_PRINTLN(DEBUG_SDSTORAGE, F("[SD] ERROR: no se pudo inicializar la tarjeta SD"));
+  if (_ready) {
+    LOG_I(SD, "tarjeta lista tamano=%llu MB", (unsigned long long)(SD.cardSize() / (1024ULL * 1024ULL)));
+  } else {
+    LOG_W(SD, "sin tarjeta o no responde: se sigue con los valores compilados");
   }
   return _ready;
 }
@@ -123,14 +121,8 @@ inline bool SdStorage::readFile(const char* path, char* outBuffer, size_t maxLen
   // no entra se corta acá, en vez de devolver un buffer truncado que el
   // llamador tomaria por bueno.
   if (available > maxLength - 1) {
+    LOG_E(SD, "%s de %u B no entra en el buffer de %u B", path, (unsigned)available, (unsigned)maxLength);
     file.close();
-    DEBUG_PRINT(DEBUG_SDSTORAGE, F("[SD] ERROR: "));
-    DEBUG_PRINT(DEBUG_SDSTORAGE, path);
-    DEBUG_PRINT(DEBUG_SDSTORAGE, F(" no entra en el buffer ("));
-    DEBUG_PRINT(DEBUG_SDSTORAGE, available);
-    DEBUG_PRINT(DEBUG_SDSTORAGE, F(" bytes, buffer de "));
-    DEBUG_PRINT(DEBUG_SDSTORAGE, maxLength);
-    DEBUG_PRINTLN(DEBUG_SDSTORAGE, F(")"));
     return false;
   }
 

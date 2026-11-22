@@ -5,6 +5,7 @@ import { sesionVigente } from '../auth/sesiones.js';
 import { verifyToken } from '../auth/tokens.js';
 import { config } from '../config.js';
 import { buildSnapshot } from '../domain/snapshot.js';
+import { User } from '../models/user.js';
 
 // El navegador NUNCA habla con el broker: este es el unico camino por el que
 // le llega un dato en vivo. Asi las credenciales del broker no salen del
@@ -27,7 +28,11 @@ export function startRealtime(server: HttpServer): void {
   io.use((socket, next) => {
     const token = socket.handshake.auth?.token;
     const payload = typeof token === 'string' ? verifyToken(token) : null;
-    if (payload && sesionVigente(payload)) return next();
+    if (payload && sesionVigente(payload)) {
+      // Para emitAdmins(): quien es el usuario de este socket.
+      socket.data.sub = payload.sub;
+      return next();
+    }
     next(new Error('no autorizado'));
   });
 
@@ -61,6 +66,22 @@ export function emitTelemetry(event: RealtimeEvent, data: unknown): void {
 /** Configuracion remota (tarjeta 24): vigente y estado de los envios. */
 export function emitConfig(evento: string, data: unknown): void {
   io?.emit(evento, data);
+}
+
+/**
+ * Solo a los sockets de administradores (hoy, la bitacora de la placa). El
+ * rol se lee de la base EN CADA EMISION, como requireAdmin en cada pedido:
+ * guardarlo al conectar dejaria a un usuario recien degradado recibiendo
+ * eventos hasta que recargue. Los eventos son pocos por hora, la consulta no
+ * pesa.
+ */
+export async function emitAdmins(evento: string, data: unknown): Promise<void> {
+  if (!io || mongoose.connection.readyState !== 1) return;
+  const admins = await User.find({ role: 'admin' }).select('_id').lean();
+  const ids = new Set(admins.map((u) => String(u._id)));
+  for (const socket of io.sockets.sockets.values()) {
+    if (ids.has(socket.data.sub)) socket.emit(evento, data);
+  }
 }
 
 export function emitLinkStatus(broker: boolean): void {

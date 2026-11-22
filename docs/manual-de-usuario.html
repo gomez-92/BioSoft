@@ -684,7 +684,7 @@ table.pins tbody td{padding:7px 12px 7px 0}
       reprogramar: la dirección del nuevo se carga en el archivo de
       configuración (campo «Dirección del DS18B20» de TEMP1 en el generador).
       Para conocerla, la placa de control lista al arrancar, en la consola,
-      cada DS18B20 presente en el bus (líneas <code>[ONEWIRE]</code>), ya en el
+      cada DS18B20 presente en el bus (líneas <code>TEMP DS18B20 address=…</code>), ya en el
       formato que acepta el archivo.</p>
 
     <p>El firmware conserva además un termómetro <em>simulado</em>, que lee
@@ -849,24 +849,28 @@ table.pins tbody td{padding:7px 12px 7px 0}
     <h3>4.2 Verificación con el equipo encendido</h3>
 
     <p>Con el monitor serie conectado al Mega, la secuencia de arranque
-      informa el estado de cada bus. Lo que debe observarse:</p>
+      informa el estado de cada bus. Las dos placas escriben cada línea con el
+      mismo formato: segundos desde el arranque, el nivel (<code>E</code> error,
+      <code>W</code> advertencia, <code>I</code> información), el módulo y el
+      mensaje; por ejemplo <code>    12.345 I CORRIDA    inicio …</code>. Lo
+      que debe observarse:</p>
 
     <div class="tablewrap"><table class="wide">
       <thead><tr><th>Registro en consola</th><th>Significado</th><th>Si no aparece</th></tr></thead>
       <tbody>
-        <tr><td><code>[I2C] Dispositivo encontrado en 0xC</code>, <code>0x48</code> (y <code>0x49</code> si existe)</td><td>El bus I2C está vivo y cada módulo responde en su dirección</td><td>«Ningún dispositivo respondió» indica cableado, alimentación o <em>pull-ups</em>; una dirección distinta indica el pin ADDR mal conectado</td></tr>
-        <tr><td><code>[MLX90393] begin_I2C addr=0xC</code> seguido de OK</td><td>El magnetómetro inicializó</td><td>Revisar alimentación del módulo; el bus puede estar vivo y el sensor no</td></tr>
+        <tr><td><code>I2C dispositivo en 0x0C</code>, <code>0x48</code> (y <code>0x49</code> si existe)</td><td>El bus I2C está vivo y cada módulo responde en su dirección</td><td>«ningun dispositivo responde» indica cableado, alimentación o <em>pull-ups</em>; una dirección distinta indica el pin ADDR mal conectado</td></tr>
+        <tr><td><code>CAMPO MLX90393 listo en 0x0C</code></td><td>El magnetómetro inicializó</td><td>Revisar alimentación del módulo; el bus puede estar vivo y el sensor no</td></tr>
         <tr><td>Lecturas de TEMP1 con valores plausibles</td><td>El DS18B20 responde y su código ROM coincide</td><td>Sin lecturas: revisar el <em>pull-up</em>; si el sensor fue reemplazado, cargar su código ROM en el archivo de configuración</td></tr>
-        <tr><td><code>[CURRENT]</code> sin indicación de módulo ausente</td><td>El ADS1115 contestó y el canal quedó habilitado</td><td>Un módulo que no responde deja su canal deshabilitado sin bloquear el arranque; revisar dirección y alimentación</td></tr>
-        <tr><td>Intercambio ping/pong con la HMI («conectado!»)</td><td>El enlace serie funciona en ambos sentidos</td><td>Solo un sentido funciona si las líneas están al revés; ningún sentido funciona si falta la masa común o el adaptador de nivel</td></tr>
+        <tr><td><code>CORRIENTE SCT013-1 listo en 0x48 canal=0</code></td><td>El ADS1115 contestó y el canal quedó habilitado</td><td>Un módulo que no responde (<code>sin ADS1115 en 0x48</code>) deja su canal deshabilitado sin bloquear el arranque; revisar dirección y alimentación</td></tr>
+        <tr><td><code>ENLACE conectado con la ESP32</code></td><td>El enlace serie funciona en ambos sentidos</td><td>Solo un sentido funciona si las líneas están al revés; ningún sentido funciona si falta la masa común o el adaptador de nivel</td></tr>
       </tbody>
     </table></div>
 
     <p>Con el monitor conectado al ESP32, deben observarse la inicialización
-      del táctil (<code>[TOUCH] CST816S inicializado</code>), el montaje de la
+      del táctil (<code>PANTALLA tactil CST816S listo</code>), el montaje de la
       tarjeta SD y el resultado de la lectura de
-      <code>/biosoft/config.json</code> (<code>[CONFIG]</code>). El mensaje
-      <code>[SD] Continuando sin tarjeta SD</code> no constituye un error si
+      <code>/biosoft/config.json</code> (<code>CONFIG configuracion cargada …</code>). El mensaje
+      <code>SD sin tarjeta o no responde</code> no constituye un error si
       no se insertó tarjeta.</p>
 
     <p>Desde la pantalla, la comprobación mínima es que la interfaz abandone
@@ -1837,8 +1841,8 @@ table.pins tbody td{padding:7px 12px 7px 0}
         <tr><td>Resultado con panel <em>NO INICIÓ</em> y «Sin punto en el mapa»</td><td>Campo nulo con una intensidad o frecuencia que el mapa de la tarjeta no tiene</td><td>Cargar el punto medido en el banco, o elegir una combinación mapeada (sección 14)</td></tr>
         <tr><td>Resultado con panel <em>NO INICIÓ</em> y «Balance fuera de tope»</td><td>El balance del punto supera <code>balanceMax</code></td><td>Revisar el punto y el tope en la tarjeta</td></tr>
         <tr><td>Una medición indica «Sin datos»</td><td>Ese sensor no reporta</td><td>Revisar la conexión (sección 3.5); confirmar que está habilitado en la configuración</td></tr>
-        <tr><td>La temperatura no reporta pese a estar conectada</td><td>El código ROM del DS18B20 no coincide con el configurado</td><td>Si el sensor fue reemplazado, cargar su dirección (líneas <code>[ONEWIRE]</code> de la consola) en el archivo de configuración; ver 3.5</td></tr>
-        <tr><td>La consola del Mega indica «Ningún dispositivo respondió» en I2C</td><td>Bus I2C inoperante</td><td>Revisar SDA/SCL, alimentación de los módulos y <em>pull-ups</em></td></tr>
+        <tr><td>La temperatura no reporta pese a estar conectada</td><td>El código ROM del DS18B20 no coincide con el configurado</td><td>Si el sensor fue reemplazado, cargar su dirección (líneas <code>TEMP DS18B20 address=…</code> de la consola) en el archivo de configuración; ver 3.5</td></tr>
+        <tr><td>La consola del Mega indica «ningun dispositivo responde» en I2C</td><td>Bus I2C inoperante</td><td>Revisar SDA/SCL, alimentación de los módulos y <em>pull-ups</em></td></tr>
         <tr><td>El campo medido queda muy por debajo de la consigna</td><td>El regulador no alcanza la consigna</td><td>Buscar avisos de recorte en la consola: una bobina puede carecer de margen. Requiere revisar el hardware o recalibrar</td></tr>
         <tr><td>Corta apenas concluye la ventana de asentamiento</td><td>Una condición fuera de rango desde el arranque</td><td>Consultar el detalle en la pantalla Resultado: indica qué sensor fue</td></tr>
         <tr><td>Se modificó el archivo de la SD y no hubo cambios</td><td>Se lee solo al encender</td><td>Reiniciar la interfaz</td></tr>

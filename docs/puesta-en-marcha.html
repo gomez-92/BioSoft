@@ -156,7 +156,7 @@
         <span class="det">Con el generador (<code>tools/generador-config.html</code>). Ojo con Windows y las
           extensiones ocultas: <code>config.json.json</code> no se lee.</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f0-emqx">
-        <span class="que">Regla de acceso en EMQX para <code>biosoft/ping</code>, <code>biosoft/pong</code> y <code>biosoft/config/#</code></span>
+        <span class="que">Regla de acceso en EMQX para <code>biosoft/ping</code>, <code>biosoft/pong</code>, <code>biosoft/log</code> y <code>biosoft/config/#</code></span>
         <span class="det">Ver <code>docs/despliegue-monitor-web.md</code>. Sin ella el monitor dice
           "Placa sin respuesta" con la placa funcionando.</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f0-cable">
@@ -176,7 +176,7 @@
         <span class="det">Colores invertidos o un "toque fantasma" en una esquina = versión de placa mal
           elegida (<code>TOUCH_KIND</code> + <code>TFT_INVERSION_ON</code>).</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f1-config">
-        <span class="que">En el log: SD montada y <code>[CONFIG] configId=…</code></span>
+        <span class="que">En el log: SD montada y <code>I CONFIG configuracion cargada … configId=…</code></span>
         <span class="det">Si la SD falla, <code>tools/test-sd-esp32</code> la diagnostica sin lector en la PC.</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f1-red">
         <span class="que">WiFi, hora (NTP) y broker conectados</span>
@@ -192,7 +192,7 @@
       <li><label class="item"><input type="checkbox" data-id="f1-remota">
         <span class="que">Configuración remota: con la placa en Principal, enviar un cambio → "La placa confirmó" → se reinicia sola → "Vigente"</span>
         <span class="det">En el bloque de etapas del generador: Enviado pasa a En la placa. Log de la ESP32:
-          <code>[CONFIG] reiniciando para aplicar la configuracion nueva</code>.</span></label></li>
+          <code>I CONFIG reiniciando para aplicar la configuracion nueva</code>.</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f1-remota-resultado">
         <span class="que">Enviar con la placa en Resultado: no se reinicia, REPETIR desaparece; al tocar Volver se reinicia</span>
         <span class="det">Lo mismo en Configuraciones (al volver a Principal). Con un experimento en curso
@@ -200,21 +200,21 @@
       <li><label class="item"><input type="checkbox" data-id="f1-wifi-remoto">
         <span class="que">Cambiar el WiFi desde el monitor (vista Conexión)</span>
         <span class="det">En Configuración → Conexión agregar una red y «Enviar solo la conexión». Tras el
-          reinicio el log dice <code>[CONFIG] llego al broker: configuracion remota confirmada</code> y el
+          reinicio el log dice <code>I CONFIG llego al broker: configuracion remota confirmada</code> y el
           indicador Placa del monitor muestra la red y la señal. Probar quitar la red en uso dejando otra que
-          ande: <code>[CONFIG] conecto por &lt;otra&gt;: se quita la red &lt;en uso&gt;</code>. Y quitarla dejando
-          solo una red inexistente: <code>solo conecto por ...: se conserva</code> y el envío figura
+          ande: <code>I CONFIG conecto por otra red: se quita la red de respaldo</code>. Y quitarla dejando
+          solo una red inexistente: <code>W CONFIG solo conecto por la red de respaldo: se conserva</code> y el envío figura
           «Aplicada, pero la placa conservó la red en uso».</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f1-broker-revertido">
         <span class="que">Broker mal escrito: vuelve solo a la configuración anterior</span>
         <span class="det">Enviar un host de broker inexistente. Tras el reinicio la placa no conecta; a los
-          5 minutos el log dice <code>[CONFIG] sin broker en 5 min: se vuelve a la configuracion anterior</code>,
+          5 minutos el log dice <code>W CONFIG sin broker en 300 s: se vuelve a la configuracion anterior y se reinicia</code>,
           reinicia, conecta y el envío pasa a <b>Revertida</b> en el monitor.</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f1-experimento-sd">
         <span class="que">Tarjeta con un experimento que simula un sensor: la placa la descarta entera</span>
         <span class="det">Copiar a mano un <code>config.json</code> con <code>"runType": "normal"</code> y TEMP1 en
-          <code>sim</code>. Al arrancar, el log de la ESP32 dice <code>[CONFIG] un experimento corre solo con
-          sensores reales ... se descarta el archivo entero</code> y el monitor muestra "declara un experimento con
+          <code>sim</code>. Al arrancar, el log de la ESP32 dice <code>W CONFIG un experimento corre solo con
+          sensores reales ...: se descarta la configuracion</code> y el monitor muestra "declara un experimento con
           un sensor simulado ... corre con los valores de fabrica".</span></label></li>
     </ul>
     <label class="notas"><span>Notas</span><textarea data-nota="1"></textarea></label>
@@ -224,7 +224,7 @@
     <div class="fase-cab"><h2>Fase 2 · Mega y enlace</h2><span class="cuenta"></span></div>
     <ul class="items">
       <li><label class="item"><input type="checkbox" data-id="f2-mega">
-        <span class="que">Mega sola por USB: <code>BOOT</code>, <code>[I2C] Ningun dispositivo respondio</code>, <code>[ONEWIRE] DS18B20 en el bus: 0</code></span>
+        <span class="que">Mega sola por USB: <code>I SISTEMA arranque causa=…</code>, <code>W I2C ningun dispositivo responde</code>, <code>I TEMP DS18B20 en el bus=0</code></span>
         <span class="det">Sin sensores esos dos mensajes son lo esperado. Lo que importa es que no se cuelga.</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f2-enlace">
         <span class="que">Conectar la serie: en el log del ESP32, ping/pong, cada <code>config_*</code> con su ack y estado <code>ready</code></span>
@@ -234,16 +234,15 @@
       <li><label class="item"><input type="checkbox" data-id="f2-monitor">
         <span class="que">Monitor web: desaparece "sin Mega"</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f2-diag">
-        <span class="que">Log del ESP32 al primer <code>state_data</code>: <code>[MEGA] up=… rst=… etapa_previa=… gap=… ram=…</code></span>
+        <span class="que">Log del ESP32 al primer <code>state_data</code>: <code>I ENLACE Mega up=… rst=… etapa_previa=… gap=… ram=…</code></span>
         <span class="det">El Mega no hace falta conectarlo por USB: su diagnóstico llega dentro de <code>state_data</code>.
           <code>rst</code> = <code>0x01</code> (encendido) o <code>0x02</code> (reset); <code>ram</code> ≈ 2700–2800 bytes
           libres en reposo. <code>rst=0x08</code> = reinició el watchdog (2 s) y <code>etapa_previa</code> dice en qué paso
           de <code>Engine::update()</code> se colgó; <code>rst=0x00</code> = salto a 0, stack corrompido.</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f2-recupera">
         <span class="que">Recuperación del enlace: resetear solo el Mega con el ESP32 en Principal → el enlace vuelve solo</span>
-        <span class="det">En el log del ESP32: <code>[MEGA] REINICIO detectado: up N s -&gt; M s</code>. Con el enlace caído
-          más de 30 s el ESP32 reabre <code>Serial2</code> cada 30 s y escribe <code>[ENLACE] sin Mega hace N s | bytes rx
-          en 30 s: X</code>; X = 0 apunta al cableado o a un Mega colgado, X &gt; 0 con errores de CRC/trama al
+        <span class="det">En el log del ESP32: <code>E ENLACE el Mega se reinicio: up N s -&gt; M s</code>. Con el enlace caído
+          más de 30 s el ESP32 reabre <code>Serial2</code> cada 30 s y escribe <code>W ENLACE sin Mega hace N s rx=X B crc=… trama=… json=…</code>; X = 0 apunta al cableado o a un Mega colgado, X &gt; 0 con errores de CRC/trama al
           baudrate o al ruido.</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f2-bootloader">
         <span class="que">El bootloader sobrevive a un reset por watchdog <span class="opc">verificar una vez</span></span>
@@ -290,17 +289,32 @@
       <li><label class="item"><input type="checkbox" data-id="f3-tempbaja"><span class="que">Temperatura baja → critical TEMP1</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f3-campocaido"><span class="que">Sensor de campo caído → CEM1 SIN LECTURAS (con CEM1 sin vigilar)</span>
         <span class="det">Es la protección del lazo: sin lecturas del magnetómetro el lazo excitaría a ciegas.
-          Log del Mega: <code>[SILENCE] CEM1 sin lecturas con el lazo activo</code>.</span></label></li>
+          Log del Mega: <code>E CORRIDA fin motivo=critical CEM1 sin lecturas con el lazo activo</code>.</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f3-pantallas">
         <span class="que">En cada corrida: En curso, Resultado y monitor coherentes</span>
         <span class="det">En curso muestra el duty que se aplicaría. Resultado con el motivo correcto
           (REPETIR oculto tras un critical). En el monitor la corrida sale marcada <b>PRUEBA</b>, con gráfico.</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f3-broker-estable">
         <span class="que">Corrida de 15 min o más: el broker no se cae y no se pierde telemetría</span>
-        <span class="det">En el log de la ESP32 no aparece <code>[BROKER] Queue llena</code> ni
-          <code>[BROKER] Desconectado: …</code>, y las publicaciones salen a su cadencia (cada 2–5 s), no en
+        <span class="det">En el log de la ESP32 no aparece <code>W BROKER cola de publicacion llena</code> ni
+          <code>W BROKER desconectado: …</code>, y las publicaciones salen a su cadencia (cada 2–5 s), no en
           ráfagas cada 10 s. Si hubo una caída, esa línea dice el motivo (keepalive, socket cerrado, WiFi caída).
           En el monitor, el gráfico de En curso no muestra huecos.</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f3-numero">
+        <span class="que">Número de corrida: el mismo <code>#N</code> en las dos placas y en el monitor</span>
+        <span class="det">ESP32: <code>I CORRIDA start corrida=#N …</code> y <code>I CORRIDA corrida #N en curso</code>.
+          Mega: <code>I CORRIDA inicio corrida=#N …</code>. En el monitor, En curso dice <i>#N</i> y el Historial lo
+          encuentra en el buscador. Un inicio rechazado (campo nulo sin mapa) no gasta número: el siguiente vuelve a
+          ser <code>#N</code>. Reiniciar la ESP32 sin corrida no lo reinicia. Reiniciarla <b>durante</b> una corrida:
+          al volver dice <code>W CORRIDA corrida #N en curso: se retoma con el numero del Mega</code>, con el mismo
+          <code>#N</code>, y el Historial sigue mostrando una sola corrida, no dos.</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f3-bitacora">
+        <span class="que">Bitácora del monitor: el arranque y un reinicio del Mega aparecen con su hora real</span>
+        <span class="det">Reiniciar la ESP32: en la página <b>Bitácora</b> aparece <i>Arranque de la placa</i> con
+          <code>config=ok</code> (o por qué se ignoró la SD). Apretar reset en el Mega: aparece <i>El Mega se reinicio</i>
+          (en el log USB, <code>E ENLACE el Mega se reinicio</code>). Para probar el buffer, cortar el WiFi un minuto
+          con la placa encendida: al volver llegan <i>Broker caido</i> y <i>Broker de vuelta</i> con la hora en que
+          pasaron, no la de llegada.</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f3-detener">
         <span class="que">Detener en pantalla → Resultado "detenido"</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f3-emergencia">
@@ -308,7 +322,7 @@
         <span class="det">Se distingue de Detener en Resultado. Apretado sin corrida no hace nada.</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f3-margen">
         <span class="que">Tras los cortes (alerta, Detener, emergencia): margen heap/stack del Mega por encima de ~1000 bytes</span>
-        <span class="det">El ESP32 escribe <code>[MEGA] margen heap/stack minimo: N bytes</code> solo cuando el peor valor
+        <span class="det">El ESP32 escribe <code>I ENLACE margen heap/stack del Mega minimo=N B</code> (<code>W</code> por debajo de 500) solo cuando el peor valor
           empeora; si un corte no la escribe, no empeoró. El corte por alerta es el camino más profundo (en el banco,
           2026-11-22: 1202 bytes; Detener y emergencia no lo bajaron). Por debajo de ~300 hay algún camino nuevo
           demasiado profundo: es el cuelgue de fin de corrida volviendo.</span></label></li>
@@ -323,8 +337,8 @@
         <span class="que">Durante cualquiera de estas corridas, todos los enables miden 0 V</span>
         <span class="det">Pin 3 (relé general) y pines 23–26 (bobinas), contra GND: son activos en alto y la
           corrida sintética los bloquea, así que no deben moverse de 0 V ni en reposo ni corriendo. 5 V en
-          cualquiera = la etapa se habilitaría. El log del Mega dice <code>[START] CEM1 no es el sensor real:
-          etapa de potencia y bobinas BLOQUEADAS</code>.</span></label></li>
+          cualquiera = la etapa se habilitaría. El log del Mega dice <code>W CONTROL CEM1 no es el sensor real:
+          potencia y bobinas bloqueadas</code>.</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f3-sim">
         <span class="que">Con <code>sim</code>: potenciómetro en A0 (campo) o A1 (temperatura, 0–5 V = 0–50 °C) provoca los cortes a mano <span class="opc">opcional</span></span></label></li>
     </ul>
@@ -339,12 +353,12 @@
     <h3>DS18B20 · TEMP1 · pin 2</h3>
     <ul class="items">
       <li><label class="item"><input type="checkbox" data-id="f4-ds-dir">
-        <span class="que">Arrancar el Mega con el sensor conectado y copiar la dirección de <code>[ONEWIRE]</code></span>
+        <span class="que">Arrancar el Mega con el sensor conectado y copiar la dirección de <code>I TEMP DS18B20 address=…</code></span>
         <span class="det">Ya sale en el formato del archivo: <code>28:3F:E5:57:04:E1:3D:ED</code>. Con 0 sensores:
           cableado o resistencia de pull-up del bus.</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f4-ds-carga">
         <span class="que">Cargarla en el generador (TEMP1 → sensor <code>ds18b20</code> → Dirección) y enviar (la placa se reinicia sola en Principal)</span>
-        <span class="det">En el log del Mega: <code>[CONFIG_SOURCE] TEMP1 DS18B20 en …</code>. Si dice
+        <span class="det">En el log del Mega: <code>I CONFIG config_source TEMP1 address=… aplicada</code>. Si dice
           "rechazada", el motivo indica si es el largo, la familia o un dígito mal copiado (CRC).</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f4-ds-lee">
         <span class="que">Temperatura razonable en pantalla, y sube al calentarlo con los dedos</span></label></li>

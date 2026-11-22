@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { authFetch } from '../lib/auth.js';
-import { duracion, esCampoNulo, nombreModo, nombreMotivo } from '../lib/format.js';
+import { duracion, esCampoNulo, nombreModo, nombreMotivo, numeroCorrida } from '../lib/format.js';
 import { useEsAdmin } from '../lib/sesion.js';
 import { ConRelajaciones, TipoCorrida } from '../components/TipoCorrida.js';
 
@@ -17,6 +17,7 @@ import { ConRelajaciones, TipoCorrida } from '../components/TipoCorrida.js';
 
 interface RunRow {
   id: string;
+  number: number | null;
   startedAt: string;
   endedAt: string | null;
   state: string;
@@ -49,6 +50,9 @@ export function Historial() {
   const [motivo, setMotivo] = useState('');
   const [modo, setModo] = useState('');
   const [tipo, setTipo] = useState('');
+  // Buscar por numero ("42" o "#42"): trae esa corrida de cualquier tipo.
+  const [numero, setNumero] = useState('');
+  const numeroValido = /^#?\d+$/.test(numero.trim()) ? numero.trim().replace(/^#/, '') : '';
   const [cargando, setCargando] = useState(true);
   const [seleccion, setSeleccion] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
@@ -58,18 +62,19 @@ export function Historial() {
     if (motivo) params.set('reason', motivo);
     if (modo) params.set('mode', modo);
     if (tipo) params.set('type', tipo);
+    if (numeroValido) params.set('number', numeroValido);
 
     setCargando(true);
     authFetch(`/api/runs?${params}`)
       .then((r) => r.json())
       .then((data) => { setItems(data.items); setTotal(data.total); setCuentas(data.byType ?? null); })
       .finally(() => setCargando(false));
-  }, [pagina, motivo, modo, tipo]);
+  }, [pagina, motivo, modo, tipo, numeroValido]);
 
   useEffect(cargar, [cargar]);
   // Cambiar de pagina o de filtro descarta la seleccion: borrar algo que ya
   // no se ve en pantalla seria una sorpresa.
-  useEffect(() => setSeleccion(new Set()), [pagina, motivo, modo, tipo]);
+  useEffect(() => setSeleccion(new Set()), [pagina, motivo, modo, tipo, numeroValido]);
 
   const paginas = Math.max(1, Math.ceil(total / POR_PAGINA));
   const borrables = items.filter((run) => run.state !== 'running');
@@ -116,6 +121,9 @@ export function Historial() {
 
       {/* Los filtros van en una fila arriba de la tabla. */}
       <section className="filtros">
+        <input type="search" className="buscar-numero" placeholder="Corrida #" value={numero}
+          inputMode="numeric" aria-label="Buscar por numero de corrida"
+          onChange={(e) => { setNumero(e.target.value); setPagina(1); }} />
         <select value={motivo} onChange={(e) => { setMotivo(e.target.value); setPagina(1); }}>
           <option value="">Todos los motivos</option>
           <option value="completed">Completados</option>
@@ -169,7 +177,7 @@ export function Historial() {
               se compara con las demas sin abrirla. */}
           <li className="fila-titulos" aria-hidden="true">
             <span className="col-check" />
-            <span>Inicio</span><span>Tipo</span><span>Modo</span><span>Resultado</span>
+            <span>N°</span><span>Inicio</span><span>Tipo</span><span>Modo</span><span>Resultado</span>
             <span className="col-num">Duracion</span><span className="col-num">Mediciones</span>
             <span className="col-num">Alertas</span>
           </li>
@@ -216,6 +224,9 @@ function Fila({ run, seleccionable, seleccionada, onAlternar }: {
         )}
       </span>
       <Link to={`/corrida/${run.id}`} className="fila-corrida">
+        <span className="col-numero" data-rotulo="Corrida">
+          {numeroCorrida(run.number) ?? <span className="tenue-celda">--</span>}
+        </span>
         <span className="fila-fecha">
           {inicio.toLocaleDateString('es-AR')} <span className="tenue-celda">
             {inicio.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}</span>

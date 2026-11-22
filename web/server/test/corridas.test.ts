@@ -248,3 +248,48 @@ describe.skipIf(!hayMongo)('correlacion de corridas', () => {
     })).rejects.toThrow();
   });
 });
+
+describe.skipIf(!hayMongo)('numero de corrida (RUN)', () => {
+  it('targets lo guarda en la corrida, no dentro de los objetivos', async () => {
+    await handleTelemetry(message('targets', { ...TARGETS, RUN: 42 }));
+    const run = await Run.findOne().lean();
+    expect(run?.number).toBe(42);
+    expect((run?.targets as Record<string, unknown>)?.runNumber).toBeUndefined();
+  });
+
+  it('result completa un numero que faltaba, pero no pisa el de targets', async () => {
+    await handleTelemetry(message('targets', TARGETS));
+    await handleTelemetry(message('result', { ...RESULT_OK, RUN: 7 }));
+    expect((await Run.findOne().lean())?.number).toBe(7);
+
+    await handleTelemetry(message('targets', { ...TARGETS, RUN: 8 }));
+    await handleTelemetry(message('result', { ...RESULT_OK, RUN: 99 }));
+    expect((await Run.findOne({ number: 8 }).lean())?.state).toBe('finished');
+    expect(await Run.countDocuments({ number: 99 })).toBe(0);
+  });
+
+  it('una huerfana armada desde el result lo conserva; sin RUN queda null', async () => {
+    await handleTelemetry(message('result', { ...RESULT_OK, RUN: 5 }));
+    await handleTelemetry(message('targets', TARGETS));
+    const runs = await Run.find().sort({ startedAt: 1 }).lean();
+    expect(runs.map((r) => r.number)).toEqual([5, null]);
+  });
+
+  it('un targets repetido con el mismo numero sigue la corrida abierta (ESP32 reiniciada)', async () => {
+    await handleTelemetry(message('targets', { ...TARGETS, RUN: 12 }));
+    const primera = getCurrentRunId()?.toString();
+    await handleTelemetry(message('targets', { ...TARGETS, RUN: 12 }));
+    expect(getCurrentRunId()?.toString()).toBe(primera);
+    expect(await Run.countDocuments()).toBe(1);
+    expect((await Run.findOne().lean())?.state).toBe('running');
+
+    // Otro numero si es otra corrida: la anterior queda sin cierre.
+    await handleTelemetry(message('targets', { ...TARGETS, RUN: 13 }));
+    expect((await Run.findOne({ number: 12 }).lean())?.state).toBe('orphan');
+  });
+
+  it('un RUN que no es un entero positivo se ignora', async () => {
+    await handleTelemetry(message('targets', { ...TARGETS, RUN: 0 }));
+    expect((await Run.findOne().lean())?.number).toBeNull();
+  });
+});

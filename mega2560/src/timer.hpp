@@ -2,13 +2,8 @@
 
 #include <Arduino.h>
 #include <string.h>
-#include "debugconfig.hpp"
+#include "log.hpp"
 
-// Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
-// el interruptor maestro). Apagado (2026-09-01) durante bring-up INT-001
-// centrado en el circuito de campo magnetico -- ruido de scheduling
-// generico, no aporta a esa depuracion.
-constexpr bool DEBUG_TIMER = false;
 
 // =========================
 // Configuración
@@ -229,10 +224,8 @@ inline bool Timer::addTask(const char* name, unsigned long intervalMs) {
         }
     }
 
-    // No hay espacio
-    DEBUG_PRINT(DEBUG_TIMER, F("[TIMER][ERROR] addTask: sin espacio para la tarea '"));
-    DEBUG_PRINT(DEBUG_TIMER, name);
-    DEBUG_PRINTLN(DEBUG_TIMER, F("' (MAX_TASKS alcanzado)"));
+    // No hay espacio: esa tarea no va a correr nunca.
+    LOG_E(SISTEMA, "timer sin lugar para la tarea %s (MAX_TASKS=%d)", name, (int)MAX_TASKS);
     return false;
 }
 

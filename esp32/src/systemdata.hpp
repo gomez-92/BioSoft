@@ -1,11 +1,6 @@
 #pragma once
 #include "configurationoptions.hpp"
-#include "debugconfig.hpp"
-
-// Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
-// el interruptor maestro).
-constexpr bool DEBUG_SYSTEMDATA = true;
-
+#include "log.hpp"
 
 struct PrincipalData {
     // Valores sueltos, sin unidad: Principal y En curso muestran el numero
@@ -48,6 +43,8 @@ struct ConfigurationData {
 struct ProgressData {
   unsigned long startTime = 0;
   unsigned long duration = 0;
+  // Numero de la corrida en curso o de la ultima (runcounter.hpp). 0 = ninguna.
+  uint32_t runNumber = 0;
   char health[20] = "normal";
 };
 
@@ -122,6 +119,16 @@ struct MeasuresData {
   // reinicia al entrar a Running y suma una muestra por cem_data.
   double magneticFieldSum = 0.0;
   unsigned long magneticFieldSamples = 0;
+  // Minimo/maximo del campo y estadisticas de temperatura de la corrida,
+  // para el resumen final del log. Mismo reinicio que el acumulador.
+  float magneticFieldMin = NAN;
+  float magneticFieldMax = NAN;
+  double temperatureSum = 0.0;
+  unsigned long temperatureSamples = 0;
+  float temperatureMin = NAN;
+  float temperatureMax = NAN;
+  // Alertas (flag_data) recibidas en la corrida, sin deduplicar.
+  uint16_t alertEvents = 0;
 };
 
 #define MAX_ALERTS 3
@@ -213,8 +220,6 @@ class StateListener {
     virtual void onStateChanged(const char* oldState, const char* newState) = 0;
 };
 
-
-
 class SystemData {
   public:
     SystemData();
@@ -251,6 +256,7 @@ class SystemData {
     unsigned long remainingSeconds();
     float progressPercent();
     void addMagneticFieldSample(float value);
+    void addTemperatureSample(float value);
     float meanMagneticField() const;
     uint8_t activeAlertCount() const;
     const char* getState();
@@ -458,6 +464,15 @@ inline unsigned long SystemData::remainingSeconds() {
 inline void SystemData::addMagneticFieldSample(float value) {
   measures.magneticFieldSum += value;
   measures.magneticFieldSamples++;
+  if (isnan(measures.magneticFieldMin) || value < measures.magneticFieldMin) measures.magneticFieldMin = value;
+  if (isnan(measures.magneticFieldMax) || value > measures.magneticFieldMax) measures.magneticFieldMax = value;
+}
+
+inline void SystemData::addTemperatureSample(float value) {
+  measures.temperatureSum += value;
+  measures.temperatureSamples++;
+  if (isnan(measures.temperatureMin) || value < measures.temperatureMin) measures.temperatureMin = value;
+  if (isnan(measures.temperatureMax) || value > measures.temperatureMax) measures.temperatureMax = value;
 }
 
 inline float SystemData::meanMagneticField() const {
@@ -518,8 +533,6 @@ inline bool SystemData::isInitialized() {
 }
 
 inline void SystemData::setInitialized(bool initialized) {
-  DEBUG_PRINT(DEBUG_SYSTEMDATA, "initialized: ");
-  DEBUG_PRINTLN(DEBUG_SYSTEMDATA, initialized);
   _initialized = initialized;
 }
 

@@ -6,11 +6,7 @@
 
 #include "magnetometermanager.hpp"
 #include "fieldsampler.hpp"
-#include "debugconfig.hpp"
-
-// Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
-// el interruptor maestro).
-constexpr bool DEBUG_MAGNETOMETER_MLX90393 = true;
+#include "log.hpp"
 
 // Configuracion de conversion del sensor. Es un compromiso medido en papel,
 // no en banco:
@@ -43,6 +39,9 @@ private:
     bool _isValid;
     // begin_I2C() ya se llamo una vez (ver begin(): no se puede llamar dos).
     bool _driverCreated;
+    // Ultimo resultado de begin() (-1 = ninguno): se loguea solo si cambia,
+    // porque begin() se reintenta en cada start con el sensor ausente.
+    int8_t _beginState = -1;
 
     // IFieldBus
     uint32_t nowUs() const override { return micros(); }
@@ -103,12 +102,17 @@ inline void MagnetometerMlx90393::begin() {
         _isValid = _sensor.exitMode() && _sensor.reset();
     }
 
-    DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, F("[MLX90393] begin addr=0x"));
-    DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, _address, HEX);
-    DEBUG_PRINTLN(DEBUG_MAGNETOMETER_MLX90393, _isValid ? F(" -> OK")
-                  : present ? F(" -> FALLO (contesta pero no inicializa)")
-                            : F(" -> FALLO (no contesta en el bus)"));
-
+    int8_t state = !present ? 0 : !_isValid ? 1 : 2;
+    if (state != _beginState) {
+        _beginState = state;
+        if (state == 0) {
+            LOG_W(CAMPO, "MLX90393 no responde en 0x%02X", _address);
+        } else if (state == 1) {
+            LOG_W(CAMPO, "MLX90393 contesta en 0x%02X pero no inicializa", _address);
+        } else {
+            LOG_I(CAMPO, "MLX90393 listo en 0x%02X", _address);
+        }
+    }
     if (!_isValid)
         return;
 
@@ -124,24 +128,14 @@ inline void MagnetometerMlx90393::begin() {
 
 inline bool MagnetometerMlx90393::beginSampling(float freqHz, uint32_t windowMs) {
     if (!_isValid) return false;
-    bool ok = _sampler.begin(freqHz, windowMs);
-
-    DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, F("[MLX90393] muestreo f="));
-    DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, freqHz, 3);
-    DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, F(" Hz ventana="));
-    DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, windowMs);
-    DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, F(" ms -> "));
-    if (ok) {
-        DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, _sampler.plan().groupSize);
-        DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, F(" muestras/grupo cada "));
-        DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, _sampler.plan().spacingUs);
-        DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, F(" us, grupo de "));
-        DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, _sampler.plan().spanUs);
-        DEBUG_PRINTLN(DEBUG_MAGNETOMETER_MLX90393, _sampler.plan().uniform ? F(" us (uniforme)") : F(" us (fases repartidas)"));
-    } else {
-        DEBUG_PRINTLN(DEBUG_MAGNETOMETER_MLX90393, F("RECHAZADO (frecuencia fuera de rango)"));
+    if (!_sampler.begin(freqHz, windowMs)) {
+        LOG_W(CAMPO, "muestreo rechazado: frecuencia %.3f Hz fuera de rango", freqHz);
+        return false;
     }
-    return ok;
+    LOG_D(CAMPO, "muestreo f=%.3f Hz ventana=%lu ms grupo=%u muestras cada %lu us (%s)", freqHz,
+          (unsigned long)windowMs, (unsigned)_sampler.plan().groupSize, (unsigned long)_sampler.plan().spacingUs,
+          _sampler.plan().uniform ? "uniforme" : "fases repartidas");
+    return true;
 }
 
 inline void MagnetometerMlx90393::endSampling() {
@@ -152,28 +146,26 @@ inline bool MagnetometerMlx90393::poll() {
     if (!_isValid && !_sampler.running()) return false;
 
     bool fresh = _sampler.poll();
+    bool wasValid = _isValid;
 
     // Un bus que falla cinco veces seguidas invalida el sensor (silencio del
     // CEM1 corta el experimento, ver Engine); el primer acierto lo recupera.
     // begin() no se reintenta aca: re-inicializar el chip en caliente es lo
     // que ya fallaba en banco (ver MagnetometerManager::addMagnetometer).
     _isValid = _sampler.healthy();
+    if (wasValid && !_isValid) {
+        LOG_W(CAMPO, "MLX90393 sin respuesta del bus: sensor invalido");
+    } else if (!wasValid && _isValid) {
+        LOG_I(CAMPO, "MLX90393 vuelve a responder");
+    }
 
     if (!fresh) return false;
 
     _magneticField = _sampler.rmsUt() / 1000.0f;
+    // En uT tambien: cerca del ambiente el valor en mT redondea a 0.0000.
+    LOG_D(CAMPO, "%s rms=%.3f uT (%.6f mT) grupos=%u descartados=%u", _name, _sampler.rmsUt(), _magneticField,
+          (unsigned)_sampler.lastGroups(), (unsigned)_sampler.lastDiscarded());
 
-    DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, F("[MLX90393] "));
-    DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, _name);
-    DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, F(" RMS = "));
-    DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, _sampler.rmsUt(), 3);
-    DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, F(" uT / "));
-    DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, _magneticField, 6);
-    DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, F(" mT (grupos="));
-    DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, _sampler.lastGroups());
-    DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, F(" descartados="));
-    DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, _sampler.lastDiscarded());
-    DEBUG_PRINTLN(DEBUG_MAGNETOMETER_MLX90393, F(")"));
     return true;
 }
 

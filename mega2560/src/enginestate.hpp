@@ -1,11 +1,5 @@
 #pragma once
-#include "debugconfig.hpp"
-
-// Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
-// el interruptor maestro). Apagado (2026-09-01) durante bring-up INT-001
-// centrado en el circuito de campo magnetico -- transiciones de estado
-// genericas, no aportan a esa depuracion.
-constexpr bool DEBUG_ENGINESTATE = false;
+#include "log.hpp"
 
 namespace State {
   constexpr const char* Idle      = "idle";
@@ -39,13 +33,10 @@ inline const char* EngineState::getState() const {
 }
 
 inline void EngineState::setState(const char* state) {
-  DEBUG_PRINT(DEBUG_ENGINESTATE, "_engineState.setState(");
-  DEBUG_PRINT(DEBUG_ENGINESTATE, state);
-  DEBUG_PRINTLN(DEBUG_ENGINESTATE, ")");
 
   _state = state;
+  LOG_D(CORRIDA, "estado=%s", state);
   if(_listener == nullptr) {
-    DEBUG_PRINTLN(DEBUG_ENGINESTATE, "_listener es null");
     return;
   }
   if(_state == State::Ready) {

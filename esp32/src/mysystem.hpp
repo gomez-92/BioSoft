@@ -20,17 +20,14 @@
 #include "selectionstore.hpp"
 #include "remoteconfig.hpp"
 #include "remoteping.hpp"
-#include "debugconfig.hpp"
+#include "log.hpp"
+#include "eventlog.hpp"
+#include "runcounter.hpp"
 
-// Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
-// el interruptor maestro).
-constexpr bool DEBUG_MYSYSTEM = true;
 
 // El antiguo BENCH_SIN_MEGA (constante de compilacion, que habia quedado en
 // true en el firmware de produccion) es ahora `requireMega` de la tarjeta
 // SD, con default true. Ver MySystem::_benchWithoutMega().
-
-
 
 class MySystem :
   public CommandListener,
@@ -78,12 +75,24 @@ class MySystem :
     // Si `up` baja, el Mega se reinicio: _megaRebooted queda en true hasta
     // que lo consume el cierre de una corrida perdida (_closeLostRun).
     long _megaUptime = -1;
+    // Peor margen heap/stack que informo el Mega: se loguea solo si empeora.
     int _megaMinGap = 32767;
+    // Numero de corrida que informa el Mega en state_data mientras corre (0 =
+    // ninguno). Manda sobre el contador al entrar en Running: es lo que
+    // conserva el #N si la ESP32 se reinicio con la corrida en marcha.
+    uint32_t _megaRunNumber = 0;
+    // Cuando salio la configuracion al Mega: el log de "confirmada" dice
+    // cuanto tardo en llegar el ultimo ack.
+    unsigned long _megaConfigSentAt = 0;
     bool _megaRebooted = false;
     uint8_t _megaResetFlags = 0;
     uint8_t _megaPreviousStage = 0;
     void _readMegaDiagnostics(JsonVariantConst params);
     void _closeLostRun();
+    // Log de mediciones: resumen cada Intervals::LogSummary durante la
+    // corrida y resumen final con min/media/max.
+    void _logRunSummary();
+    void _logRunTotals();
     SerialLink& _serial;
     Timer& _timer;
     WiFiManager& _wifiManager;
@@ -132,6 +141,8 @@ class MySystem :
     void _sendMegaConfig();
     void _updateRemoteConfig();
     void _answerPings();
+    // Bitacora remota (eventlog.hpp): publica el evento mas viejo pendiente.
+    void _publishEvents();
     // Banco sin Mega2560: `requireMega: false` en la tarjeta Y el serial sin
     // conectar. Al vencer el splash se pasa a Principal igual (forzando
     // Ready) en vez de esperar el primer state_data; Iniciar pasa directo a
@@ -244,7 +255,8 @@ inline void MySystem::begin() {
     if (_sdStorage.exists(RemoteConfig::TrialPath)) {
       _configTrial = true;
       _configTrialSince = millis();
-      DEBUG_PRINTLN(DEBUG_MYSYSTEM, "[CONFIG] configuracion remota A PRUEBA: tiene 5 min para llegar al broker");
+      LOG_I(CONFIG, "configuracion remota a prueba: tiene %lu s para llegar al broker",
+            (unsigned long)(RemoteConfig::ConfigTrialMs / 1000UL));
     }
     if (_sdStorage.exists(RemoteConfig::RevertedPath)
         && _sdStorage.readFile(RemoteConfig::RevertedPath, request, sizeof(request))) {
@@ -301,6 +313,7 @@ inline void MySystem::update() {
   _timer.tick();
   _updateRemoteConfig();
   _answerPings();
+  _publishEvents();
   _rebootForConfigIfIdle();
   _checkConfigTrial();
 }
@@ -317,8 +330,9 @@ inline void MySystem::_checkConfigTrial() {
     char payload[256];
     if (RemoteConfig::buildReverted(_revertedRequest, payload, sizeof(payload)) > 0) {
       _publish(RemoteConfig::TopicStatus, payload, false);
+      EVENTO_W(CONFIG, config_remota, "configuracion remota revertida: sin broker en %lu s volvio la anterior (pedido %s)",
+               (unsigned long)(RemoteConfig::ConfigTrialMs / 1000UL), _revertedRequest);
     }
-    DEBUG_PRINTF(DEBUG_MYSYSTEM, "[CONFIG] aviso al monitor: pedido %s revertido\n", _revertedRequest);
     _sdStorage.remove(RemoteConfig::RevertedPath);
     _revertedRequest[0] = '\0';
   }
@@ -332,19 +346,20 @@ inline void MySystem::_checkConfigTrial() {
     if (const ConfigLoader::WifiNetworkConfig* fallback = ConfigLoader::fallbackNetwork()) {
       if (WiFi.SSID() != fallback->ssid) {
         _sdStorage.remove(ConfigLoader::FallbackPath);
-        DEBUG_PRINTF(DEBUG_MYSYSTEM, "[CONFIG] conecto por %s: se quita la red %s\n", WiFi.SSID().c_str(), fallback->ssid);
+        LOG_I(CONFIG, "conecto por otra red: se quita la red de respaldo");
+        LOG_D(CONFIG, "red de respaldo quitada ssid=%s", fallback->ssid);
       } else {
+        EVENTO_W(CONFIG, config_remota, "solo conecto por la red de respaldo: se conserva");
         char request[RemoteConfig::MaxRequestIdLength + 1] = "";
         _sdStorage.readFile(RemoteConfig::TrialPath, request, sizeof(request));
         char payload[256];
         if (request[0] != '\0' && RemoteConfig::buildNetworkKept(request, fallback->ssid, payload, sizeof(payload)) > 0) {
           _publish(RemoteConfig::TopicStatus, payload, false);
         }
-        DEBUG_PRINTF(DEBUG_MYSYSTEM, "[CONFIG] solo conecto por %s: se conserva\n", fallback->ssid);
       }
     }
     _sdStorage.remove(RemoteConfig::TrialPath);
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, "[CONFIG] llego al broker: configuracion remota confirmada");
+    LOG_I(CONFIG, "llego al broker: configuracion remota confirmada");
     return;
   }
   if (millis() - _configTrialSince < RemoteConfig::ConfigTrialMs) return;
@@ -352,16 +367,17 @@ inline void MySystem::_checkConfigTrial() {
 
   char request[RemoteConfig::MaxRequestIdLength + 1] = "";
   _sdStorage.readFile(RemoteConfig::TrialPath, request, sizeof(request));
-  DEBUG_PRINTLN(DEBUG_MYSYSTEM, "[CONFIG] sin broker en 5 min: se vuelve a la configuracion anterior");
   bool restored = _sdStorage.exists(RemoteConfig::PrevPath)
     ? _sdStorage.copyFile(RemoteConfig::PrevPath, ConfigLoader::ConfigPath)
     : _sdStorage.remove(ConfigLoader::ConfigPath);
   if (!restored) {
     // Sin poder restaurar no se reinicia en bucle: se deja de intentar.
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, "[CONFIG] no se pudo restaurar la configuracion anterior");
+    LOG_E(CONFIG, "sin broker y no se pudo restaurar la configuracion anterior");
     _configTrial = false;
     return;
   }
+  LOG_W(CONFIG, "sin broker en %lu s: se vuelve a la configuracion anterior y se reinicia",
+        (unsigned long)(RemoteConfig::ConfigTrialMs / 1000UL));
   _sdStorage.writeFile(RemoteConfig::RevertedPath, request);
   _sdStorage.remove(RemoteConfig::TrialPath);
   // La configuracion anterior tiene la red que se habia quitado.
@@ -388,7 +404,7 @@ inline void MySystem::_checkConfigTrial() {
 inline void MySystem::onConfigAccepted() {
   _configAcceptedAt = millis();
   _data.configRebootPending = true;
-  DEBUG_PRINTLN(DEBUG_MYSYSTEM, "[CONFIG] grabada: la placa se reinicia en la pantalla principal");
+  EVENTO_I(CONFIG, config_remota, "configuracion remota grabada: se reinicia al volver a Principal sin corrida");
 }
 
 inline void MySystem::_rebootForConfigIfIdle() {
@@ -399,7 +415,7 @@ inline void MySystem::_rebootForConfigIfIdle() {
   if (experimentInProgress()) return;
   IScreen* current = _screenManager.getCurrent();
   if (current == nullptr || current->getType() != ScreenType::PRINCIPAL) return;
-  DEBUG_PRINTLN(DEBUG_MYSYSTEM, "[CONFIG] reiniciando para aplicar la configuracion nueva");
+  LOG_I(CONFIG, "reiniciando para aplicar la configuracion nueva");
   delay(100);   // que el log salga por USB
   ESP.restart();
 }
@@ -462,9 +478,26 @@ inline void MySystem::_answerPings() {
                                           ConfigLoader::loadStatus(), _serial.isConnected(), millis() / 1000,
                                           network.c_str(), rssi, payload, sizeof(payload));
     if (length == 0) continue;
-    DEBUG_PRINTF(DEBUG_MYSYSTEM, "[PING] %s -> pong\n", request.id);
+    LOG_D(REMOTA, "ping %s -> pong", request.id);
     _publish(RemotePing::TopicPong, payload, false);
   }
+}
+
+// De a un evento por vuelta y solo con la cola de publicacion vacia: la
+// bitacora no desplaza telemetria, y con el broker caido los eventos se
+// quedan en el buffer hasta que vuelva. Se saca del buffer aunque el armado
+// falle (no entra): reintentarlo trabaria todos los de atras.
+inline void MySystem::_publishEvents() {
+  if (!_data.communication.brokerOk || !publishQueueIdle()) return;
+  EventLog::Entry entry;
+  uint16_t overwritten = 0;
+  if (!EventLog::peek(entry, overwritten)) return;
+  char payload[320];
+  if (EventLog::buildPayload(entry, overwritten, _timeIsValid(), payload, sizeof(payload)) > 0) {
+    _publish(EventLog::Topic, payload, false);
+    LOG_D(REMOTA, "evento %lu publicado %s", (unsigned long)entry.seq, entry.code);
+  }
+  EventLog::pop(entry.seq);
 }
 
 inline void MySystem::_updateRemoteConfig() {
@@ -518,7 +551,7 @@ inline void MySystem::remoteUpdate() {
     static bool warned = false;
     if (!warned && _data.communication.wifiOk) {
       warned = true;
-      DEBUG_PRINTLN(DEBUG_MYSYSTEM, F("[NTP] esperando hora valida antes de conectar al broker"));
+      LOG_I(SISTEMA, "esperando la hora (NTP) antes de conectar al broker");
     }
     return;
   }
@@ -528,10 +561,6 @@ inline void MySystem::remoteUpdate() {
 
 inline void MySystem::_sendStart() {
 
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, );
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, "========================================");
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, "[START] Preparando comando START");
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, "========================================");
 
     JsonDocument doc;
 
@@ -539,17 +568,10 @@ inline void MySystem::_sendStart() {
     // CEM
     // ========================================================
 
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, "[START] Obteniendo target CEM...");
 
     auto cem = ConfigurationOptions::optionsFieldIntensity[
         _data.configuration.targetFieldIntensityOption
     ].intensity;
-
-    DEBUG_PRINT(DEBUG_MYSYSTEM, "[START] targetFieldIntensityOption = ");
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, _data.configuration.targetFieldIntensityOption);
-
-    DEBUG_PRINT(DEBUG_MYSYSTEM, "[START] cem = ");
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, cem, 4);
 
     doc["cem"] = cem;
 
@@ -558,17 +580,10 @@ inline void MySystem::_sendStart() {
     // FRECUENCIA
     // ========================================================
 
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, "[START] Obteniendo frecuencia...");
 
     auto freq = ConfigurationOptions::optionsFrequency[
         _data.configuration.targetFieldFrequencyOption
     ].freq;
-
-    DEBUG_PRINT(DEBUG_MYSYSTEM, "[START] targetFieldFrequencyOption = ");
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, _data.configuration.targetFieldFrequencyOption);
-
-    DEBUG_PRINT(DEBUG_MYSYSTEM, "[START] freq = ");
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, freq);
 
     doc["freq"] = freq;
 
@@ -577,18 +592,10 @@ inline void MySystem::_sendStart() {
     // DURACION
     // ========================================================
 
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, "[START] Obteniendo duracion...");
 
     auto dur = ConfigurationOptions::optionsDuration[
         _data.configuration.targetDurationOption
     ].duration;
-
-    DEBUG_PRINT(DEBUG_MYSYSTEM, "[START] targetDurationOption = ");
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, _data.configuration.targetDurationOption);
-
-    DEBUG_PRINT(DEBUG_MYSYSTEM, "[START] dur = ");
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, dur);
-
 
     doc["dur"] = dur;
 
@@ -597,17 +604,10 @@ inline void MySystem::_sendStart() {
     // TOLERANCIA CEM
     // ========================================================
 
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, "[START] Obteniendo tolerancia CEM...");
 
     auto tol = ConfigurationOptions::optionsTolFieldIntensity[
         _data.configuration.fieldIntensityToleranceOption
     ].tol;
-
-    DEBUG_PRINT(DEBUG_MYSYSTEM, "[START] fieldIntensityToleranceOption = ");
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, _data.configuration.fieldIntensityToleranceOption);
-
-    DEBUG_PRINT(DEBUG_MYSYSTEM, "[START] tol = ");
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, tol);
 
     doc["tol"] = tol;
 
@@ -616,17 +616,10 @@ inline void MySystem::_sendStart() {
     // TEMPERATURA NORMAL MIN
     // ========================================================
 
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, "[START] Obteniendo temperatura normal minima...");
 
     auto tnmin = ConfigurationOptions::optionsRangeNormalTemperature[
         _data.configuration.normalTemperatureRangeOption
     ].tmin;
-
-    DEBUG_PRINT(DEBUG_MYSYSTEM, "[START] normalTemperatureRangeOption = ");
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, _data.configuration.normalTemperatureRangeOption);
-
-    DEBUG_PRINT(DEBUG_MYSYSTEM, "[START] tnmin = ");
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, tnmin, 2);
 
     doc["tnmin"] = tnmin;
 
@@ -639,8 +632,6 @@ inline void MySystem::_sendStart() {
         _data.configuration.normalTemperatureRangeOption
     ].tmax;
 
-    DEBUG_PRINT(DEBUG_MYSYSTEM, "[START] tnmax = ");
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, tnmax, 2);
 
     doc["tnmax"] = tnmax;
 
@@ -649,17 +640,10 @@ inline void MySystem::_sendStart() {
     // TEMPERATURA CRITICA MIN
     // ========================================================
 
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, "[START] Obteniendo temperatura critica minima...");
 
     auto tcmin = ConfigurationOptions::optionsRangeCriticalTemperature[
         _data.configuration.criticalTemperatureRangeOption
     ].tmin;
-
-    DEBUG_PRINT(DEBUG_MYSYSTEM, "[START] criticalTemperatureRangeOption = ");
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, _data.configuration.criticalTemperatureRangeOption);
-
-    DEBUG_PRINT(DEBUG_MYSYSTEM, "[START] tcmin = ");
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, tcmin, 2);
 
     doc["tcmin"] = tcmin;
 
@@ -672,8 +656,6 @@ inline void MySystem::_sendStart() {
         _data.configuration.criticalTemperatureRangeOption
     ].tmax;
 
-    DEBUG_PRINT(DEBUG_MYSYSTEM, "[START] tcmax = ");
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, tcmax, 2);
 
     doc["tcmax"] = tcmax;
 
@@ -689,47 +671,33 @@ inline void MySystem::_sendStart() {
     // que es donde se confirma en banco cual de las dos condiciones
     // experimentales quedo activa.
 
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, "[START] Obteniendo modo de experimento...");
 
     auto mode = ConfigurationOptions::optionsFieldMode[
         _data.configuration.fieldModeOption
     ].value;
 
-    DEBUG_PRINT(DEBUG_MYSYSTEM, "[START] fieldModeOption = ");
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, _data.configuration.fieldModeOption);
-
-    DEBUG_PRINT(DEBUG_MYSYSTEM, "[START] mode = ");
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, mode);
-
     doc["mode"] = mode;
 
-
-    // ========================================================
-    // JSON FINAL
-    // ========================================================
-
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, );
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, "[START] JSON generado:");
-
-    serializeJsonPretty(doc, Serial);
-
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, );
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, );
+    // Numero de corrida (runcounter.hpp): reservado, se confirma al entrar en
+    // Running. El Mega solo lo escribe en su log, para que las dos placas y
+    // el monitor nombren la corrida igual.
+    uint32_t run = RunCounter::next();
+    doc["run"] = run;
 
     // ========================================================
     // ENVIO
     // ========================================================
 
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, "[START] Enviando comando START...");
 
+    // El primer envio (todavia no en Starting) va como info; los reenvios
+    // por falta de ack, solo en detalle.
+    if (strcmp(_data.getState(), StateData::Starting) != 0) {
+      LOG_I(CORRIDA, "start corrida=#%lu cem=%.3f mT freq=%d Hz dur=%lu s tol=%d %% modo=%s", (unsigned long)run,
+            (double)cem, (int)freq, (unsigned long)dur / 1000UL, (int)tol, mode);
+    } else {
+      LOG_D(CORRIDA, "start reenviado (sin ack)");
+    }
     _serial.sendCommand(Commands::Start, doc);
-
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, "[START] Comando START enviado correctamente");
-
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, "========================================");
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, "[START] Fin _sendStart()");
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, "========================================");
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, );
 }
 
 inline void MySystem::_sendStop() {
@@ -877,10 +845,10 @@ inline void MySystem::_registerPendingConfig(const char* command, const char* ke
 // tick de Tasks::ReSendConfig, que es exactamente para lo que existe.
 inline bool MySystem::_sendConfigFrame(const char* command, JsonDocument& doc, const char* key) {
   if (!_serial.sendCommand(command, doc)) {
-    DEBUG_PRINT(DEBUG_MYSYSTEM, F("[CONFIG] cola llena, queda pendiente: "));
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, command);
+    LOG_D(CONFIG, "%s %s: cola serie llena, sale en el proximo intento", command, key);
     return false;
   }
+  LOG_D(CONFIG, "%s %s enviado", command, key);
   return true;
 }
 
@@ -953,6 +921,13 @@ inline void MySystem::_sendMegaConfig() {
     snprintf(key, sizeof(key), "%u/%u", currents[i].address, currents[i].channel);
     _registerPendingConfig(Commands::ConfigCurrent, key);
   }
+
+  uint8_t frames = 0;
+  for (uint8_t i = 0; i < MaxPendingConfigFrames; i++) {
+    if (_pendingConfig[i].active) frames++;
+  }
+  _megaConfigSentAt = millis();
+  LOG_I(CONFIG, "enviando configuracion al Mega tramas=%u", frames);
 
   _timer.addTask(Tasks::ReSendConfig, Intervals::ReSendConfig);
   _resendPendingConfig();
@@ -1081,6 +1056,10 @@ inline void MySystem::_cancelPendingConfig(const char* command, const char* key)
     }
   }
 
+  if (!anyActive && _megaConfigSentAt != 0) {
+    LOG_I(CONFIG, "configuracion del Mega confirmada en %lu ms", millis() - _megaConfigSentAt);
+    _megaConfigSentAt = 0;
+  }
   if (!anyActive) {
     _timer.removeTask(Tasks::ReSendConfig);
   }
@@ -1095,8 +1074,8 @@ inline bool MySystem::_publish(const char* topic, const char* payload, bool reta
 // "todavia no es valido". Se dispara al conectar el WiFi y no bloquea; quien
 // espera es _timeIsValid(), que mide si ya llego la hora.
 inline void MySystem::_syncTime() {
+  LOG_D(SISTEMA, "sincronizacion NTP pedida");
   configTime(0, 0, "pool.ntp.org", "time.nist.gov");
-  DEBUG_PRINTLN(DEBUG_MYSYSTEM, F("[NTP] sincronizacion pedida"));
 }
 
 // Cualquier fecha posterior al desarrollo de esto alcanza para distinguir
@@ -1169,6 +1148,8 @@ inline void MySystem::_publishTargets() {
   // relajaciones tenia. Ver ConfigLoader::configId() / relaxationMask().
   doc["CFG"] = ConfigLoader::configId();
   doc["RLX"] = ConfigLoader::relaxationMask();
+  // El numero de corrida: el mismo que muestran los logs USB de las placas.
+  doc["RUN"] = _data.progress.runNumber;
 
   _publishTelemetry(Topics::Targets, doc);
 }
@@ -1207,6 +1188,8 @@ inline void MySystem::_publishResult() {
   // arrancar la corrida), la huerfana que arma con este result conserva la
   // marca igual.
   doc["TEST"] = ConfigLoader::marksRunsAsTest();
+  // Tambien aca: una huerfana armada desde el result conserva su numero.
+  if (_data.progress.runNumber > 0) doc["RUN"] = _data.progress.runNumber;
 
   _publishTelemetry(Topics::Result, doc);
 }
@@ -1231,11 +1214,7 @@ inline void MySystem::_publishTelemetry(const Topics::TelemetryGroup& group, Jso
   // ilegible para el Decoder: se perderia la tanda entera sin una linea que
   // lo explique. Mejor no publicar y decirlo.
   if (length >= sizeof(payload) - 1) {
-    DEBUG_PRINT(DEBUG_MYSYSTEM, F("[TELEMETRIA] payload de "));
-    DEBUG_PRINT(DEBUG_MYSYSTEM, group.topic);
-    DEBUG_PRINT(DEBUG_MYSYSTEM, F(" no entra en "));
-    DEBUG_PRINT(DEBUG_MYSYSTEM, (int)sizeof(payload));
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, F(" bytes -- no se publica"));
+    LOG_E(TELEMETRIA, "payload de %s no entra en %u B: no se publica", group.topic, (unsigned)sizeof(payload));
     return;
   }
 
@@ -1256,9 +1235,6 @@ inline void MySystem::_publishStatus() {
 
   _publishTelemetry(Topics::Status, doc);
 }
-
-
-
 
 inline void MySystem::_processState(const char* status, bool forceStatus) {
   IScreen* screen = _screenManager.getCurrent();
@@ -1317,6 +1293,18 @@ inline void MySystem::_processState(const char* status, bool forceStatus) {
   }
   else if(strcmp(status, StateData::Running) == 0) {
     if(current == ScreenType::RUNNING) return;
+    // Esperando la confirmacion de Detener: un "running" es el state_data
+    // periodico que el Mega mando ANTES de procesar el stop. Tomarlo volvia
+    // a entrar en la corrida como si empezara -- reloj de progreso y
+    // estadisticas en cero (el resumen final cubria solo los ultimos
+    // segundos), En curso de nuevo en pantalla y los objetivos publicados
+    // otra vez, que el monitor tomaba como una corrida nueva y dejaba la
+    // anterior huerfana (2026-11-22, visible con el numero de corrida). El
+    // reenvio del stop y el timeout de la pantalla de espera siguen a cargo.
+    if(current == ScreenType::BUSY && _data.getState() == StateData::Stopping) {
+      LOG_D(CORRIDA, "running ignorado: esperando la confirmacion de detener");
+      return;
+    }
     // Misma duracion (ms) que _sendStart() ya mando como "dur" -- se
     // calcula el progreso localmente, sin esperar nada nuevo del Mega.
     // El reloj arranca en el ack del start (ver _startAckAt), no ahora: este
@@ -1325,10 +1313,9 @@ inline void MySystem::_processState(const char* status, bool forceStatus) {
     unsigned long now = millis();
     bool ackReciente = _startAckAt != 0 && now - _startAckAt < 30000UL;
     _data.progress.startTime = ackReciente ? _startAckAt : now;
+    LOG_D(CORRIDA, "reloj desde %s (%lu ms antes del paso a Running)",
+          ackReciente ? "el ack del start" : "el paso a Running", ackReciente ? now - _startAckAt : 0UL);
     _startAckAt = 0;
-    DEBUG_PRINTF(DEBUG_MYSYSTEM, "[PROGRESS] reloj desde %s (%lu ms antes del paso a Running)\n",
-                 ackReciente ? "el ack del start" : "el paso a Running",
-                 ackReciente ? (unsigned long) (now - _data.progress.startTime) : 0UL);
     _data.progress.duration = ConfigurationOptions::optionsDuration[
         _data.configuration.targetDurationOption
     ].duration;
@@ -1351,6 +1338,39 @@ inline void MySystem::_processState(const char* status, bool forceStatus) {
     // con cada experimento.
     _data.measures.magneticFieldSum = 0.0;
     _data.measures.magneticFieldSamples = 0;
+    _data.measures.magneticFieldMin = NAN;
+    _data.measures.magneticFieldMax = NAN;
+    _data.measures.temperatureSum = 0.0;
+    _data.measures.temperatureSamples = 0;
+    _data.measures.temperatureMin = NAN;
+    _data.measures.temperatureMax = NAN;
+    _data.measures.alertEvents = 0;
+    // El numero de la corrida. Normalmente el que se reservo al mandar el
+    // start, que el Mega devuelve en state_data. Si el Mega trae OTRO, la
+    // ESP32 se reinicio con la corrida en marcha (el contador ya habia
+    // confirmado ese numero y next() seria el siguiente): manda el del
+    // Mega, que es el que tienen su log y el monitor. Sin numero del Mega
+    // (banco sin Mega, Mega viejo), el siguiente del contador.
+    uint32_t reserved = RunCounter::next();
+    _data.progress.runNumber = _megaRunNumber > 0 ? _megaRunNumber : reserved;
+    RunCounter::commit(_data.progress.runNumber);
+    // Desde aca cada evento de la bitacora lleva este numero.
+    EventLog::activeRun = _data.progress.runNumber;
+    {
+      const auto& cfg = _data.configuration;
+      if (_megaRunNumber > 0 && _megaRunNumber != reserved) {
+        EVENTO_W(CORRIDA, corrida_inicio, "corrida #%lu retomada con el numero del Mega (la ESP32 se reinicio en plena corrida)",
+                 (unsigned long)_data.progress.runNumber);
+      } else {
+        EVENTO_I(CORRIDA, corrida_inicio, "corrida #%lu en curso modo=%s cem=%.3f mT freq=%d Hz dur=%lu s%s",
+                 (unsigned long)_data.progress.runNumber,
+                 ConfigurationOptions::optionsFieldMode[cfg.fieldModeOption].value,
+                 (double)ConfigurationOptions::optionsFieldIntensity[cfg.targetFieldIntensityOption].intensity,
+                 (int)ConfigurationOptions::optionsFrequency[cfg.targetFieldFrequencyOption].freq,
+                 (unsigned long)(ConfigurationOptions::optionsDuration[cfg.targetDurationOption].duration / 1000UL),
+                 ConfigLoader::marksRunsAsTest() ? " prueba" : "");
+      }
+    }
     _data.setState(status);
     _screenManager.show(ScreenType::RUNNING);
   }
@@ -1369,30 +1389,23 @@ inline void MySystem::_processState(const char* status, bool forceStatus) {
 }
 
 inline void MySystem::onCommand(const char* command, JsonVariantConst params) {
-  DEBUG_PRINT(DEBUG_MYSYSTEM, "Command: ");
-  DEBUG_PRINTLN(DEBUG_MYSYSTEM, command);
   if(strcmp(command, Commands::Ping) == 0) {
     if (!params["value"].is<long>()) return;
     long value = params["value"].as<long>();
-    DEBUG_PRINT(DEBUG_MYSYSTEM, "value: ");
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, value);
     _serial.sendPong(value);
   }
   else if(strcmp(command, Commands::Pong) == 0) {
     if (!params["value"].is<long>()) return;
     long value = params["value"].as<long>();
-    DEBUG_PRINT(DEBUG_MYSYSTEM, "value: ");
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, value);
     _serial.handlePingResponse(value);
   }
   else if(strcmp(command, Commands::StateData) == 0) {
     if (params.containsKey("status") && params["status"].is<const char*>()) {
       const char* status = params["status"].as<const char*>();
-      DEBUG_PRINT(DEBUG_MYSYSTEM, "status: ");
-      DEBUG_PRINTLN(DEBUG_MYSYSTEM, status);
       // Antes de _processState: si este ready es el de un Mega recien
       // reiniciado, el cierre de la corrida tiene que saberlo.
       _readMegaDiagnostics(params);
+      _megaRunNumber = params["run"] | 0UL;
       _processState(status);
     }
   }
@@ -1456,15 +1469,18 @@ inline void MySystem::onCommand(const char* command, JsonVariantConst params) {
     int count = params["count"] | 0;
     int limit = params["limit"] | 0;
 
-    DEBUG_PRINT(DEBUG_MYSYSTEM, F("[FLAG] "));
-    DEBUG_PRINT(DEBUG_MYSYSTEM, source);
-    DEBUG_PRINT(DEBUG_MYSYSTEM, F(" tipo="));
-    DEBUG_PRINT(DEBUG_MYSYSTEM, type);
-    DEBUG_PRINT(DEBUG_MYSYSTEM, F(" count="));
-    DEBUG_PRINT(DEBUG_MYSYSTEM, count);
-    DEBUG_PRINT(DEBUG_MYSYSTEM, F("/"));
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, limit);
 
+    _data.measures.alertEvents++;
+    // El ultimo valor recibido de esa fuente: con que medicion se disparo.
+    if (strcmp(source, "CEM1") == 0 && _data.measures.latestMagneticFieldUpdate != 0) {
+      LOG_W(CORRIDA, "alerta %s tipo=%s n=%d/%d ultimo=%.3f mT", source, type, count, limit,
+            (double)_data.measures.measureMagneticField);
+    } else if (strcmp(source, "TEMP1") == 0 && _data.measures.latestTemperatureUpdate != 0) {
+      LOG_W(CORRIDA, "alerta %s tipo=%s n=%d/%d ultimo=%.1f C", source, type, count, limit,
+            (double)_data.measures.measureTemperature);
+    } else {
+      LOG_W(CORRIDA, "alerta %s tipo=%s n=%d/%d", source, type, count, limit);
+    }
     _data.pushAlert(type, source, count, limit);
     // Dos registros distintos a proposito: pushAlert dedupe por fuente+tipo
     // (lo que necesitan la salud y Resultado) y pushAlertEvent NO dedupe,
@@ -1486,6 +1502,9 @@ inline void MySystem::onCommand(const char* command, JsonVariantConst params) {
       float temp1 = params["TEMP1"].as<float>();
       _data.measures.measureTemperature = temp1;
       _data.measures.latestTemperatureUpdate = millis();
+      if (strcmp(_data.getState(), StateData::Running) == 0) {
+        _data.addTemperatureSample(temp1);
+      }
     }
   }
   else if(strcmp(command, Commands::CemData) == 0) {
@@ -1563,6 +1582,63 @@ inline void MySystem::onTimer(const char* name) {
   else if(strcmp(name, Tasks::ReSendConfig) == 0) {
     _resendPendingConfig();
   }
+  else if(strcmp(name, Tasks::LogSummary) == 0) {
+    _logRunSummary();
+  }
+}
+
+// Una linea con todo lo que la ESP32 sabe de la corrida en este momento. Si
+// el monitor muestra algo raro, es el punto de comparacion en el log: que
+// media la placa, que bobinas reportaban y si el Mega y el broker estaban.
+inline void MySystem::_logRunSummary() {
+  char field[24];
+  char temp[24];
+  if (_data.measures.latestMagneticFieldUpdate != 0) {
+    snprintf(field, sizeof(field), "%.3f mT", (double)_data.measures.measureMagneticField);
+  } else {
+    snprintf(field, sizeof(field), "sin dato");
+  }
+  if (_data.measures.latestTemperatureUpdate != 0) {
+    snprintf(temp, sizeof(temp), "%.1f C", (double)_data.measures.measureTemperature);
+  } else {
+    snprintf(temp, sizeof(temp), "sin dato");
+  }
+  // Solo las bobinas que reportaron: B1=duty %/corriente A.
+  char coils[96] = "";
+  size_t used = 0;
+  for (uint8_t i = 0; i < MAX_COILS && used < sizeof(coils); i++) {
+    if (_data.measures.latestCoilUpdate[i] == 0) continue;
+    int n = snprintf(coils + used, sizeof(coils) - used, "%sB%u=%.1f%%/%.2fA", used ? " " : "", i + 1,
+                     (double)_data.measures.coilDuty[i], (double)_data.measures.coilCurrent[i]);
+    if (n < 0) break;
+    used += (size_t)n;
+  }
+  LOG_I(CORRIDA, "#%lu t=%lu s %.0f %% campo=%s temp=%s %s salud=%s alertas=%u mega=%s broker=%s",
+        (unsigned long)_data.progress.runNumber, _data.elapsedSeconds(), (double)_data.progressPercent(), field, temp, coils[0] ? coils : "bobinas=sin dato",
+        _data.progress.health, (unsigned)_data.measures.alertEvents, _data.communication.serialOk ? "ok" : "caido",
+        _data.communication.brokerOk ? "ok" : "caido");
+}
+
+// Al terminar: min/media/max de cada medicion y cuantas muestras llegaron
+// (un n bajo dice que una medicion dejo de llegar).
+inline void MySystem::_logRunTotals() {
+  const MeasuresData& m = _data.measures;
+  char field[72];
+  char temp[72];
+  if (m.magneticFieldSamples > 0) {
+    snprintf(field, sizeof(field), "campo min=%.3f media=%.3f max=%.3f mT n=%lu", (double)m.magneticFieldMin,
+             m.magneticFieldSum / m.magneticFieldSamples, (double)m.magneticFieldMax, m.magneticFieldSamples);
+  } else {
+    snprintf(field, sizeof(field), "campo sin datos");
+  }
+  if (m.temperatureSamples > 0) {
+    snprintf(temp, sizeof(temp), "temp min=%.1f media=%.1f max=%.1f C n=%lu", (double)m.temperatureMin,
+             m.temperatureSum / m.temperatureSamples, (double)m.temperatureMax, m.temperatureSamples);
+  } else {
+    snprintf(temp, sizeof(temp), "temp sin datos");
+  }
+  LOG_I(CORRIDA, "resumen #%lu %s | %s | alertas=%u", (unsigned long)_data.progress.runNumber, field, temp,
+        (unsigned)m.alertEvents);
 }
 
 // Loguea el diagnostico del Mega cuando dice algo nuevo (no cada 5 s): un
@@ -1573,22 +1649,36 @@ inline void MySystem::_readMegaDiagnostics(JsonVariantConst params) {
   long up = params["up"].as<long>();
   uint8_t rst = params["rst"] | 0;
   uint8_t stg = params["stg"] | 0;
+
   int gap = params["gap"] | 32767;
   int ram = params["ram"] | -1;
 
   if (_megaUptime >= 0 && up < _megaUptime) {
     _megaRebooted = true;
     _megaMinGap = 32767;
-    DEBUG_PRINTF(DEBUG_MYSYSTEM, "[MEGA] REINICIO detectado: up %ld s -> %ld s | rst=0x%02X etapa=%u\n",
-                 _megaUptime, up, rst, stg);
+    EVENTO_E(ENLACE, mega_reinicio, "el Mega se reinicio: up %ld s -> %ld s etapa=%u", _megaUptime, up, stg);
+    // Un Mega que vuelve en menos de 10 s (carga de firmware, boton de
+    // reset) no llega a perder el enlace, asi que onSerialConnected no
+    // dispara y quedaba con su configuracion de fabrica (banco, 2026-11-22:
+    // CEM1 en el MLX real sin cablear, corte por silencio a los 10 s).
+    _sendMegaConfig();
   }
   else if (_megaUptime < 0) {
-    DEBUG_PRINTF(DEBUG_MYSYSTEM, "[MEGA] up=%ld s rst=0x%02X etapa_previa=%u gap=%d ram=%d\n",
-                 up, rst, stg, gap, ram);
+    LOG_I(ENLACE, "Mega up=%ld s rst=0x%02X etapa_previa=%u gap=%d B ram=%d B", up, rst, stg, gap, ram);
   }
+  // Por flanco: solo cuando el peor margen empeora. Cerca de 0 es la
+  // antesala del cuelgue (heap y stack pisandose).
   if (gap < _megaMinGap) {
+    bool crossed = _megaMinGap >= 500;
     _megaMinGap = gap;
-    DEBUG_PRINTF(DEBUG_MYSYSTEM, "[MEGA] margen heap/stack minimo: %d bytes (libre ahora %d)\n", gap, ram);
+    if (gap < 500 && crossed) {
+      // A la bitacora solo el cruce: los minimos siguientes van al log USB.
+      EVENTO_W(ENLACE, mega_margen_bajo, "margen heap/stack del Mega bajo minimo=%d B (libre %d B)", gap, ram);
+    } else if (gap < 500) {
+      LOG_W(ENLACE, "margen heap/stack del Mega bajo minimo=%d B (libre %d B)", gap, ram);
+    } else {
+      LOG_I(ENLACE, "margen heap/stack del Mega minimo=%d B (libre %d B)", gap, ram);
+    }
   }
   _megaUptime = up;
   _megaResetFlags = rst;
@@ -1602,19 +1692,20 @@ inline void MySystem::_readMegaDiagnostics(JsonVariantConst params) {
 inline void MySystem::_closeLostRun() {
   char description[64];
   if (_megaRebooted) {
-    snprintf(description, sizeof(description), "el Mega se reinicio durante la corrida (rst=0x%02X etapa=%u)",
-             _megaResetFlags, _megaPreviousStage);
+    // Sin rst: con el bootloader del Mega llega siempre en 0 (diag.hpp).
+    snprintf(description, sizeof(description), "el Mega se reinicio durante la corrida (etapa=%u)",
+             _megaPreviousStage);
   } else {
     snprintf(description, sizeof(description), "el Mega volvio a Ready sin informar el fin");
   }
   _megaRebooted = false;
-  DEBUG_PRINT(DEBUG_MYSYSTEM, F("[RESULT] corrida perdida: "));
-  DEBUG_PRINTLN(DEBUG_MYSYSTEM, description);
+  EVENTO_E(CORRIDA, corrida_perdida, "corrida #%lu perdida: %s", (unsigned long)_data.progress.runNumber, description);
   _applyResult("lost", description);
 }
 
 inline void MySystem::onSerialConnected() {
   _data.communication.serialOk = true;
+  EVENTO_I(ENLACE, enlace_ok, "Mega conectado");
   // Dispara en cada conexion/reconexion (docs/config-schema.md seccion
   // 10.2): el Mega queda configurado antes de que pueda existir un
   // experimento, y un reset del Mega lo reconfigura solo al reconectar.
@@ -1627,6 +1718,7 @@ inline bool MySystem::_benchWithoutMega() {
 
 inline void MySystem::onSerialDisconnected() {
   _data.communication.serialOk = false;
+  EVENTO_W(ENLACE, enlace_caido, "enlace con el Mega perdido");
 }
 
 // Guarda el resultado y navega a Resultado. Lo llama el handler de
@@ -1713,7 +1805,11 @@ inline void MySystem::_applyResult(const char* reason, const char* description, 
     }
   }
   bool refused = strcmp(_data.result.reason, "refused") == 0;
+  LOG_I(CORRIDA, "resultado motivo=%s progreso=%.0f %% transcurrido=%s: %s", _data.result.reason,
+        (double)_data.result.progressPercent, _data.result.elapsed, _data.result.description);
   if (refused) {
+    EVENTO_W(CORRIDA, start_rechazado, "el Mega rechazo el inicio causa=%s",
+             _data.result.cause[0] != '\0' ? _data.result.cause : "sin motivo");
     _data.result.progressPercent = 0.0f;
     snprintf(_data.result.elapsed, sizeof(_data.result.elapsed), "00:00:00");
     _data.result.elapsedSeconds = 0;
@@ -1728,15 +1824,28 @@ inline void MySystem::_applyResult(const char* reason, const char* description, 
     }
   }
   else {
+    _logRunTotals();
+    // Fin de la corrida en la bitacora. "lost" ya dejo corrida_perdida; un
+    // corte por alerta va como aviso, el resto (completed, stopped) como info.
+    const char* why = _data.result.reason;
+    if (strcmp(why, "lost") != 0) {
+      if (strcmp(why, "critical") == 0 || strcmp(why, "unknown") == 0) {
+        EVENTO_W(CORRIDA, corrida_fin, "corrida #%lu fin motivo=%s progreso=%.0f %% transcurrido=%s: %s",
+                 (unsigned long)_data.progress.runNumber, why, (double)_data.result.progressPercent,
+                 _data.result.elapsed, _data.result.description);
+      } else {
+        EVENTO_I(CORRIDA, corrida_fin, "corrida #%lu fin motivo=%s progreso=%.0f %% transcurrido=%s",
+                 (unsigned long)_data.progress.runNumber, why, (double)_data.result.progressPercent,
+                 _data.result.elapsed);
+      }
+    }
+    // Lo que pase despues ya no es de esta corrida.
+    EventLog::activeRun = 0;
     // Se publica DESPUES de armar el snapshot completo: el mensaje lleva el
     // progreso y el transcurrido congelados, no los getters en vivo.
     _publishResult();
   }
 
-  DEBUG_PRINT(DEBUG_MYSYSTEM, F("[RESULT] reason="));
-  DEBUG_PRINT(DEBUG_MYSYSTEM, reason);
-  DEBUG_PRINT(DEBUG_MYSYSTEM, F(" description="));
-  DEBUG_PRINTLN(DEBUG_MYSYSTEM, description);
 
   _screenManager.show(ScreenType::RESULT);
 }
@@ -1773,7 +1882,9 @@ inline void MySystem::onMessageReceived(const char* topic, const char* payload) 
   ConfigInboxMessage message;
   strncpy(message.payload, payload, sizeof(message.payload) - 1);
   message.payload[sizeof(message.payload) - 1] = '\0';
-  xQueueSend(_configInbox, &message, 0);
+  if (xQueueSend(_configInbox, &message, 0) != pdTRUE) {
+    LOG_W(REMOTA, "bandeja de configuracion llena: bloque descartado (el monitor lo reenvia)");
+  }
 }
 
 inline void MySystem::onScreenChanged(ScreenType from, ScreenType to) {
@@ -1781,18 +1892,15 @@ inline void MySystem::onScreenChanged(ScreenType from, ScreenType to) {
   // asi que el heap se mueve en cada transicion. Este log es la forma de
   // ver que efectivamente se libera y que el bloque contiguo se mantiene
   // grande -- que es lo que necesita el handshake TLS.
-  DEBUG_PRINTF(DEBUG_MYSYSTEM, "[HEAP] pantalla -> libre %u, bloque mayor %u\n",
-               (unsigned) ESP.getFreeHeap(), (unsigned) ESP.getMaxAllocHeap());
+  LOG_D(SISTEMA, "pantalla %d -> %d heap_libre=%u B bloque_mayor=%u B", (int)from, (int)to,
+        (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
 }
 
 inline void MySystem::onScreenEvent(ScreenEvent e) {
-  DEBUG_PRINT(DEBUG_MYSYSTEM, "Screen event: ");
-  DEBUG_PRINTLN(DEBUG_MYSYSTEM, e.name);
 
   if(e.type == ScreenType::SPLASH && e.name == EventName::Timeout) {
     _data.setInitialized(true);
     if(_benchWithoutMega()) {
-      DEBUG_PRINTLN(DEBUG_MYSYSTEM, "requireMega=false: sin Mega, paso a Principal sin esperar state_data");
       _processState(StateData::Ready, true);
     }
   }
@@ -1800,9 +1908,9 @@ inline void MySystem::onScreenEvent(ScreenEvent e) {
     _screenManager.show(ScreenType::CONFIG);
   }
   else if(e.type == ScreenType::PRINCIPAL && e.name == EventName::Start) {
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, "Procesando start!");
+    LOG_I(PANTALLA, "operador: iniciar");
     if(_benchWithoutMega()) {
-      DEBUG_PRINTLN(DEBUG_MYSYSTEM, "requireMega=false: sin Mega, paso a Running sin mandar start");
+      LOG_W(CORRIDA, "requireMega=false y sin Mega: corrida simulada sin mandar start");
       _processState(StateData::Running);
       return;
     }
@@ -1812,7 +1920,7 @@ inline void MySystem::onScreenEvent(ScreenEvent e) {
     // ahi; mandar start a nadie solo dejaria al operador en Esperando hasta
     // el timeout.
     if(!_serial.isConnected()) {
-      DEBUG_PRINTLN(DEBUG_MYSYSTEM, "Iniciar ignorado: sin conexion con el Mega (requireMega)");
+      LOG_W(CORRIDA, "iniciar ignorado: sin enlace con el Mega");
       return;
     }
     _sendStart();
@@ -1825,9 +1933,8 @@ inline void MySystem::onScreenEvent(ScreenEvent e) {
     _processState(StateData::Starting);
   }
   else if(e.type == ScreenType::RUNNING && e.name == EventName::Stop) {
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, "Procesando stop!");
+    LOG_I(PANTALLA, "operador: detener");
     if(_benchWithoutMega()) {
-      DEBUG_PRINTLN(DEBUG_MYSYSTEM, "requireMega=false: sin Mega, fabrico result_data stopped");
       _data.setState(StateData::Ready);
       _applyResult("stopped", "Detenido desde el banco (sin Mega)");
       return;
@@ -1848,6 +1955,7 @@ inline void MySystem::onScreenEvent(ScreenEvent e) {
     // la seleccion vale igual para esta sesion, solo no sobrevive al
     // reinicio, y no hay nada que el operador pueda hacer al respecto
     // desde esta pantalla.
+    LOG_I(PANTALLA, "operador: guardar configuracion");
     SelectionStore::save(_sdStorage, _data.configuration);
     _screenManager.show(ScreenType::PRINCIPAL);
   }
@@ -1859,23 +1967,22 @@ inline void MySystem::onScreenEvent(ScreenEvent e) {
   // configuracion intacta -- desde Resultado no se puede haber cambiado, la
   // pantalla Configuraciones no es alcanzable desde aca.
   else if(e.type == ScreenType::RESULT && e.name == EventName::Repeat) {
-    DEBUG_PRINTLN(DEBUG_MYSYSTEM, "Procesando repetir!");
     // Con una configuracion nueva esperando el reinicio, repetir correria
     // con la vieja. El boton ya esta oculto; esto cubre el toque que llega
     // en el mismo instante que la configuracion.
+    LOG_I(PANTALLA, "operador: repetir");
     if(_data.configRebootPending) {
-      DEBUG_PRINTLN(DEBUG_MYSYSTEM, "Repetir ignorado: hay una configuracion nueva esperando el reinicio");
+      LOG_W(CORRIDA, "repetir ignorado: hay una configuracion nueva esperando el reinicio");
       return;
     }
     _data.result = ResultData();
 
     if(_benchWithoutMega()) {
-      DEBUG_PRINTLN(DEBUG_MYSYSTEM, "requireMega=false: sin Mega, paso a Running sin mandar start");
       _processState(StateData::Running);
       return;
     }
     if(!_serial.isConnected()) {
-      DEBUG_PRINTLN(DEBUG_MYSYSTEM, "Repetir ignorado: sin conexion con el Mega (requireMega)");
+      LOG_W(CORRIDA, "repetir ignorado: sin enlace con el Mega");
       return;
     }
     _sendStart();
@@ -1883,6 +1990,7 @@ inline void MySystem::onScreenEvent(ScreenEvent e) {
     _processState(StateData::Starting);
   }
   else if(e.type == ScreenType::BUSY && e.name == EventName::Timeout) {
+    LOG_W(CORRIDA, "sin confirmacion del Mega (%s): vuelve a Principal", _data.getState());
     if(_data.getState() == StateData::Starting) {
       // Forzado: sin el `true`, la guarda de _processState(Ready) para
       // Starting (descartar un "ready" viejo del Mega) se tragaba tambien
@@ -1898,11 +2006,7 @@ inline void MySystem::onScreenEvent(ScreenEvent e) {
 }
 
 inline void MySystem::onStateChanged(const char* oldState, const char* newState) {
-  DEBUG_PRINT(DEBUG_MYSYSTEM, "oldstate: ");
-  DEBUG_PRINTLN(DEBUG_MYSYSTEM, oldState);
-
-  DEBUG_PRINT(DEBUG_MYSYSTEM, "newstate: ");
-  DEBUG_PRINTLN(DEBUG_MYSYSTEM, newState);
+  LOG_D(CORRIDA, "estado %s -> %s", oldState, newState);
 
   if(strcmp(oldState, StateData::Starting) == 0) {
     _timer.removeTask(Tasks::ReSendStart);
@@ -1918,8 +2022,13 @@ inline void MySystem::onStateChanged(const char* oldState, const char* newState)
     _timer.removeTask(Tasks::PublishMeasures);
     _timer.removeTask(Tasks::PublishCoils);
     _timer.removeTask(Tasks::PublishStatus);
+    _timer.removeTask(Tasks::LogSummary);
   }
 
+  if(strcmp(newState, StateData::Ready) == 0 || strcmp(newState, StateData::Idle) == 0) {
+    // Sin corrida: los eventos que sigan no se atribuyen a la ultima.
+    EventLog::activeRun = 0;
+  }
   if(strcmp(newState, StateData::Ready) == 0) {
     _timer.addTask(Tasks::ReSendReset, Intervals::ReSendReset);
   }
@@ -1933,6 +2042,7 @@ inline void MySystem::onStateChanged(const char* oldState, const char* newState)
     if (Topics::Measures.enabled) _timer.addTask(Tasks::PublishMeasures, Topics::Measures.interval);
     if (Topics::Coils.enabled)    _timer.addTask(Tasks::PublishCoils, Topics::Coils.interval);
     if (Topics::Status.enabled)   _timer.addTask(Tasks::PublishStatus, Topics::Status.interval);
+    _timer.addTask(Tasks::LogSummary, Intervals::LogSummary);
 
     // Los objetivos van una sola vez, al arrancar: no cambian durante el
     // experimento y repetirlos seria trafico repetido sin informacion nueva.

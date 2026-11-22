@@ -7,12 +7,7 @@
 #include <SPI.h>
 #include <Wire.h>
 #include "ui.h"
-#include "debugconfig.hpp"
-
-// Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
-// el interruptor maestro).
-constexpr bool DEBUG_DISPLAY = true;
-
+#include "log.hpp"
 
 // ========================================================
 // ================= CLASE DISPLAY DRIVER =================
@@ -110,15 +105,11 @@ private:
     void _beginCst816s();
 };
 
-
-
 // ========================================================
 // ================= VARIABLES ESTÁTICAS ==================
 // ========================================================
 lv_color_t DisplayDriver::_buf[SCREEN_WIDTH * SCREEN_HEIGHT / 10];
 DisplayDriver* DisplayDriver::_instance = nullptr;
-
-
 
 // ========================================================
 // ================= INICIALIZACIÓN =======================
@@ -138,11 +129,10 @@ inline void DisplayDriver::begin()
 
     // ---------- Inicializar Touch ----------
     if (TOUCH_KIND == TouchKind::Xpt2046) {
-        DEBUG_PRINTLN(DEBUG_DISPLAY, "[TOUCH] Inicializando XPT2046...");
         _tsSPI.begin(XPT2046_CLK, XPT2046_MISO, XPT2046_MOSI, XPT2046_CS);
         _ts.begin(_tsSPI);
         _ts.setRotation(3);
-        DEBUG_PRINTLN(DEBUG_DISPLAY, "[TOUCH] XPT2046 inicializado");
+        LOG_I(PANTALLA, "tactil XPT2046 listo");
     } else {
         _beginCst816s();
     }
@@ -170,8 +160,6 @@ inline void DisplayDriver::begin()
     ui_init();
 }
 
-
-
 // ========================================================
 // ================= LOOP DE ACTUALIZACIÓN ================
 // ========================================================
@@ -179,8 +167,6 @@ inline void DisplayDriver::update() {
     lv_tick_inc(10);
     lv_timer_handler();
 }
-
-
 
 // ========================================================
 // ================= CALLBACK DE RENDER ===================
@@ -205,8 +191,6 @@ inline void DisplayDriver::dispFlush(lv_display_t* disp,
     // Notifica a LVGL que terminó el render
     lv_display_flush_ready(disp);
 }
-
-
 
 // ========================================================
 // ================= CALLBACK DE TOUCH ====================
@@ -248,7 +232,6 @@ inline bool DisplayDriver::_readXpt2046(int32_t& x, int32_t& y)
 
     // Traza cruda -> mapeada, para calibrar/diagnosticar el tactil en una
     // placa nueva (las revisiones de la CYD difieren en espejado de ejes).
-    DEBUG_PRINTF(DEBUG_DISPLAY, "[TOUCH] raw=(%d,%d) -> (%ld,%ld)\n", p.x, p.y, (long)x, (long)y);
     return true;
 }
 
@@ -258,7 +241,6 @@ inline bool DisplayDriver::_readXpt2046(int32_t& x, int32_t& y)
 // (240x320); se rotan aca a la orientacion 3 de la pantalla (320x240).
 inline void DisplayDriver::_beginCst816s()
 {
-    DEBUG_PRINTLN(DEBUG_DISPLAY, "[TOUCH] Inicializando CST816S (I2C)...");
     pinMode(CST816S_INT, INPUT);
     pinMode(CST816S_RST, OUTPUT);
     digitalWrite(CST816S_RST, LOW);
@@ -271,7 +253,8 @@ inline void DisplayDriver::_beginCst816s()
     Wire.beginTransmission(CST816S_ADDR);
     uint8_t err = Wire.endTransmission();
     if (err != 0) {
-        DEBUG_PRINTF(DEBUG_DISPLAY, "[TOUCH] CST816S no responde en 0x%02X (err=%u)\n", CST816S_ADDR, err);
+        LOG_E(PANTALLA, "tactil CST816S no responde en 0x%02X (err=%u): la pantalla no va a reaccionar",
+              CST816S_ADDR, err);
         return;
     }
 
@@ -282,8 +265,7 @@ inline void DisplayDriver::_beginCst816s()
     Wire.write(0xFE);
     Wire.write(0x01);
     Wire.endTransmission();
-
-    DEBUG_PRINTLN(DEBUG_DISPLAY, "[TOUCH] CST816S inicializado");
+    LOG_I(PANTALLA, "tactil CST816S listo");
 }
 
 inline bool DisplayDriver::_readCst816s(int32_t& x, int32_t& y)
@@ -307,6 +289,5 @@ inline bool DisplayDriver::_readCst816s(int32_t& x, int32_t& y)
     x = (SCREEN_WIDTH  - 1) - rawY;
     y = rawX;
 
-    DEBUG_PRINTF(DEBUG_DISPLAY, "[TOUCH] raw=(%ld,%ld) -> (%ld,%ld)\n", (long)rawX, (long)rawY, (long)x, (long)y);
     return true;
 }

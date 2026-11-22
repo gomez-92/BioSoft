@@ -8,11 +8,8 @@
 #include "systemdata.hpp"
 #include "iscreen.hpp"
 #include "ui.h"
-#include "debugconfig.hpp"
+#include "log.hpp"
 
-// Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
-// el interruptor maestro).
-constexpr bool DEBUG_SCREENCONTROLLER = true;
 
 static void btnPrincipalGoToRunningClick(lv_event_t * e);
 static void btnPrincipalGoToConfigClick(lv_event_t * e);
@@ -285,7 +282,6 @@ inline void PrincipalController::goToRunning() {
 inline void btnPrincipalGoToRunningClick(lv_event_t * e) {
     PrincipalController * self = (PrincipalController *) lv_event_get_user_data(e);
     if(lv_event_get_code(e) == LV_EVENT_CLICKED) {
-        DEBUG_PRINTLN(DEBUG_SCREENCONTROLLER, "BtnIniciar clicked!");
         self->goToRunning();
     }
 }
@@ -293,7 +289,6 @@ inline void btnPrincipalGoToRunningClick(lv_event_t * e) {
 inline void btnPrincipalGoToConfigClick(lv_event_t * e) {
     PrincipalController * self = (PrincipalController *) lv_event_get_user_data(e);
     if(lv_event_get_code(e) == LV_EVENT_CLICKED) {
-        DEBUG_PRINTLN(DEBUG_SCREENCONTROLLER, "BtnConfiguracion clicked!");
         self->goToConfig();
     }
 }
@@ -562,7 +557,7 @@ inline void ConfigurationController::onSave() {
     // queda en el log serie. El layout no tiene renglon de error propio y no
     // se quiso reusar otro widget para esto; lo que ve el operador es que
     // sigue en la pantalla con un combo en "--".
-    DEBUG_PRINTLN(DEBUG_SCREENCONTROLLER, "[CONFIG] falta elegir un rango de temperatura: no se guarda");
+    LOG_W(PANTALLA, "guardar sin rango de temperatura elegido: no se guarda");
     return;
   }
 
@@ -1228,7 +1223,6 @@ static void btnResultadoVolverClick(lv_event_t * e) {
 static void btnResultadoRepetirClick(lv_event_t * e) {
   ResultadoController * self = (ResultadoController *) lv_event_get_user_data(e);
   if(lv_event_get_code(e) == LV_EVENT_CLICKED) {
-    DEBUG_PRINTLN(DEBUG_SCREENCONTROLLER, "BtnRepetir clicked!");
     self->onRepetir();
   }
 }

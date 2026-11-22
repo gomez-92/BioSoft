@@ -1,10 +1,6 @@
 #pragma once
 #include <lvgl.h>
-#include "debugconfig.hpp"
-
-// Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
-// el interruptor maestro).
-constexpr bool DEBUG_TESTRUNNOTICE = true;
+#include "log.hpp"
 
 // Aviso de que la configuracion cargada es de PRUEBA: `runType: "test"` en la
 // tarjeta SD, o alguna fuente con un sensor simulado o un escenario
@@ -37,9 +33,9 @@ namespace TestRunNotice {
     inline void _onAcknowledge(lv_event_t* e) {
       (void)e;
       if (_dialog == nullptr) return;
+      LOG_I(PANTALLA, "operador: aviso de modo prueba confirmado");
       lv_obj_delete_async(_dialog);
       _dialog = nullptr;
-      DEBUG_PRINTLN(DEBUG_TESTRUNNOTICE, F("[PRUEBA] aviso de arranque confirmado"));
     }
 
     // Arriba al centro, angosta: tapa lo menos posible de los encabezados de
@@ -110,9 +106,9 @@ namespace TestRunNotice {
   // un objeto oculto, para no gastar heap que TLS necesita.
   inline void begin(bool isTestRun) {
     if (!isTestRun) return;
+    LOG_I(CONFIG, "configuracion de prueba: franja MODO PRUEBA y aviso de arranque en pantalla");
     _createBanner();
     _createDialog();
-    DEBUG_PRINTLN(DEBUG_TESTRUNNOTICE, F("[PRUEBA] configuracion de prueba: franja y aviso de arranque en pantalla"));
   }
 
 };

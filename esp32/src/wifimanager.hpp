@@ -2,11 +2,7 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
-#include "debugconfig.hpp"
-
-// Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
-// el interruptor maestro).
-constexpr bool DEBUG_WIFI = true;
+#include "log.hpp"
 
 /* ============================================================
  *  DATA TYPES
@@ -160,7 +156,7 @@ inline void WiFiManager::update() {
     // mejor: solo costaria segundos de radio fuera de canal.
     if (_currentIndex == 0 || !_rescanAllowed) return;
     if (millis() - _lastScan > _rescanInterval) {
-        DEBUG_PRINTLN(DEBUG_WIFI, "[WiFi] Re-escaneo de prioridad (conectado a una red secundaria)");
+        LOG_D(WIFI, "re-escaneo: conectado a la red %d, se busca una de mas prioridad", _currentIndex + 1);
         scanAndConnect();
     }
 }
@@ -211,8 +207,7 @@ inline bool WiFiManager::connectTo(int index) {
 
     const WiFiNetwork& net = _config.get(index);
 
-    DEBUG_PRINTF(DEBUG_WIFI, "[WiFi] Connecting to %s\n", net.ssid);
-
+    LOG_D(WIFI, "conectando a la red %d ssid=%s", index + 1, net.ssid);
     WiFi.begin(net.ssid, net.password);
 
     unsigned long start = millis();
@@ -221,21 +216,19 @@ inline bool WiFiManager::connectTo(int index) {
            millis() - start < _timeout) {
 
         delay(200);
-        DEBUG_PRINT(DEBUG_WIFI, ".");
     }
 
-    DEBUG_PRINTLN(DEBUG_WIFI, );
-
     if (WiFi.status() == WL_CONNECTED) {
-        DEBUG_PRINTLN(DEBUG_WIFI, "[WiFi] Connected");
         _runtime[index].blocked = false;
         _currentIndex = index;
+        LOG_I(WIFI, "conectado a la red %d de %d rssi=%d dBm", index + 1, _config.totalNetworks(), (int)WiFi.RSSI());
 
         return true;
     }
 
     _runtime[index].blocked = true;
     _runtime[index].lastFail = millis();
+    LOG_W(WIFI, "no conecta a la red %d en %lu ms: se saltea 30 s", index + 1, (unsigned long)_timeout);
 
     return false;
 }
@@ -245,6 +238,7 @@ inline void WiFiManager::notifyConnected(const char* ssid) {
 }
 
 inline void WiFiManager::notifyDisconnected() {
+    LOG_W(WIFI, "wifi caido");
     if (_listener) _listener->onWiFiDisconnected();
 }
 

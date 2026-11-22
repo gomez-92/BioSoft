@@ -265,8 +265,27 @@ void test_start_fits_with_field_mode(void) {
     doc["tcmin"] = 23.123456f;
     doc["tcmax"] = 47.123456f;
     doc["mode"] = "null";   // el mas largo de los dos valores posibles
+    // Numero de corrida (esp32/src/runcounter.hpp), en su maximo: la decima
+    // clave, sumada despues de fijar el presupuesto.
+    doc["run"] = 4294967295UL;
 
     TEST_ASSERT_TRUE(survivesTransport(Commands::Start, doc));
+}
+
+// state_data con el diagnostico y el numero de corrida, todo en su maximo.
+// El numero es lo que deja a una ESP32 reiniciada a mitad de corrida seguir
+// con el mismo #N (esp32/src/runcounter.hpp): truncado, tomaria uno nuevo.
+void test_statedata_fits_with_run(void) {
+    JsonDocument doc;
+    doc["status"] = "finished";   // el estado mas largo
+    doc["up"] = 4294967295UL;
+    doc["rst"] = 255;
+    doc["stg"] = 255;
+    doc["gap"] = -32768;
+    doc["ram"] = -32768;
+    doc["run"] = 4294967295UL;
+
+    TEST_ASSERT_TRUE(survivesTransport(Commands::StateData, doc));
 }
 
 // result_data en su caso mas largo: corte por limite, con la descripcion
@@ -409,6 +428,7 @@ int main(int argc, char** argv) {
     RUN_TEST(test_whole_source_in_one_frame_does_not_fit);
 
     RUN_TEST(test_start_fits_with_field_mode);
+    RUN_TEST(test_statedata_fits_with_run);
 
     RUN_TEST(test_resultdata_fits_with_critical_fields);
     RUN_TEST(test_coildata_fits_with_four_coils);

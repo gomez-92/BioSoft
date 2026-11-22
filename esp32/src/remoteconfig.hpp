@@ -3,11 +3,7 @@
 #include <ArduinoJson.h>
 #include "sdstorage.hpp"
 #include "configloader.hpp"
-#include "debugconfig.hpp"
-
-// Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
-// el interruptor maestro).
-constexpr bool DEBUG_REMOTECONFIG = true;
+#include "log.hpp"
 
 // Configuracion remota (tarjeta 24): el monitor web puede LEER la
 // configuracion vigente de la placa y MANDARLE una nueva, que se graba en la
@@ -228,11 +224,7 @@ namespace RemoteConfig {
         serializeJson(doc, payload, sizeof(payload));
         if (!out.publishConfigMessage(TopicCurrentMeta, payload, true)) return;
         _active = false;
-        DEBUG_PRINT(DEBUG_REMOTECONFIG, F("[REMOTECONFIG] configuracion vigente publicada: "));
-        DEBUG_PRINT(DEBUG_REMOTECONFIG, configId);
-        DEBUG_PRINT(DEBUG_REMOTECONFIG, F(", "));
-        DEBUG_PRINT(DEBUG_REMOTECONFIG, _total);
-        DEBUG_PRINTLN(DEBUG_REMOTECONFIG, F(" bloques"));
+        LOG_I(REMOTA, "configuracion vigente publicada configId=%s bloques=%u", configId, (unsigned)_total);
       }
   };
 
@@ -266,15 +258,16 @@ namespace RemoteConfig {
         serializeJson(doc, payload, sizeof(payload));
         out.publishConfigMessage(TopicStatus, payload, false);
 
-        DEBUG_PRINT(DEBUG_REMOTECONFIG, F("[REMOTECONFIG] "));
-        DEBUG_PRINT(DEBUG_REMOTECONFIG, request);
-        DEBUG_PRINT(DEBUG_REMOTECONFIG, F(" -> "));
-        DEBUG_PRINT(DEBUG_REMOTECONFIG, state);
-        if (message != nullptr) {
-          DEBUG_PRINT(DEBUG_REMOTECONFIG, F(": "));
-          DEBUG_PRINT(DEBUG_REMOTECONFIG, message);
+        // "parcial" sale por cada bloque: solo en detalle. Los finales que
+        // no son exito quedan como advertencia.
+        if (strcmp(state, "parcial") == 0) {
+          LOG_D(REMOTA, "pedido %s bloque %d recibido", request, index);
+        } else if (strcmp(state, "aceptada") == 0 || strcmp(state, "revertida") == 0
+                   || strcmp(state, "red_conservada") == 0) {
+          LOG_I(REMOTA, "pedido %s -> %s%s%s", request, state, message ? ": " : "", message ? message : "");
+        } else {
+          LOG_W(REMOTA, "pedido %s -> %s%s%s", request, state, message ? ": " : "", message ? message : "");
         }
-        DEBUG_PRINTLN(DEBUG_REMOTECONFIG, "");
       }
 
       void _abort() {
@@ -465,13 +458,13 @@ namespace RemoteConfig {
       void handle(const char* payload, Output& out) {
         JsonDocument doc;
         if (deserializeJson(doc, payload)) {
-          DEBUG_PRINTLN(DEBUG_REMOTECONFIG, F("[REMOTECONFIG] mensaje ilegible en config/set, se ignora"));
+          LOG_W(REMOTA, "mensaje ilegible en config/set: se ignora");
           return;
         }
         const char* request = doc["r"] | "";
         if (request[0] == '\0' || strlen(request) > MaxRequestIdLength
             || !doc["i"].is<uint16_t>() || !doc["n"].is<uint16_t>() || !doc["d"].is<const char*>()) {
-          DEBUG_PRINTLN(DEBUG_REMOTECONFIG, F("[REMOTECONFIG] mensaje incompleto en config/set, se ignora"));
+          LOG_W(REMOTA, "mensaje incompleto en config/set: se ignora");
           return;
         }
         uint16_t index = doc["i"];

@@ -9,6 +9,8 @@ import { liveRouter } from './api/live.js';
 import { runsRouter } from './api/runs.js';
 import { configRouter } from './api/config.js';
 import { boardRouter } from './api/board.js';
+import { bitacoraRouter } from './api/bitacora.js';
+import { configurarBitacora, handleEventoPlaca } from './domain/bitacora.js';
 import { configurarPing, handlePong, iniciarPingPeriodico } from './domain/boardping.js';
 import { configurarSync, handleConfigMessage } from './domain/configsync.js';
 import { config } from './config.js';
@@ -22,10 +24,10 @@ import { connectMongo } from './db/mongo.js';
 import { initRunTracker, normalizarDuraciones, sweepStaleRuns } from './domain/runtracker.js';
 import { registerHandlers } from './mqtt/handlers.js';
 import {
-  mqttStatus, onConfigMessage, onPong, publishToBoard, startIngestor, stopIngestor,
+  mqttStatus, onBoardLog, onConfigMessage, onPong, publishToBoard, startIngestor, stopIngestor,
 } from './mqtt/ingestor.js';
 import { cabecerasSeguras, servirCliente, verificarProduccion } from './produccion.js';
-import { emitConfig, startRealtime } from './realtime/socket.js';
+import { emitAdmins, emitConfig, startRealtime } from './realtime/socket.js';
 
 // Antes que nada: si la configuracion de produccion esta mal, mejor no
 // arrancar que arrancar a medias.
@@ -74,6 +76,7 @@ app.use('/api', requireAuth, requiereBase, liveRouter);
 app.use('/api', requireAuth, requiereBase, runsRouter);
 app.use('/api', requireAuth, requiereBase, configRouter);
 app.use('/api', requireAuth, requiereBase, escenariosRouter);
+app.use('/api', requireAuth, requiereBase, bitacoraRouter);
 app.use('/api/users', requireAuth, requiereBase, requireAdmin, usuariosRouter);
 
 // El front va DESPUES de las rutas de la API: su comodin atrapa todo lo que
@@ -94,6 +97,10 @@ onConfigMessage((message) => handleConfigMessage(message));
 configurarPing({ publicar: publishToBoard, emitir: emitConfig });
 onPong(handlePong);
 iniciarPingPeriodico(config.boardPingSeconds * 1000, () => mqttStatus().connected);
+// Bitacora de la placa: se guarda y se emite como 'board:event', solo a
+// los administradores.
+configurarBitacora({ emitir: emitAdmins });
+onBoardLog(handleEventoPlaca);
 
 // Los dos enlaces son INDEPENDIENTES y arrancan por separado.
 //

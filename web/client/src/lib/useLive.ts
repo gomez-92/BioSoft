@@ -5,6 +5,7 @@ import type {
   AlertItem, Coils, Measures, PlacaStatus, ResultItem, RunType, Snapshot, Status, Targets,
 } from './types.js';
 import { tipoDesdeMarca } from './format.js';
+import type { EventoPlaca } from './bitacora.js';
 
 // Estado en vivo del experimento.
 //
@@ -18,7 +19,7 @@ export interface LiveState {
   conectado: boolean;
   brokerOk: boolean;
   deviceId: string | null;
-  run: { id: string; startedAt: string; state: string; runType: RunType } | null;
+  run: { id: string; number: number | null; startedAt: string; state: string; runType: RunType } | null;
   targets: Targets | null;
   measures: Measures | null;
   coils: Coils | null;
@@ -27,12 +28,18 @@ export interface LiveState {
   ultimoResultado: ResultItem | null;
   /** Ultimo resultado del ping a la placa. */
   placa: PlacaStatus | null;
+  /** Eventos de la bitacora llegados en vivo desde que se abrio la app. */
+  eventos: EventoPlaca[];
 }
 
 const VACIO: LiveState = {
   conectado: false, brokerOk: false, deviceId: null, run: null, targets: null,
   measures: null, coils: null, status: null, alerts: [], ultimoResultado: null, placa: null,
+  eventos: [],
 };
+
+// Los en vivo que se guardan; la pagina Bitacora pide el resto a la API.
+const MAX_EVENTOS = 50;
 
 // Las que se guardan para la lista de En curso. El grafico pide todas las de
 // la corrida aparte (GraficosEnVivo).
@@ -73,7 +80,10 @@ export function useLive(): LiveState {
         deviceId: snap.deviceId,
         brokerOk: snap.link.broker,
         run: snap.run
-          ? { id: snap.run.id, startedAt: snap.run.startedAt, state: snap.run.state, runType: snap.run.runType }
+          ? {
+              id: snap.run.id, number: snap.run.number ?? null, startedAt: snap.run.startedAt,
+              state: snap.run.state, runType: snap.run.runType,
+            }
           : null,
         targets: snap.run?.targets ?? null,
         measures: snap.measures,
@@ -89,6 +99,7 @@ export function useLive(): LiveState {
               ts: snap.lastRun.endedAt ?? snap.lastRun.startedAt,
               runId: snap.lastRun.id,
               runType: snap.lastRun.runType,
+              runNumber: snap.lastRun.number ?? null,
             }
           : s.ultimoResultado,
       }));
@@ -98,6 +109,9 @@ export function useLive(): LiveState {
       setState((s) => ({ ...s, brokerOk: broker })));
 
     socket.on('board:status', (placa: PlacaStatus) => setState((s) => ({ ...s, placa })));
+
+    socket.on('board:event', (evento: EventoPlaca) =>
+      setState((s) => ({ ...s, eventos: [evento, ...s.eventos].slice(0, MAX_EVENTOS) })));
 
     socket.on('telemetry:measures', (data: Measures) =>
       setState((s) => ({ ...s, measures: data })));
@@ -112,18 +126,28 @@ export function useLive(): LiveState {
     // anterior. Si no, las alertas y las mediciones de la corrida que termino
     // se quedarian en pantalla como si fueran de esta.
     socket.on('telemetry:targets', (data: Targets & { ts: string; runId: string }) =>
-      setState((s) => ({
-        ...s,
-        run: { id: data.runId, startedAt: data.ts, state: 'running', runType: tipoDesdeMarca(data.test) },
-        targets: data,
-        measures: null, coils: null, status: null, alerts: [], ultimoResultado: null,
-      })));
+      setState((s) => (s.run?.id === data.runId
+        // La MISMA corrida (la ESP32 se reinicio y volvio a publicar los
+        // objetivos, ver runtracker.openRun): no se borra lo que ya se ve.
+        ? { ...s, targets: data }
+        : {
+            ...s,
+            run: {
+              id: data.runId, number: data.runNumber ?? null, startedAt: data.ts, state: 'running',
+              runType: tipoDesdeMarca(data.test),
+            },
+            targets: data,
+            measures: null, coils: null, status: null, alerts: [], ultimoResultado: null,
+          })));
 
     socket.on('telemetry:alert', (data: AlertItem) =>
       setState((s) => ({ ...s, alerts: [data, ...s.alerts].slice(0, MAX_ALERTAS) })));
 
     socket.on('telemetry:result', (data: ResultItem) =>
-      setState((s) => ({ ...s, run: null, ultimoResultado: { ...data, runType: s.run?.runType } })));
+      setState((s) => ({
+        ...s, run: null,
+        ultimoResultado: { ...data, runType: s.run?.runType, runNumber: data.runNumber ?? s.run?.number ?? null },
+      })));
 
     return () => { socket.close(); socketRef.current = null; };
   }, []);

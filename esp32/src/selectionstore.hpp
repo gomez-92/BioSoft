@@ -5,11 +5,7 @@
 #include "sdstorage.hpp"
 #include "systemdata.hpp"
 #include "configurationoptions.hpp"
-#include "debugconfig.hpp"
-
-// Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
-// el interruptor maestro).
-constexpr bool DEBUG_SELECTIONSTORE = true;
+#include "log.hpp"
 
 // Persistencia de lo que el operador ELIGIO en la pantalla Configuraciones
 // (un indice por menu), para que sobreviva a un reinicio.
@@ -48,13 +44,7 @@ namespace SelectionStore {
 
     uint8_t parsed = value.as<uint8_t>();
     if (parsed >= count) {
-      DEBUG_PRINT(DEBUG_SELECTIONSTORE, F("[SELECCION] "));
-      DEBUG_PRINT(DEBUG_SELECTIONSTORE, name);
-      DEBUG_PRINT(DEBUG_SELECTIONSTORE, F(" fuera de rango ("));
-      DEBUG_PRINT(DEBUG_SELECTIONSTORE, parsed);
-      DEBUG_PRINT(DEBUG_SELECTIONSTORE, F(" >= "));
-      DEBUG_PRINT(DEBUG_SELECTIONSTORE, count);
-      DEBUG_PRINTLN(DEBUG_SELECTIONSTORE, F("): se ignora"));
+      LOG_W(CONFIG, "seleccion %s=%u fuera del menu (%u opciones): se ignora", name, parsed, count);
       return;
     }
     target = parsed;
@@ -62,12 +52,11 @@ namespace SelectionStore {
 
   inline bool load(SdStorage& storage, ConfigurationData& configuration) {
     if (!storage.isReady()) {
-      DEBUG_PRINTLN(DEBUG_SELECTIONSTORE, F("[SELECCION] sin tarjeta SD: queda la seleccion por defecto"));
       return false;
     }
 
     if (!storage.exists(SelectionPath)) {
-      DEBUG_PRINTLN(DEBUG_SELECTIONSTORE, F("[SELECCION] no hay seleccion guardada: queda la de por defecto"));
+      LOG_D(CONFIG, "no hay seleccion guardada: queda la de por defecto");
       return false;
     }
 
@@ -75,15 +64,14 @@ namespace SelectionStore {
     size_t length = 0;
 
     if (!storage.readFile(SelectionPath, buffer, MaxFileSize, &length)) {
-      DEBUG_PRINTLN(DEBUG_SELECTIONSTORE, F("[SELECCION] no se pudo leer el archivo: queda la de por defecto"));
+      LOG_W(CONFIG, "seleccion guardada ilegible: queda la de por defecto");
       return false;
     }
 
     JsonDocument doc;
     DeserializationError error = deserializeJson(doc, buffer, length);
     if (error) {
-      DEBUG_PRINT(DEBUG_SELECTIONSTORE, F("[SELECCION] JSON invalido: "));
-      DEBUG_PRINTLN(DEBUG_SELECTIONSTORE, error.c_str());
+      LOG_W(CONFIG, "seleccion guardada con JSON invalido (%s): queda la de por defecto", error.c_str());
       return false;
     }
 
@@ -92,8 +80,7 @@ namespace SelectionStore {
     // los mismos nombres de clave con otro significado.
     uint8_t version = doc["schemaVersion"] | 0;
     if (version != SchemaVersion) {
-      DEBUG_PRINT(DEBUG_SELECTIONSTORE, F("[SELECCION] schemaVersion no soportada: "));
-      DEBUG_PRINTLN(DEBUG_SELECTIONSTORE, version);
+      LOG_W(CONFIG, "seleccion guardada schemaVersion=%u no soportada: queda la de por defecto", version);
       return false;
     }
 
@@ -112,13 +99,13 @@ namespace SelectionStore {
     readIndex(doc["rangeCriticalTemperature"], ConfigurationOptions::countRangeCriticalTemperature,
               configuration.criticalTemperatureRangeOption, "rangeCriticalTemperature");
 
-    DEBUG_PRINTLN(DEBUG_SELECTIONSTORE, F("[SELECCION] seleccion guardada aplicada"));
+    LOG_I(CONFIG, "seleccion guardada del operador aplicada");
     return true;
   }
 
   inline bool save(SdStorage& storage, const ConfigurationData& configuration) {
     if (!storage.isReady()) {
-      DEBUG_PRINTLN(DEBUG_SELECTIONSTORE, F("[SELECCION] sin tarjeta SD: no se persiste (la sesion sigue igual)"));
+      LOG_W(CONFIG, "sin tarjeta SD: la seleccion vale para esta sesion pero no se guarda");
       return false;
     }
 
@@ -127,8 +114,7 @@ namespace SelectionStore {
     // esto el primer GUARDAR fallaria en una tarjeta virgen y recien se
     // notaria al reiniciar y ver la seleccion perdida.
     if (!storage.ensureDir(SelectionDir)) {
-      DEBUG_PRINT(DEBUG_SELECTIONSTORE, F("[SELECCION] no se pudo crear "));
-      DEBUG_PRINTLN(DEBUG_SELECTIONSTORE, SelectionDir);
+      LOG_E(CONFIG, "no se pudo crear %s: la seleccion no se guarda", SelectionDir);
       return false;
     }
 
@@ -149,16 +135,16 @@ namespace SelectionStore {
     // valor de retorno y no se escribe nada si no entro entero.
     size_t written = serializeJson(doc, buffer, sizeof(buffer));
     if (written == 0 || written >= sizeof(buffer) - 1) {
-      DEBUG_PRINTLN(DEBUG_SELECTIONSTORE, F("[SELECCION] la seleccion no entra en el buffer: no se escribe"));
+      LOG_E(CONFIG, "la seleccion no entra en %u B: no se guarda", (unsigned)sizeof(buffer));
       return false;
     }
 
     if (!storage.writeFile(SelectionPath, buffer)) {
-      DEBUG_PRINTLN(DEBUG_SELECTIONSTORE, F("[SELECCION] no se pudo escribir el archivo"));
+      LOG_E(CONFIG, "no se pudo escribir %s", SelectionPath);
       return false;
     }
 
-    DEBUG_PRINTLN(DEBUG_SELECTIONSTORE, F("[SELECCION] seleccion guardada en la SD"));
+    LOG_D(CONFIG, "seleccion guardada en la SD");
     return true;
   }
 

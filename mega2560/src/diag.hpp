@@ -16,11 +16,17 @@
 //     pines quedan en alta impedancia: rele y enables con pull-down, es
 //     decir bobinas CORTADAS). Antes un cuelgue a mitad de corrida dejaba
 //     la ultima excitacion puesta, sin nadie mirando.
-//  2) Causa del reset (MCUSR) capturada en .init3, antes de que el core la
-//     pise, y la "miga" (Diag::crumb, etapa del loop en curso) en .noinit,
-//     que sobrevive a un reset que no sea de encendido: dice DONDE estaba
-//     cuando murio. MCUSR = 0 es la firma de un salto a 0 (stack corrupto),
-//     no de un reset de hardware.
+//  2) La "miga" (Diag::crumb, etapa del loop en curso) en .noinit, que
+//     sobrevive a un reset que no sea de encendido: dice DONDE estaba
+//     cuando murio. MCUSR se captura en .init3, pero con el bootloader
+//     stk500v2 del Mega llega SIEMPRE en 0: el bootloader lo lee, lo borra
+//     para apagar el watchdog y salta al programa sin pasarlo (banco,
+//     2026-11-22: una carga de firmware se leia como "salto a 0"). Por eso
+//     la causa no se puede saber; un encendido si (la RAM no trae la marca
+//     de la sesion anterior), y un reinicio a mitad de corrida lo detecta la
+//     ESP32 porque `up` baja. Se probo y se descarto el modo interrupcion +
+//     reset del watchdog para anotar la causa: si el cuelgue es con las
+//     interrupciones apagadas, ese modo no reinicia nunca.
 //  3) Marca de agua del stack: se pinta la RAM libre al arrancar y se busca
 //     hasta donde llego el stack. Viaja en state_data (ver
 //     Engine::_sendState) para leerlo desde la ESP32.
@@ -68,6 +74,8 @@ namespace Diag {
   // Lo que se leyo al arrancar (ver begin()).
   inline uint8_t resetFlags = 0;
   inline uint8_t previousCrumb = 0;
+  // true si la RAM no traia la marca de una sesion anterior: encendido.
+  inline bool powerOn = false;
 
   inline void mark(uint8_t value) { crumb = value; }
 
@@ -121,9 +129,10 @@ namespace Diag {
   inline void begin() {
     resetFlags = mcusrAtBoot;
     // La miga solo vale si sobrevivio a un reset que no sea de encendido
-    // (en un power-on la RAM es basura).
-    bool powerOn = (resetFlags & _BV(PORF)) != 0;
-    previousCrumb = (!powerOn && crumbMagic == CrumbMagic) ? crumb : 0;
+    // (en un power-on la RAM es basura y la marca no coincide). PORF casi
+    // nunca llega (el bootloader borra MCUSR): decide la marca.
+    powerOn = (resetFlags & _BV(PORF)) != 0 || crumbMagic != CrumbMagic;
+    previousCrumb = powerOn ? 0 : crumb;
     crumbMagic = CrumbMagic;
     crumb = CrumbBoot;
 

@@ -23,110 +23,69 @@
 #include "detector.hpp"
 #include "emergencybutton.hpp"
 #include "engine.hpp"
-#include "debugconfig.hpp"
+#include "log.hpp"
 #include "diag.hpp"
 
-// Interruptor de logs de debug de ESTE modulo (ver debugconfig.hpp para
-// el interruptor maestro). Apagado (2026-09-01) durante bring-up INT-001
-// centrado en el circuito de campo magnetico -- reset cause/RAM no aportan
-// a esa depuracion. Volver a true si hace falta diagnosticar boot/memoria.
-constexpr bool DEBUG_MAIN = false;
-// Listado de los DS18B20 del bus al arrancar: encendido aunque DEBUG_MAIN no
-// lo este, porque es la forma de leer la direccion de un sensor nuevo.
-constexpr bool DEBUG_ONEWIRE = true;
-// Causa del ultimo reset y donde estaba el loop cuando murio (diag.hpp):
-// encendido siempre, es la primera pista ante un Mega que se reinicio solo.
-constexpr bool DEBUG_RESET = true;
 
-// MCUSR ya no se lee aca: lo captura diag.hpp en .init3, antes de que el
-// core arranque (y antes de que el bootloader o init() lo pisen).
-void printResetCause() {
+// ===== Herramientas de banco (salen siempre, nivel I) =====
 
-  uint8_t resetCause = Diag::resetFlags;
+// Causa del ultimo arranque. Con el bootloader stk500v2 MCUSR llega en 0
+// (ver diag.hpp): solo se distingue el encendido -- la RAM no trae la marca
+// de la sesion anterior -- de cualquier otro reinicio (carga de firmware,
+// abrir el monitor serie, boton de reset, watchdog o salto a 0). Si llegara
+// una causa (otro bootloader), se informa.
+void logResetCause() {
+  uint8_t flags = Diag::resetFlags;
+  const char* cause;
+  if (flags & _BV(WDRF))       cause = PSTR("watchdog (loop colgado)");
+  else if (flags & _BV(BORF))  cause = PSTR("baja tension");
+  else if (flags & _BV(EXTRF)) cause = PSTR("reset externo");
+  else if (Diag::powerOn)      cause = PSTR("encendido");
+  else                         cause = PSTR("reinicio sin causa conocida");
 
-  DEBUG_PRINT(DEBUG_RESET, F("[RESET] MCUSR = 0x"));
-  DEBUG_PRINTLN(DEBUG_RESET, resetCause, HEX);
-
-  if (resetCause & _BV(PORF)) {
-    DEBUG_PRINTLN(DEBUG_RESET, F("[RESET] Power-on reset"));
-  }
-
-  if (resetCause & _BV(EXTRF)) {
-    DEBUG_PRINTLN(DEBUG_RESET, F("[RESET] External reset"));
-  }
-
-  if (resetCause & _BV(BORF)) {
-    DEBUG_PRINTLN(DEBUG_RESET, F("[RESET] Brown-out reset"));
-  }
-
-  if (resetCause & _BV(WDRF)) {
-    DEBUG_PRINTLN(DEBUG_RESET, F("[RESET] WATCHDOG reset (el loop se colgo)"));
-  }
-
-  if (resetCause & _BV(JTRF)) {
-    DEBUG_PRINTLN(DEBUG_RESET, F("[RESET] JTAG reset"));
-  }
-
-  // Sin ningun flag: nadie reseteo el chip, el programa salto a la
-  // direccion 0. Es la firma de un stack corrupto (heap y stack pisados).
-  if (resetCause == 0) {
-    DEBUG_PRINTLN(DEBUG_RESET, F("[RESET] SIN causa de hardware: salto a 0 (probable stack corrupto)"));
-  }
-
-  if (Diag::previousCrumb != 0) {
-    DEBUG_PRINT(DEBUG_RESET, F("[RESET] etapa al morir = "));
-    DEBUG_PRINTLN(DEBUG_RESET, Diag::previousCrumb);
+  LOG_I(SISTEMA, "arranque causa=%S rst=0x%02X ram_libre=%d B", cause, flags, Diag::freeNow());
+  if (flags & (_BV(WDRF) | _BV(BORF))) {
+    LOG_E(SISTEMA, "reinicio anormal: %S etapa=%u", cause, Diag::previousCrumb);
+  } else if (!Diag::powerOn && flags == 0) {
+    // Una carga de firmware o abrir el monitor tambien llegan aca: por eso
+    // advertencia y no error. Si fue a mitad de corrida, la ESP32 lo marca.
+    LOG_W(SISTEMA, "reinicio sin causa (carga, reset externo, watchdog o salto a 0: el bootloader borra MCUSR) etapa=%u",
+          Diag::previousCrumb);
   }
 }
 
-// Diagnostico temporal bring-up INT-001 (2026-09-01): MagnetometerMlx90393::begin()
-// viene fallando (begin_I2C addr=0xC -> FALLO) con el sensor recien cableado --
-// este scan barre las 127 direcciones I2C posibles y loguea cuales responden,
-// para distinguir "el bus esta vivo pero el sensor esta en otra direccion"
-// de "el sensor no esta en el bus para nada" (cableado/alimentacion). Gateado
-// con el flag del magnetometro (no DEBUG_MAIN) para que quede visible durante
-// este bring-up sin tener que reactivar el ruido general del modulo main.
-void scanI2CBus() {
-  DEBUG_PRINTLN(DEBUG_MAGNETOMETER_MLX90393, F("[I2C] Escaneando bus..."));
+// Barre las 127 direcciones: distingue "el sensor esta en otra direccion"
+// de "no hay nada en el bus" (cableado, alimentacion, pull-ups).
+void logI2CBus() {
   uint8_t found = 0;
   for (uint8_t address = 1; address < 127; address++) {
     Wire.beginTransmission(address);
     if (Wire.endTransmission() == 0) {
-      DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, F("[I2C] Dispositivo encontrado en 0x"));
-      DEBUG_PRINTLN(DEBUG_MAGNETOMETER_MLX90393, address, HEX);
+      LOG_I(I2C, "dispositivo en 0x%02X", address);
       found++;
     }
   }
   if (found == 0) {
-    DEBUG_PRINTLN(DEBUG_MAGNETOMETER_MLX90393, F("[I2C] Ningun dispositivo respondio -- bus muerto (cableado/alimentacion/pull-ups), no es un problema de direccion"));
+    LOG_W(I2C, "ningun dispositivo responde: bus muerto (cableado, alimentacion o pull-ups)");
   } else {
-    DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, F("[I2C] Escaneo completo, "));
-    DEBUG_PRINT(DEBUG_MAGNETOMETER_MLX90393, found);
-    DEBUG_PRINTLN(DEBUG_MAGNETOMETER_MLX90393, F(" dispositivo(s) encontrado(s)"));
+    LOG_I(I2C, "escaneo completo dispositivos=%u", found);
   }
 }
 
-// Lista los DS18B20 del bus con su direccion, en el formato que va en la SD
-// (detector.sources[TEMP1].address). Es la forma de averiguar la de un
-// sensor nuevo: conectarlo, arrancar y copiarla de aca.
-void printOneWireDevices(DallasTemperature& dallas) {
+// Lista los DS18B20 del bus con su direccion en el formato de la SD
+// (detector.sources[TEMP1].address): es la forma de averiguar la de un
+// sensor nuevo -- conectarlo, arrancar y copiarla de aca.
+void logOneWireDevices(DallasTemperature& dallas) {
   uint8_t count = dallas.getDeviceCount();
-  DEBUG_PRINT(DEBUG_ONEWIRE, F("[ONEWIRE] DS18B20 en el bus: "));
-  DEBUG_PRINTLN(DEBUG_ONEWIRE, count);
+  LOG_I(TEMP, "DS18B20 en el bus=%u", count);
   DeviceAddress address;
   char text[OneWireAddress::TextLength];
   for (uint8_t i = 0; i < count; i++) {
     if (!dallas.getAddress(address, i)) continue;
     OneWireAddress::format(address, text);
-    DEBUG_PRINT(DEBUG_ONEWIRE, F("[ONEWIRE]   "));
-    DEBUG_PRINTLN(DEBUG_ONEWIRE, text);
+    LOG_I(TEMP, "DS18B20 address=%s", text);
   }
 }
-
-int freeMemory() {
-    return Diag::freeNow();
-}
-
 
 /* ===== definiciones =====*/
 #define WIRE_PIN 2
@@ -157,8 +116,6 @@ int freeMemory() {
                            // simple y los pines con PWM (2-13, 44-46) quedan
                            // libres para los canales de intensidad por bobina
                            // (ver docs/coil-excitation.md).
-
-
 
 Timer timer;
 SerialLink serial(Serial1);
@@ -309,9 +266,9 @@ void setup() {
   // para medir hasta donde llega el stack (diag.hpp).
   Diag::begin();
   Serial.begin(115200);
-  DEBUG_PRINTLN(DEBUG_RESET, F(""));
-  DEBUG_PRINTLN(DEBUG_RESET, F("========== BOOT =========="));
-  printResetCause();
+  // Todos los LOG_* salen por el USB. Sin esta linea los logs no hacen nada.
+  Log::begin([](const char* data, size_t length) { Serial.write((const uint8_t*)data, length); });
+  logResetCause();
 
   Serial1.begin(9600);
   delay(1000);
@@ -322,7 +279,7 @@ void setup() {
   // llega -- y con el, la lectura del boton de emergencia. En timeout el
   // hardware TWI se reinicia y la transaccion falla limpia.
   Wire.setWireTimeout(25000, true);
-  scanI2CBus();
+  logI2CBus();
 
   /* ===== magnetometers =====*/
   magnetometermanager.clearMagnetometers();
@@ -353,7 +310,7 @@ void setup() {
   OneWire* oneWire = new OneWire(WIRE_PIN);
   DallasTemperature* dallas = new DallasTemperature(oneWire);
   dallas->begin();
-  printOneWireDevices(*dallas);
+  logOneWireDevices(*dallas);
   DeviceAddress temp1Address = TEMP1_ADDRESS;
   ThermometerDS18B20* thermometer1 = new ThermometerDS18B20(*dallas, "TEMP1", temp1Address);
   // Default compilado: el DS18B20, registrado ya para que haya lecturas de
@@ -419,12 +376,6 @@ void setup() {
 }
 
 void loop() {
-  static unsigned long lastRamLog = 0;
-  if (millis() - lastRamLog >= 10000) {
-    lastRamLog = millis();
-    DEBUG_PRINT(DEBUG_MAIN, "[RAM] libre = ");
-    DEBUG_PRINTLN(DEBUG_MAIN, freeMemory());
-  }
   Diag::feed();
   engine.update();
   Diag::mark(Diag::CrumbIdle);

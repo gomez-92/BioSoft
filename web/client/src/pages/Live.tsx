@@ -1,7 +1,7 @@
 import { Suspense, lazy, useEffect, useState } from 'react';
 import {
   antiguedad, avanceFinal, duracion, duracionPedida, esCampoNulo, esViejo, horaCorta, nombreModo, nombreMotivo,
-  nombreSalud, numero, relajacionesConAviso,
+  nombreSalud, numero, numeroCorrida, relajacionesConAviso,
 } from '../lib/format.js';
 import { bobinasHabilitadas, filtrarBobinas, sinCorriente } from '../lib/bobinas.js';
 import { useConfigDeCorrida } from '../lib/useConfig.js';
@@ -47,7 +47,10 @@ export function Live({ estado, onVerCorrida }: {
           <section className="panel cabecera-run">
             <div className="cabecera-run-titulo">
               <span className={`latido latido-${status?.health ?? 'desconocido'}`} aria-hidden="true" />
-              <h2>{run.runType === 'test' ? 'Prueba en curso' : 'Experimento en curso'}</h2>
+              <h2>
+                {run.runType === 'test' ? 'Prueba en curso' : 'Experimento en curso'}
+                {numeroCorrida(run.number) && <span className="numero-corrida">{numeroCorrida(run.number)}</span>}
+              </h2>
               <TipoCorrida runType={run.runType} />
             </div>
             {/* Cada chip con su rotulo: "Normal" suelto no decia que era la
@@ -168,7 +171,10 @@ function SinExperimento({ estado, onVerCorrida }: {
       <h2>Sin experimento en curso</h2>
       {resultado ? (
         <div className={`resultado resultado-${resultado.reason}`}>
-          <p className="tenue">Ultima corrida{resultado.ts ? `, terminada ${new Date(resultado.ts).toLocaleString('es-AR')}` : ''}</p>
+          <p className="tenue">
+            Ultima corrida{numeroCorrida(resultado.runNumber) ? ` ${numeroCorrida(resultado.runNumber)}` : ''}
+            {resultado.ts ? `, terminada ${new Date(resultado.ts).toLocaleString('es-AR')}` : ''}
+          </p>
           {resultado.runType && <div className="encabezado-run centrado"><TipoCorrida runType={resultado.runType} /></div>}
           <p className="resultado-motivo">{nombreMotivo(resultado.reason)}</p>
           {resultado.description && <p className="resultado-detalle">{resultado.description}</p>}

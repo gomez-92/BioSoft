@@ -4,13 +4,15 @@ import {
   GraficoBobinas, GraficoCampo, GraficoTemperatura, type PuntoMedicion,
 } from '../components/Graficos.js';
 import { ListaAlertas } from '../components/ListaAlertas.js';
+import { ListaEventos } from '../components/ListaEventos.js';
+import type { EventoPlaca } from '../lib/bitacora.js';
+import { useEsAdmin } from '../lib/sesion.js';
 import { authFetch } from '../lib/auth.js';
 import { bobinasHabilitadas, filtrarBobinas } from '../lib/bobinas.js';
 import {
   avanceFinal, duracion, duracionPedida, esCampoNulo, nombreModo, nombreMotivo, nombreTipoAlerta, numero,
-  relajacionesConAviso, relajacionesDe,
+  numeroCorrida, relajacionesConAviso, relajacionesDe,
 } from '../lib/format.js';
-import { useEsAdmin } from '../lib/sesion.js';
 import { useConfigDeCorrida } from '../lib/useConfig.js';
 import type { AlertItem, RunType, Targets } from '../lib/types.js';
 import { ConRelajaciones, TipoCorrida } from '../components/TipoCorrida.js';
@@ -18,7 +20,8 @@ import { ConRelajaciones, TipoCorrida } from '../components/TipoCorrida.js';
 // Detalle de una corrida: que se pidio, que paso y por que termino.
 
 interface Detalle {
-  id: string; startedAt: string; endedAt: string | null; state: string;
+  id: string;
+  number: number | null; startedAt: string; endedAt: string | null; state: string;
   runType: RunType;
   targets: Targets | null;
   result: {
@@ -40,6 +43,9 @@ export function DetalleCorrida() {
   const [mediciones, setMediciones] = useState<SerieMediciones | null>(null);
   const [bobinas, setBobinas] = useState<SerieBobinas | null>(null);
   const [alertas, setAlertas] = useState<AlertItem[]>([]);
+  const [eventos, setEventos] = useState<EventoPlaca[]>([]);
+  // La bitacora es solo de admin: a otro usuario la API le contesta 403.
+  const esAdmin = useEsAdmin();
   const [error, setError] = useState<string | null>(null);
   const config = useConfigDeCorrida(detalle?.targets?.configId);
 
@@ -49,7 +55,20 @@ export function DetalleCorrida() {
 
     authFetch(`/api/runs/${id}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.status === 404 ? 'No existe esa corrida.' : 'No se pudo cargar.'))))
-      .then((data) => { if (vigente) setDetalle(data); })
+      .then((data: Detalle) => {
+        if (!vigente) return;
+        setDetalle(data);
+        if (!esAdmin) return;
+        // La bitacora no va atada a corridas: se buscan los eventos de su
+        // ventana de tiempo, con un minuto de margen a cada lado (un enlace
+        // caido justo antes del inicio explica muchas cosas).
+        const desde = new Date(new Date(data.startedAt).getTime() - 60_000).toISOString();
+        const hasta = new Date((data.endedAt ? new Date(data.endedAt).getTime() : Date.now()) + 60_000).toISOString();
+        authFetch(`/api/events?${new URLSearchParams({ from: desde, to: hasta, limit: '200' })}`)
+          .then((r) => (r.ok ? r.json() : { items: [] }))
+          .then((ev) => { if (vigente) setEventos(ev.items); })
+          .catch(() => {});
+      })
       .catch((cause) => { if (vigente) setError(cause.message); });
 
     authFetch(`/api/runs/${id}/measures`).then((r) => r.json())
@@ -60,7 +79,7 @@ export function DetalleCorrida() {
       .then((data) => { if (vigente) setAlertas(data.items); }).catch(() => {});
 
     return () => { vigente = false; };
-  }, [id]);
+  }, [id, esAdmin]);
 
   if (error) return <p className="empty panel">{error} <Link to="/historial">Volver</Link></p>;
   if (!detalle) return <p className="empty panel">Cargando...</p>;
@@ -79,6 +98,7 @@ export function DetalleCorrida() {
     <>
       <section className="panel">
         <div className="encabezado-run">
+          {numeroCorrida(detalle.number) && <span className="chip chip-numero">Corrida {numeroCorrida(detalle.number)}</span>}
           {detalle.targets?.mode && (
             <span className={`chip chip-modo ${esNulo ? 'chip-nulo' : ''}`}>
               {nombreModo(detalle.targets.mode)}
@@ -153,6 +173,25 @@ export function DetalleCorrida() {
         <section className="panel">
           <h3>Alertas ({alertas.length})</h3>
           <ListaAlertas alertas={alertas} targets={detalle.targets} config={config} inicio={detalle.startedAt} />
+        </section>
+      )}
+
+      {esAdmin && eventos.length === 0 && Date.now() - fin > 7 * 24 * 3600_000 && (
+        <p className="tenue panel">
+          Sin eventos de la placa: la bitacora guarda una semana y esta corrida es anterior.
+        </p>
+      )}
+
+      {eventos.length > 0 && (
+        <section className="panel">
+          <h3>Eventos de la placa ({eventos.length})</h3>
+          <p className="tenue">
+            De la bitacora, entre un minuto antes del inicio y un minuto despues del fin: reinicios, enlaces caidos,
+            broker. Explican huecos en los graficos o un cierre sin motivo.
+          </p>
+          <ListaEventos eventos={eventos} conFecha={false} conCorrida={false} />
+          <p className="tenue"><Link to={`/bitacora?corrida=${detalle.id}`}>Ver en la bitacora</Link> (solo los de
+            esta corrida, sin el minuto de margen).</p>
         </section>
       )}
 
