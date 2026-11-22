@@ -194,7 +194,7 @@
         <span class="det">En el bloque de etapas del generador: Enviado pasa a En la placa. Log de la ESP32:
           <code>I CONFIG reiniciando para aplicar la configuracion nueva</code>.</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f1-remota-resultado">
-        <span class="que">Enviar con la placa en Resultado: no se reinicia, REPETIR desaparece; al tocar Volver se reinicia</span>
+        <span class="que">Enviar con la placa en Resultado: no se reinicia, REPETIR desaparece; al tocar PRINCIPAL se reinicia</span>
         <span class="det">Lo mismo en Configuraciones (al volver a Principal). Con un experimento en curso
           el envío se rechaza: "Rechazada: hay un experimento en curso".</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f1-wifi-remoto">
@@ -230,7 +230,10 @@
         <span class="que">Conectar la serie: en el log del ESP32, ping/pong, cada <code>config_*</code> con su ack y estado <code>ready</code></span>
         <span class="det">Sin pong: revisar TX/RX cruzados, el adaptador de nivel y la masa común.</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f2-pantalla">
-        <span class="que">La pantalla pasa de Splash a Principal</span></label></li>
+        <span class="que">La pantalla pasa de Splash (SEMBAF) a Principal</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f2-sinmega">
+        <span class="que">Desconectar la serie con Principal a la vista: INICIAR pasa a gris con <b>SIN CONEXION</b> y el indicador USB a rojo; al reconectar vuelve a INICIAR</span>
+        <span class="det">Solo con <code>requireMega</code> en true (el default). Tarda lo que tarda en caer el enlace (~10 s).</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f2-monitor">
         <span class="que">Monitor web: desaparece "sin Mega"</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f2-diag">
@@ -293,7 +296,18 @@
       <li><label class="item"><input type="checkbox" data-id="f3-pantallas">
         <span class="que">En cada corrida: En curso, Resultado y monitor coherentes</span>
         <span class="det">En curso muestra el duty que se aplicaría. Resultado con el motivo correcto
-          (REPETIR oculto tras un critical). En el monitor la corrida sale marcada <b>PRUEBA</b>, con gráfico.</span></label></li>
+          (REPETIR oculto tras un critical, y PRINCIPAL a todo el ancho). En el monitor la corrida sale marcada
+          <b>PRUEBA</b>, con gráfico.</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f3-salud">
+        <span class="que">En curso con alertas: el encabezado cambia de color (verde → ámbar → rojo) y el valor de la medición que alerta también</span>
+        <span class="det">Con «Campo inestable», CEM1 suma puntos ámbar arriba a la derecha de CAMPO MEDIDO (uno por evento,
+          hasta cuatro) y su valor pasa a ámbar oscuro; TEMPERATURA sigue en negro.</span></label></li>
+      <li><label class="item"><input type="checkbox" data-id="f3-tls">
+        <span class="que">Cortar el WiFi ~30 s con En curso a la vista: al volver, el broker reconecta sin <code>-32512</code></span>
+        <span class="det">Log: <code>W BROKER desconectado …</code> y, al volver el WiFi, <code>I BROKER conectado tras N s sin
+          broker</code>. Un <code>-32512 SSL - Memory allocation failed</code> repetido es la falta de heap para el TLS que
+          tenían las pantallas de SquareLine (medido 2026-11-22): si vuelve, alguna pantalla creció demasiado. Para cortar
+          solo la placa sin dejar sin internet a la PC, bloquearla en el router o usar el hotspot de un celular.</span></label></li>
       <li><label class="item"><input type="checkbox" data-id="f3-broker-estable">
         <span class="que">Corrida de 15 min o más: el broker no se cae y no se pierde telemetría</span>
         <span class="det">En el log de la ESP32 no aparece <code>W BROKER cola de publicacion llena</code> ni

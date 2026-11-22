@@ -934,9 +934,12 @@ table.pins tbody td{padding:7px 12px 7px 0}
     <p class="h2title">Encendido y pantallas</p>
 
     <p>Al energizar el equipo se presenta la <strong>pantalla de
-      inicio</strong> durante algunos segundos, mientras la interfaz arranca y
-      establece contacto con la placa de control. A continuación pasa
-      automáticamente a la pantalla <strong>Principal</strong>.</p>
+      inicio</strong> durante algunos segundos: el logo de la facultad, el
+      nombre del equipo, <strong>SEMBAF</strong> (Sistema de Exposición
+      Magnética de Baja Frecuencia), y la leyenda <em>INICIANDO…</em>, mientras
+      la interfaz arranca y establece contacto con la placa de control. A
+      continuación pasa automáticamente a la pantalla
+      <strong>Principal</strong>.</p>
 
     <div class="tablewrap"><table>
       <thead><tr><th>Pantalla</th><th>Condición de aparición</th></tr></thead>
@@ -955,22 +958,78 @@ table.pins tbody td{padding:7px 12px 7px 0}
       experimento la pantalla es «En curso» y solo puede abandonarse
       deteniendo el experimento.</p>
 
+    <h3>Elementos comunes</h3>
+
+    <p>Principal, Configuración, En curso y Resultado tienen arriba un
+      <strong>encabezado</strong> azul oscuro con el nombre de la pantalla.
+      Salvo en Configuración, a la derecha muestra cuatro
+      <strong>indicadores de conexión</strong>:</p>
+
+    <div class="tablewrap"><table>
+      <thead><tr><th>Símbolo</th><th>Qué indica</th></tr></thead>
+      <tbody>
+        <tr><td>Conector USB</td><td>Enlace con la placa de control.</td></tr>
+        <tr><td>Tarjeta</td><td>Tarjeta SD de la interfaz.</td></tr>
+        <tr><td>Abanico WiFi</td><td>Conexión a la red WiFi.</td></tr>
+        <tr><td>Flecha hacia arriba</td><td>Conexión con el servidor de monitoreo remoto (broker).</td></tr>
+      </tbody>
+    </table></div>
+
+    <p>Un indicador en orden se ve en el color del texto del encabezado. Uno
+      en falla pasa a <strong>rojo dentro de un recuadro blanco</strong>. Los
+      indicadores reflejan el estado de ese momento, también en Resultado,
+      aunque el resto de esa pantalla esté congelado.</p>
+
+    <p>El <strong>modo de exposición</strong> se reconoce por la forma:
+      <strong>campo X</strong> va siempre relleno en violeta con el símbolo de
+      un rayo; <strong>campo nulo</strong> va en blanco con contorno gris y sin
+      símbolo. Relleno equivale a campo encendido; contorno, a sin campo.</p>
+
     <h3>Pantalla Principal</h3>
 
-    <p>Presenta los seis parámetros con los que se ejecutará el próximo
-      experimento, el modo de exposición (<strong>campo X</strong> o
-      <strong>campo nulo</strong>) y dos botones: <strong>Iniciar</strong> y
-      <strong>Configuración</strong>. Se recomienda revisarla antes de cada
-      tanda: constituye el resumen de lo que está a punto de ocurrir.</p>
+    <p>Presenta debajo del encabezado una banda con el <strong>modo</strong> de
+      exposición, seis tarjetas con los parámetros con los que se ejecutará el
+      próximo experimento y dos botones: <strong>CONFIGURAR</strong> e
+      <strong>INICIAR</strong>. Se recomienda revisarla antes de cada tanda:
+      constituye el resumen de lo que está a punto de ocurrir.</p>
+
+    <p>Si no hay enlace con la placa de control, INICIAR aparece en gris con
+      la leyenda <strong>SIN CONEXION</strong> y no responde; vuelve a
+      habilitarse solo cuando el enlace se recupera. La excepción es una
+      tarjeta SD que desactive la exigencia de esa placa
+      (<code>requireMega</code>, sección 14), pensada para el banco.</p>
 
     <h2 id="s7">Sección 7</h2>
     <p class="h2title">Configuración de un experimento</p>
 
-    <p>La pantalla <strong>Configuración</strong> ofrece siete listas
-      desplegables. <em>Guardar</em> aplica los cambios y regresa a Principal;
-      <em>Volver</em> sale sin aplicar modificaciones. La pantalla no avisa
-      si hay cambios sin guardar: al salir con <em>Volver</em> se descartan
-      sin confirmación.</p>
+    <p>La pantalla <strong>Configuración</strong> ofrece siete campos
+      desplegables repartidos en dos pestañas: <strong>EXPOSICION</strong>
+      (modo, intensidad, frecuencia y duración) y <strong>LIMITES</strong>
+      (tolerancia de campo y los dos rangos de temperatura). Al tocar un
+      campo se abre la lista de opciones; si tiene más de cinco, la lista se
+      recorre deslizándola con el dedo.</p>
+
+    <p>Los cambios no se aplican hasta guardarlos, y la pantalla muestra lo
+      que difiere de lo guardado:</p>
+
+    <ul>
+      <li>el campo cambiado toma un <strong>borde ámbar</strong> y su nombre
+        pasa a ámbar oscuro;</li>
+      <li>la pestaña que tiene cambios muestra un <strong>punto
+        ámbar</strong>;</li>
+      <li>el encabezado muestra el aviso <strong>SIN GUARDAR</strong>;</li>
+      <li>el botón de salida pasa de <strong>VOLVER</strong> a
+        <strong>DESCARTAR</strong>.</li>
+    </ul>
+
+    <p><strong>GUARDAR</strong> solo se habilita cuando hay cambios: aplica la
+      configuración y regresa a Principal. DESCARTAR regresa a Principal sin
+      aplicar nada. Al volver a entrar, la pantalla abre siempre en la pestaña
+      EXPOSICION y sin cambios pendientes.</p>
+
+    <p>Los nombres de las opciones pueden venir de la tarjeta SD. Si alguno no
+      entra en el campo, se ve cortado con puntos suspensivos; la lista
+      desplegada lo muestra completo.</p>
 
     <div class="tablewrap"><table>
       <thead><tr><th>Parámetro</th><th>Definición</th></tr></thead>
@@ -1122,7 +1181,7 @@ table.pins tbody td{padding:7px 12px 7px 0}
       El equipo las trata como un experimento <strong>terminado antes de
       empezar</strong>: muestra la pantalla Resultado con el panel
       <strong>NO INICIÓ</strong>, el motivo y el detalle, y el flujo continúa
-      con normalidad (Volver lleva a Principal).</p>
+      con normalidad (el botón PRINCIPAL lleva a esa pantalla).</p>
 
     <div class="tablewrap"><table class="wide">
       <thead><tr><th>Titular</th><th>Causa</th><th>Qué hacer</th><th>¿Repetir?</th></tr></thead>
@@ -1154,51 +1213,72 @@ table.pins tbody td{padding:7px 12px 7px 0}
     <h2 id="s9">Sección 9</h2>
     <p class="h2title">Supervisión durante el experimento</p>
 
-    <p>La pantalla <strong>En curso</strong> presenta un indicador de salud
-      permanentemente visible y cuatro pestañas.</p>
+    <p>La pantalla <strong>En curso</strong> está pensada para leerse a
+      distancia: el estado general se ve por el color del encabezado, y el
+      detalle, en dos pestañas. El progreso y el botón DETENER quedan siempre
+      a la vista, abajo.</p>
 
     <h3>Indicador de salud</h3>
 
+    <p>El <strong>encabezado entero</strong> toma el color del estado del
+      experimento y lo dice con una palabra:</p>
+
     <div class="tablewrap"><table>
-      <thead><tr><th>Estado</th><th>Significado</th></tr></thead>
+      <thead><tr><th>Estado</th><th>Color</th><th>Significado</th></tr></thead>
       <tbody>
-        <tr><td>Normal</td><td>Sin alertas activas.</td></tr>
-        <tr><td>Advertencia</td><td>Existen alertas, ninguna de tipo crítico. Conviene revisar.</td></tr>
-        <tr><td>Crítico</td><td>Existe al menos una alerta crítica. El experimento puede interrumpirse por sí solo.</td></tr>
+        <tr><td>NORMAL</td><td>Verde</td><td>Sin alertas activas.</td></tr>
+        <tr><td>ADVERTENCIA</td><td>Ámbar</td><td>Existen alertas, ninguna de tipo crítico. Conviene revisar.</td></tr>
+        <tr><td>CRITICO</td><td>Rojo</td><td>Existe al menos una alerta crítica (o un sensor que dejó de medir). El experimento puede interrumpirse por sí solo.</td></tr>
       </tbody>
     </table></div>
 
     <h3>Pestañas</h3>
 
+    <p>Al entrar se muestra <strong>MEDICIONES</strong>; la otra pestaña es
+      <strong>OBJETIVOS</strong>. Al lado de las pestañas, un recuadro indica el
+      modo de exposición (campo X o campo nulo) con el mismo criterio de
+      colores de la sección 6.</p>
+
     <ul>
-      <li><strong>Objetivos</strong> — los parámetros con los que comenzó el
+      <li><strong>MEDICIONES</strong> — campo medido (mT) y temperatura (°C),
+        en números grandes, y debajo una fila por bobina con su ciclo de
+        trabajo (barra y porcentaje) y su corriente (A). Todos los valores
+        empiezan en cero y se actualizan a medida que llegan las lecturas: el
+        campo, cada 2 segundos aproximadamente (sección 8). La cantidad de
+        filas es la de bobinas habilitadas; si no hay ninguna informada se lee
+        <em>SIN BOBINAS CONECTADAS</em>.</li>
+      <li><strong>OBJETIVOS</strong> — los parámetros con los que comenzó el
         experimento, como referencia frente a lo que se mide.</li>
-      <li><strong>Progreso</strong> — porcentaje y tiempo transcurrido.</li>
-      <li><strong>Mediciones</strong> — campo (mT), temperatura (°C) y
-        corriente (A), cada una con el instante de su última actualización. La
-        indicación <strong>«Sin datos»</strong> significa que ese sensor no
-        reporta: puede no estar conectado o estar deshabilitado en la
-        configuración. <strong>No equivale a medir cero.</strong></li>
-      <li><strong>Alertas</strong> — hasta tres alertas, la más reciente en
-        primer lugar.</li>
     </ul>
+
+    <p>Abajo, siempre visibles, el <strong>progreso</strong> (porcentaje y
+      barra) y el <strong>tiempo transcurrido</strong>.</p>
 
     <h3>Interpretación de las alertas</h3>
 
-    <p>Cada alerta indica el sensor de origen, el tipo de condición y un
-      contador. <strong>El contador es el dato relevante</strong>: expresa
-      cuántas veces se acumuló la condición y cuántas se requieren para
-      interrumpir el experimento. Un <code>2/4</code> es un aviso; un
-      <code>3/4</code> indica que resta una ocurrencia.</p>
+    <p>Cada medición (campo y temperatura) tiene su propio estado, que se lee
+      de dos maneras:</p>
 
-    <p>Si la misma condición se repite en el mismo sensor, la alerta <strong>no
-      se duplica</strong>: se actualiza el contador y la alerta pasa al primer
-      lugar. Las tres alertas visibles corresponden por lo tanto a tres
-      condiciones distintas, no a las tres últimas ocurrencias.</p>
+    <ul>
+      <li><strong>El color del valor</strong>: negro si esa medición no tiene
+        alertas, ámbar oscuro si tiene alertas no críticas y rojo oscuro si
+        tiene alguna crítica. Así se sabe <em>cuál</em> de las dos mediciones
+        lleva al encabezado a advertencia o a crítico.</li>
+      <li><strong>Los puntos</strong> arriba a la derecha de la medición: hasta
+        cuatro, uno por cada uno de los <strong>últimos cuatro
+        eventos</strong> de alerta de ese sensor, el más antiguo a la
+        izquierda. Ámbar indica un evento de racha o de frecuencia; rojo, uno
+        crítico o de sensor sin lecturas.</li>
+    </ul>
+
+    <p>El detalle de cada alerta (tipo y contador, por ejemplo
+      <code>2/3</code>) no se muestra en esta pantalla: queda en el monitor web
+      (sección 13) y, si la alerta interrumpe el experimento, en la pantalla
+      Resultado.</p>
 
     <h3>Detención manual</h3>
 
-    <p>Botón <strong>Detener</strong>. La pantalla pasa a Espera («Deteniendo…»)
+    <p>Botón rojo <strong>DETENER</strong>, abajo a la derecha. La pantalla pasa a Espera («Deteniendo…»)
       y luego a Resultado. El experimento queda registrado como detenido por
       el operador, lo cual, a efectos de los datos, no equivale a un
       experimento completado.</p>
@@ -1211,14 +1291,19 @@ table.pins tbody td{padding:7px 12px 7px 0}
       caso, en el que el experimento ni siquiera comenzó:</p>
 
     <div class="tablewrap"><table>
-      <thead><tr><th>Resultado</th><th>Causa</th></tr></thead>
+      <thead><tr><th>Panel</th><th>Color</th><th>Causa</th></tr></thead>
       <tbody>
-        <tr><td>Exitoso</td><td>Se cumplió la duración configurada.</td></tr>
-        <tr><td>Falla</td><td>El equipo interrumpió la exposición por una condición peligrosa sostenida.</td></tr>
-        <tr><td>Detenido</td><td>Lo detuvo una persona, desde la pantalla o mediante el pulsador.</td></tr>
-        <tr><td>No inició</td><td>El equipo se negó a arrancar (mapa o balance; sección 8). No hubo exposición: progreso y tiempo figuran en cero.</td></tr>
+        <tr><td>COMPLETADO</td><td>Verde</td><td>Se cumplió la duración configurada.</td></tr>
+        <tr><td>FALLA</td><td>Rojo</td><td>El equipo interrumpió la exposición por una condición peligrosa sostenida.</td></tr>
+        <tr><td>DETENIDO</td><td>Ámbar</td><td>Lo detuvo una persona, desde la pantalla o mediante el pulsador.</td></tr>
+        <tr><td>NO INICIO</td><td>Rojo</td><td>El equipo se negó a arrancar (mapa o balance; sección 8). No hubo exposición: progreso y tiempo figuran en cero.</td></tr>
+        <tr><td>TERMINO</td><td>Gris</td><td>Motivo desconocido: la placa de control no informó cómo terminó (por ejemplo, se perdió el enlace al final). El detalle dice lo que sabe la interfaz.</td></tr>
       </tbody>
     </table></div>
+
+    <p>El panel muestra además el modo de exposición del experimento, un
+      titular y una línea de detalle. Debajo, tres recuadros con el
+      progreso, el tiempo transcurrido y el campo medio.</p>
 
     <p>En el caso de <strong>Falla</strong>, el detalle indica qué sensor
       provocó el corte y con qué contador; por ejemplo, que la temperatura
@@ -1244,14 +1329,16 @@ table.pins tbody td{padding:7px 12px 7px 0}
       anotarse sin apremio.</p>
 
     <ul>
-      <li><strong>Volver</strong> regresa a Principal.</li>
-      <li><strong>Repetir</strong> inicia de inmediato un nuevo experimento con
-        la misma configuración, igual que <em>Iniciar</em> en Principal. Solo
-        aparece cuando el experimento resultó <em>Exitoso</em> o
-        <em>Detenido</em>. Tras una <em>Falla</em> se oculta, porque repetir la
+      <li><strong>PRINCIPAL</strong> regresa a Principal. Cuando REPETIR no
+        está disponible ocupa todo el ancho de la pantalla.</li>
+      <li><strong>REPETIR</strong> inicia de inmediato un nuevo experimento con
+        la misma configuración, igual que <em>INICIAR</em> en Principal. Solo
+        aparece cuando el experimento resultó <em>COMPLETADO</em> o
+        <em>DETENIDO</em>. Tras una <em>FALLA</em> se oculta, porque repetir la
         misma configuración que acaba de alcanzar un límite muy probablemente
         volvería a cortar, y la causa debe revisarse antes. Tampoco aparece en
-        <em>No inició</em> (sección 8). Si el enlace con la placa de control
+        <em>NO INICIO</em> (sección 8) ni en <em>TERMINO</em>, ni mientras haya
+        una configuración remota esperando el reinicio. Si el enlace con la placa de control
         está caído, Repetir no hace nada, salvo que la tarjeta haya
         desactivado la exigencia de esa placa (<code>requireMega</code>,
         sección 14).</li>
@@ -1933,7 +2020,8 @@ table.pins tbody td{padding:7px 12px 7px 0}
         <tr><td><em>Iniciar</em> deja la pantalla en Espera y regresa a Principal</td><td>El experimento no comenzó: la orden no llegó a la placa de control</td><td>Revisar el enlace con la placa de control; reintentar</td></tr>
         <tr><td>Resultado con panel <em>NO INICIÓ</em> y «Sin punto en el mapa»</td><td>Campo nulo con una intensidad o frecuencia que el mapa de la tarjeta no tiene</td><td>Cargar el punto medido en el banco, o elegir una combinación mapeada (sección 14)</td></tr>
         <tr><td>Resultado con panel <em>NO INICIÓ</em> y «Balance fuera de tope»</td><td>El balance del punto supera <code>balanceMax</code></td><td>Revisar el punto y el tope en la tarjeta</td></tr>
-        <tr><td>Una medición indica «Sin datos»</td><td>Ese sensor no reporta</td><td>Revisar la conexión (sección 3.5); confirmar que está habilitado en la configuración</td></tr>
+        <tr><td>INICIAR aparece en gris con la leyenda SIN CONEXION</td><td>No hay enlace con la placa de control (el indicador USB está en rojo)</td><td>Revisar el enlace serie (sección 3.3) y la alimentación de la placa de control; se habilita solo al recuperarse</td></tr>
+        <tr><td>En En curso, una medición se queda en cero</td><td>Ese sensor no reporta</td><td>Revisar la conexión (sección 3.5); confirmar que está habilitado en la configuración</td></tr>
         <tr><td>La temperatura no reporta pese a estar conectada</td><td>El código ROM del DS18B20 no coincide con el configurado</td><td>Si el sensor fue reemplazado, cargar su dirección (líneas <code>TEMP DS18B20 address=…</code> de la consola) en el archivo de configuración; ver 3.5</td></tr>
         <tr><td>La consola del Mega indica «ningun dispositivo responde» en I2C</td><td>Bus I2C inoperante</td><td>Revisar SDA/SCL, alimentación de los módulos y <em>pull-ups</em></td></tr>
         <tr><td>El campo medido queda muy por debajo de la consigna</td><td>El regulador no alcanza la consigna</td><td>Buscar avisos de recorte en la consola: una bobina puede carecer de margen. Requiere revisar el hardware o recalibrar</td></tr>

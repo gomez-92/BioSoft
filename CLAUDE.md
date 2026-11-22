@@ -107,14 +107,17 @@ lower it, and consecutive runs kept the link. Below ~300 means a new path is
 too deep — the end-of-run hang coming back. `docs/puesta-en-marcha.html`
 (phases 2–3) carries these log lines.
 
-## In progress: hand-written LVGL screens (branch `feat/pantallas-lvgl`)
+## Hand-written LVGL screens (migration from SquareLine)
 
-The six SquareLine screens are being replaced, one at a time, by LVGL 9.1
-written by hand. The plan (phases, decisions A–D, heap table) is the doc
+The six SquareLine screens were replaced by LVGL 9.1 written by hand
+(2026-11-22). The plan (phases, decisions A–D, heap table) is the doc
 https://claude.ai/artifact/QFHGKbDLadF1kFrBHtfWbb and the design handoff is
 https://claude.ai/artifact/W23df1TQhAL4tFxQ8QX4yX — read the plan first.
-Until phase 5 old and new screens coexist, so the SquareLine notes in the
-esp32 section still describe the screens not migrated yet.
+**Phases 0–4 are done and bench-tested**; the screens are described in the
+esp32 section. Phase 5 remains: deleting the SquareLine leftovers
+(`ui_helpers`, `ui_events`, `ui_comp_hook`, unused `ui_img_*`, extra fonts,
+`esp32/refactor/`). Its MODO PRUEBA restyle was dropped (user preferred the
+original).
 
 Phases: 0 baseline heap measurement → 1 `ui_theme` + components + ESPERANDO
 + SPLASH (cut-off point: if the heap does not improve, stop and rethink) →
@@ -950,8 +953,8 @@ and `StateListener` (own app state, from `SystemData`).
   the IDF), so with all six alive every connect died with `-32512
   MBEDTLS_ERR_SSL_ALLOC_FAILED`.
   `ui_init()` therefore **no longer calls the six `_screen_init()` functions
-  nor loads a screen** — the second hand edit to the generated `ui.c`, which
-  has to be redone after every SquareLine export.
+  nor loads a screen** (it only sets the default theme). With the screens
+  hand-written there is no export to redo it after.
   Which screens stay alive is `ScreenManager::belongsToGroup()`: **Principal
   and Configuraciones live together** (you go back and forth between them and
   recreating one two seconds later would only add latency); every other screen
@@ -1336,9 +1339,7 @@ and `StateListener` (own app state, from `SystemData`).
   unreachable with nothing to show for it. Being compile-fixed is also why its
   `value` is a plain `const char*` while every other menu owns its strings.
   Its dropdown (`ui_ConfiguracionesModoExposicionOpciones`) is wired like the
-  other six in `ConfigurationController`; `buildDropdown` overwrites the
-  `"NORMAL
-NULO"` placeholder the SquareLine export ships with.
+  other six in `ConfigurationController`, through `buildDropdown`.
 - `buildDropdown()` (`screencontroller.hpp`) now takes `ConfigurationOptions::countXxx`
   instead of a hardcoded literal per call site. That literal had already bitten
   once — the CEM tolerance list went from `{1%, 5%, 10%}` to `{5%, 10%}` and the
@@ -1442,103 +1443,113 @@ NULO"` placeholder the SquareLine export ships with.
   separate FreeRTOS task pinned to core 1 (`communicationTask`) drives
   `MySystem::remoteUpdate()` (WiFi + MQTT) independently, so blocking network I/O
   doesn't stall the UI.
-- The `ui_*.c/.h` files are LVGL-generated screen layouts (SquareLine
-  Studio-style output, including `ui_img_*_png.c` embedded image assets) — treat
-  them as generated UI code, distinct from the hand-written `*controller`/manager
-  classes that add behavior on top. Since the 2026-09-19 redesign they are the
-  export of SquareLine projects: `ui_*Screen.c/.h` plus `ui.c`/`ui.h`. As of
-  2026-09-21 five screens (Splash, Principal, Configuraciones, Resultado, and
-  **Esperando**, which replaced Busy) come from the `UiFinalParte1` project
-  and EnCurso from `UiFInalParte2` (sic) — `ui.c`/`ui.h` were hand-merged
-  (Busy → Esperando) since neither export shipped a `ui.c`. When
-  re-exporting, **set SquareLine's LVGL target to 9.1** (`platformio.ini` pins
-  `lvgl@9.1.0`): an 8.3 export compiles almost everywhere thanks to
-  `lv_api_map_v8.h`, but `lv_spinner_create(parent, t, angle)` and the
-  `ui_img_splash_png.c` descriptor (`LV_IMG_CF_TRUE_COLOR`/`always_zero`) do
-  not. The hand edit left in `ui.c` is that **`ui_init()` neither creates the
-  six screens nor loads one** — both the `_screen_init()` calls and the
-  `lv_disp_load_scr()` are removed, because screens are now built on demand
-  (see the ScreenManager bullet above). Redo that after every re-export; if
-  the calls come back, the board runs out of heap the moment TLS connects. The old `Principal2` project (`ui_Running.c` and its 11
-  icons) is gone; the new design has no image assets besides the splash.
-  New exports land in `esp32/refactor/` and get copied over `src/`; every
-  widget the controllers touch is renamed per export (the `UiFinalParte1`
-  ones are prefixed by screen: `ui_PrincipalIntensidadCampoValor`,
-  `ui_ConfiguracionTolIntensidadOpciones`, `ui_ButtonResultadoPrincipal`, ...),
-  so the build is what tells you which references went stale.
-  `ui_ButtonResultadoRepetir` (REPETIR, on Resultado) is **not wired** — the
-  layout has it, no controller handles it yet.
-  The new Principal splits value and unit into separate labels
-  (`ui_PrincipalIntensidadCampoValor` + `...Unidad`, hours/minutes for duration),
-  so `PrincipalData` carries both the composite labels (still read by the old
-  Running) and per-value strings formatted from the option's *numeric* fields
-  — never parsed out of the label, which is free text once it comes from the
-  SD. The "componentes" chips (`BOB 1-2`, `CEM 1`, `TEMP 1`, `SCT 1`) are
-  static export text: the ESP32 has no way to know what the Mega registered.
-  The Running screen is `ui_EnCursoScreen` (`RunningController`): health as
-  three mutually-exclusive chips in the header (`ui_EnCursoHeaderEstadoNormal`/
-  `Advertencia`/`Critico`), an Objetivos tab with the same split value+unit
-  labels as Principal (`ui_EnCursoObjetivos*Valor`, tolerance included), a
-  Mediciones tab with field + temperature plus **4 alert panels per
-  measurement** (`ui_EnCursoMedicionesIntensidadAlertas1-4` /
-  `...TempAlertas1-4`) and a coil table. The alert panels are the **last 4
-  events** of that source, oldest on the left: as many shown as there are
-  events (none at 0, the 4 newest from the fourth on), the rest hidden with
-  `LV_OBJ_FLAG_HIDDEN`, and each one colored by *its own* type — red for
-  `critical`, amber for streak/frequency. That needs a per-source event
-  history, which `AlertsData` cannot give: it dedupes by source+type (one
-  entry per type, carrying the accumulated count) because that is what health
-  and Resultado need. So `SystemData::pushAlertEvent()` keeps a **separate,
-  non-deduping** `AlertsHistoryData` (`MAX_ALERT_DOTS`=4 events for each of
-  `MAX_ALERT_SOURCES`=2 sources), fed from the same `flag_data` handler and
-  cleared on entering Running. Don't merge the two registers.
-  The coil table shows **one row per coil that exists**, not always 4
-  (`RunningController::_resolveVisibleCoils()`): the SD `coils` section wins,
-  counting only the enabled ones, and with no card it falls back to the coils
-  that reported in a `coil_data` frame — recomputed on the 1 s tick and not
-  only in `show()`, since with no SD nothing has reported yet when the screen
-  opens. With neither, no rows: how many coils there are is the Mega's fact,
-  and hardcoding 2 on the ESP32 because that is what `SoftMega2560.ino`
-  usually registers would duplicate it across the cable. Names come from the
-  SD entry when present, else `B1`..`B4` (the export ships row 4 named "B3").
-  Current and duty both come from `coil_data` and **both start at 0** instead
-  of showing dashes — 0 is what the PWM is actually putting out before the
-  loop starts. The bottom bar shows progress % (`ui_Label1`, unnamed in
-  SquareLine) and time **elapsed** (`SystemData::elapsedSeconds()`), as its
-  TRANSCURRIDO title says — the `RefactorPrincipal` layout showed remaining
-  instead. Every measurement on this screen **starts at 0 on entering
-  Running** (`_processState`'s Running branch resets field, temperature,
-  per-coil current and duty, and their timestamps). The two measurement
-  labels used to be guarded by `static float` caches initialised to `0.0f`,
-  which compared equal to the data's own `0.0f` and so left the export's mock
-  values ("1.0" mT, "33.6" C) on screen as if they had been measured; the
-  caches are now members reset to `NAN` in `show()`. The old 3-panel Alertas tab is gone;
-  `AlertsData` survives for health, the dots and Resultado.
-  Resultado now has dedicated widgets (progress %, elapsed h/m, per-reason
-  panel with mode + detail line, and a **mean field** the ESP32 computes by
-  accumulating every `cem_data` while `Running` — `MeasuresData::
-  magneticFieldSum/Samples`, reset on entering Running, frozen into
-  `ResultData` with the other snapshots; shows `--` with zero samples). The
-  health label has no widget in the new layout. Principal shows only the mode
-  ("CAMPO X"/"CAMPO NULO"); the group label and the components chips of the
-  `RefactorPrincipal` layout have no widget anymore. The Configuraciones
-  "N CAMBIOS SIN GUARDAR" banner is gone from the layout too —
-  `ConfigurationController::_pendingChanges()` still counts staging vs
-  `_data.configuration`, but only logs it, so leaving via Volver discards
-  edits silently on screen.
-- `RunningController` (`screencontroller.hpp`)'s Alertas tab shows up to 3 flags
-  in `SystemData::alerts` (`AlertsData`, `systemdata.hpp`), filled by
-  `MySystem::onCommand` on every `flag_data` via `SystemData::pushAlert(type,
-  source, count, limit)`. `pushAlert` dedupes by `source`+`type`: a repeat flag
-  for the same source/type updates that slot's count/limit/timestamp in place
-  and moves it to the front, instead of adding a duplicate entry — so the panel
-  always shows the latest accumulated count for a given alert, not every single
-  event. Slots are most-recent-first (`items[0]` → `ui_Alert1`, top of the tab);
-  `RunningController::_applyAlertPanel()` hides a panel entirely
-  (`LV_OBJ_FLAG_HIDDEN`) when its slot has no alert yet, so with fewer than 3
-  distinct alerts the unused panels disappear instead of showing an empty/dashed
-  state. `_data.alerts` is reset (`AlertsData()`) each time the state machine
-  enters `Running`, so a new experiment starts with a clean tab.
+- **The six screens are hand-written LVGL 9.1, not SquareLine exports**
+  (2026-11-22, branch chain `feat/pantallas-lvgl*`, plan
+  https://claude.ai/artifact/QFHGKbDLadF1kFrBHtfWbb, design handoff
+  https://claude.ai/artifact/W23df1TQhAL4tFxQ8QX4yX, canvas
+  https://claude.ai/artifact/7H6mCVoPTZzjN8Q4pXXcYo). Three layers:
+    - `ui_theme.h/.c` — the handoff's tokens (`COL_*`, `FONT_10/12/16/24`,
+      measures) and **shared `lv_style_t`s** (`st_*`), initialised once by
+      `ui_theme_init()` from `DisplayDriver::begin()` right after `ui_init()`,
+      while the heap is still whole. That is the point of the migration:
+      SquareLine gave every object its own local styles, each one an
+      allocation in the heap the TLS handshake needs. Rule for our objects:
+      create, `lv_obj_remove_style_all()`, add `st_*` styles. Spinner and
+      dropdown (and its list) keep the default theme as base, since it draws
+      their parts, with our styles on top. A different *state* needs its own
+      style added with that selector (`st_btn_pri` + `st_btn_pri_pr` on
+      `LV_STATE_PRESSED`, `st_btn_dis` on `LV_STATE_DISABLED`). A handful of
+      one-off layout values (pads, flex) are still local styles on single
+      objects; don't multiply them per row/cell.
+    - `ui_components.h/.c` — `ui_header_create` + `ui_header_add_status_icons`
+      (four 20×20 symbol chips: USB, SD, WiFi, broker; `ui_status_icon_set()`
+      adds `st_icon_fail`, red symbol in a white chip), `ui_button_create` /
+      `ui_button_set_kind` (primary / secondary / stop), `ui_card_create`,
+      `ui_box_create` (no styles, no scroll, no click) and
+      `ui_data_card_create` + `ui_data_card_add_value`. The data card is
+      **flat on purpose**: value + unit used to sit in a `LV_SIZE_CONTENT` box
+      aligned right, whose width stayed that of the placeholder text, so the
+      real value overflowed left and was clipped (on the board: the unit and a
+      sliver of the last digit). The label has `flex_grow 1` and pushes.
+    - `ui_<Screen>Screen.c/.h` — one per screen, each still exposing the
+      `ui_XxxScreen` root and `ui_XxxScreen_screen_init()` /
+      `_screen_destroy()` that `BaseScreenController` takes, and still
+      **global `ui_Xxx` widget pointers** (decision D: names that existed were
+      kept so controllers didn't change there; new ones are
+      `ui_<Pantalla><Parte>`). Destroy nulls every pointer. Some screens add
+      helpers their controller calls: `ui_config_show_tab()`,
+      `ui_config_field_refresh()`, `ui_config_field_set_dirty()`,
+      `ui_encurso_show_tab()`, `ui_encurso_set_coil_layout()`.
+  `ui.c`/`ui.h` remain from the export only for `ui_init()` (default theme)
+  and the includes; `ui_helpers`, `ui_events`, `ui_comp_hook`, the icon
+  `ui_img_*_png.c` files (only `ui_img_fiuner3201_png` is still used, by the
+  splash) and `esp32/refactor/` are leftovers until phase 5 deletes them.
+  Montserrat is ASCII only: no accents, no `°`, no `ñ` in any screen text.
+  Measured on the board (TLS connected): Resultado ~5 KB less heap than the
+  export, Principal ~2.7 KB, Principal+Configuración together ~2.3 KB, En
+  curso **~10.4 KB** (70.5 vs 59.8 KB free). The largest free block still
+  reads 44.0 KB on every screen, but with the new En curso **a broker drop
+  mid-run reconnects** (first try, no `-32512`), which the export never did.
+- **Splash**: the faculty logo is the existing full-screen
+  `ui_img_fiuner3201_png` shifted up 40 px (no new asset, it lives in
+  flash), then **SEMBAF** (FONT_24) and its full name, *Sistema de
+  Exposicion Magnetica de Baja Frecuencia*, and "INICIANDO..." (not
+  "connecting to the Mega": in bench mode the splash ends by timeout).
+- **Esperando**: spinner 64 px (theme + `st_spinner`/`st_spinner_ind`), the
+  message from `BusyController::show()`, and "ESPERANDO CONFIRMACION DEL
+  MEGA". The timeout stays in `BusyController::update()`, not an `lv_timer`.
+- **Principal**: a mode band (`st_mode_x` violet filled with
+  `LV_SYMBOL_CHARGE` / `st_mode_null` white outlined, no symbol — filled =
+  field on), six data cards (left column 136, right 160) and CONFIGURAR /
+  INICIAR. **INICIAR is disabled and reads SIN CONEXION when
+  `ConfigLoader::requireMega() && !serialOk`** — the same condition under
+  which `MySystem` ignores the tap, so what is shown and what happens agree
+  (refreshed with the status icons, on change). `PrincipalData` carries
+  per-value strings formatted from the option's *numeric* fields — never
+  parsed out of the label, which is free text once it comes from the SD.
+- **Configuraciones**: two tabs, EXPOSICION (modo, intensidad, frecuencia,
+  duracion) and LIMITES (tolerancia, temp normal, temp critica), shown/hidden
+  by `ui_config_show_tab()`; tabs are not `CHECKABLE`, so tapping the active
+  one doesn't uncheck it. Each field is an `lv_dropdown` 148×40 whose **own
+  text is empty**: an `lv_dropdown` cannot ellipsize, and SD labels can be 15
+  characters, so the value is a child label with `LV_LABEL_LONG_DOT`
+  (children: 0 name, 1 value, 2 mode square on MODO only — the helpers
+  depend on that order). `ui_config_field_refresh(dd, hasSelection)` paints
+  it, `--` when a temperature range has no compatible option. Unsaved
+  changes are visible now (`ConfigurationController::_updateDirty()`, staging
+  vs `_data.configuration`): amber border + amber name on the field, a dot on
+  its tab, a SIN GUARDAR chip in the header, VOLVER becomes DESCARTAR and
+  GUARDAR is enabled only with changes. A range left at NoSelection counts
+  as a change and `onSave()` still refuses it.
+- **En curso** (`RunningController`): the **whole header** takes the
+  health colour (`st_hdr_ok`/`_warn`/`_crit`, plus NORMAL / ADVERTENCIA /
+  CRITICO and a 1 px divider that turns dark on amber); title in FONT_12
+  because ADVERTENCIA in 16 doesn't fit. Tabs MEDICIONES / OBJETIVOS and a
+  mode chip; **both pages are created on entry and only hidden/shown**
+  (decision B: nothing is created or destroyed during a run). MEDICIONES:
+  field and temperature cards, each with up to 4 alert dots — the **last 4
+  events** of that source from `AlertsHistoryData`, oldest left, amber for
+  streak/frequency, red for critical/silence (`st_dot_warn`/`st_dot_crit`,
+  repainted only when a count+criticality signature changes, since this runs
+  every 50 ms) — and the measured value coloured by **that source's health**
+  (`SystemData::evaluateSourceHealth(source)`, the global rule filtered by
+  source; decision A). `AlertsData` (deduped by source+type, max 3) feeds
+  health and Resultado; `AlertsHistoryData` (not deduped) feeds the dots —
+  don't merge the two. Coil rows: always 4 objects; `ui_encurso_set_coil_layout(n)`
+  shows n and sets widths (≤2 coils: one per line 292/174/44; 3–4: two per
+  line 142/32/40; 0: "SIN BOBINAS CONECTADAS"). How many comes from
+  `_resolveVisibleCoils()`: the SD `coils` section (enabled ones), else the
+  coils that reported in `coil_data`, else none — recomputed on the 1 s tick.
+  Duty and current start at 0, not dashes. Progress % + bar and elapsed time
+  (`ui_EnCursoProgresoValor`, formerly the export's unnamed `ui_Label1`;
+  `ui_EnCursoTranscurridoValor`) and the red DETENER stay visible on both
+  tabs. Every measurement starts at 0 on entering Running; the value caches
+  are members reset to `NAN` in `show()` (a `static float` initialised to 0
+  once left the export's mock values on screen).
+- **MODO PRUEBA** (`testrunnotice.hpp`) was *not* restyled: a restyled
+  version (bottom strip, white dialog) was tried on the board and the user
+  preferred the original (small strip top centre, dark dialog). It lives on
+  `lv_layer_top()` and does not use `ui_theme`.
 - Overall experiment health (`SystemData::evaluateHealth()`, `systemdata.hpp`) is
   computed entirely on the ESP32 from `_data.alerts` — it is *not* something the
   Mega reports (a prior refactor removed health scoring from `Engine`). Rule: no
@@ -1547,14 +1558,13 @@ NULO"` placeholder the SquareLine export ships with.
   exactly two triggers, deliberately not on a timer/poll: when `onCommand` handles
   a `flag_data` (right after `pushAlert`), and reset to `normal` when
   `_processState()` transitions into `Running`. `RunningController::_updateHealthData()`
-  reads `_data.progress.health` every screen tick and drives both `ui_HealthEstado`
-  (label) and the matching one of `ui_HealthNormalImg`/`WarningImg`/`CriticalImg`
-  (mutually exclusive visibility toggle) — same panel used for the icons that used
-  to be hardcoded to "always Normal". There used to be a `Tasks::UpdateHealth`
+  reads `_data.progress.health` every screen tick and, only when it changes,
+  swaps the header's `st_hdr_*` style and its NORMAL / ADVERTENCIA / CRITICO
+  label. There used to be a `Tasks::UpdateHealth`
   5s-poll timer wired for this; it was removed as redundant once the event-driven
   recompute was added — if health ever needs a periodic fallback again, don't just
   re-add a poll without checking whether the event triggers already cover it.
-- The Resultado screen (`ScreenType::RESULT`, `ui_Resultado.c/.h`) is reached only
+- The Resultado screen (`ScreenType::RESULT`, `ui_ResultadoScreen.c/.h`) is reached only
   by receiving `result_data`, never through `_processState()`'s normal state
   machine — the Mega's `Finished` state is never observable (see `_finish()`
   above), so there's no `state_data` value to route on. `onCommand`'s
@@ -1566,9 +1576,17 @@ NULO"` placeholder the SquareLine export ships with.
   they're snapshotted into `_data.result` at the moment `result_data` arrives
   (frozen — they must stop advancing once the experiment is over, unlike the
   Running screen where the same getters are read live every tick).
-  `ResultadoController::_applyResult()` shows exactly one of the three panels
-  based on `reason` (`"completed"`/`"critical"`/`"stopped"`) and **writes the
-  detail line itself** from structured fields, not from the Mega's prose.
+  The screen has **one panel with five variants** (the export had three
+  stacked panels): `ResultadoController::_applyPanel()` sets its style
+  (`st_panel_ok`/`_warn`/`_crit`/`_neutral`), symbol, title (COMPLETADO /
+  DETENIDO / FALLA / NO INICIO / TERMINO), headline and detail, plus the mode
+  chip. `_applyResult()` picks the variant from `reason` (anything that is
+  not completed/critical/stopped/refused — `unknown`, `lost` — is TERMINO /
+  MOTIVO DESCONOCIDO with the ESP32's description) and **writes the detail
+  line itself** from structured fields, not from the Mega's prose. The
+  alerts clause counts *distinct* alerts (`alertCount`, deduped by
+  source+type), so a cut by 3 frequency events of CEM1 reads "3/3
+  ocurrencias - 1 alerta activa"; kept that way by user decision.
   `result_data` therefore carries, besides `reason`/`description`, the raw
   facts of the cut: `source`/`type`/`count`/`limit` when critical, and
   `emerg` (physical e-stop vs on-screen Detener) when stopped — both boards
@@ -1595,16 +1613,18 @@ NULO"` placeholder the SquareLine export ships with.
   that stale "ready" broadcast would silently bounce the operator back to
   Principal a few seconds after arriving, before they could read the result.
   A start the Mega **refused** (`reason: "refused"`, `cause`) is shown on the
-  same Falla panel retitled **NO INICIO**, with headline/detail written from
+  red panel titled **NO INICIO**, with headline/detail written from
   the cause code (`ResultadoController::_buildRefusedTexts`), progress and
   elapsed forced to zero (the getters would read the *previous* run), and
   state closed to Ready if it was Starting. REPETIR is offered only for
   **never** for a refused start (both causes are configuration, so repeating
   would refuse again). **It is not published to MQTT**: with no `targets` before it, the web monitor would build an orphan
   run from an experiment that never existed.
-  Leaving Resultado is manual only, via `ui_ResultadoBtnVolver` (already built in
-  SquareLine, just needed wiring) → `EventName::Back` → resets `_data.result` and
-  shows `PRINCIPAL`.
+  Leaving Resultado is manual only, via PRINCIPAL (`ui_ButtonResultadoPrincipal`)
+  → `EventName::Back` → resets `_data.result` and shows `PRINCIPAL`. With
+  REPETIR hidden, PRINCIPAL takes the full width and turns primary
+  (`_layoutButtons()`); the summary cards show progress, elapsed `h m` and
+  the mean field, whose unit hides when it reads `--`.
 
 ### `tools/` — external configuration generator
 
