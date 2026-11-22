@@ -14,6 +14,10 @@ lv_style_t st_lbl;
 lv_style_t st_val16;
 lv_style_t st_val24;
 lv_style_t st_txt_center;
+lv_style_t st_txt12;
+lv_style_t st_f10;
+lv_style_t st_f16;
+lv_style_t st_chip_sm;
 lv_style_t st_btn_pri;
 lv_style_t st_btn_pri_pr;
 lv_style_t st_btn_sec;
@@ -142,6 +146,20 @@ void ui_theme_init(void) {
 
     lv_style_init(&st_txt_center);
     lv_style_set_text_align(&st_txt_center, LV_TEXT_ALIGN_CENTER);
+
+    lv_style_init(&st_txt12);
+    init_text(&st_txt12, COL_TEXT, FONT_12);
+
+    lv_style_init(&st_f10);
+    lv_style_set_text_font(&st_f10, FONT_10);
+    lv_style_init(&st_f16);
+    lv_style_set_text_font(&st_f16, FONT_16);
+
+    lv_style_init(&st_chip_sm);
+    lv_style_set_height(&st_chip_sm, 20);
+    lv_style_set_pad_left(&st_chip_sm, PAD_MD);
+    lv_style_set_pad_right(&st_chip_sm, PAD_MD);
+    lv_style_set_radius(&st_chip_sm, RADIO_SM);
 
     init_button(&st_btn_pri, COL_PRIMARY, lv_color_white());
     init_pressed(&st_btn_pri_pr, COL_PRIMARY_DARK);

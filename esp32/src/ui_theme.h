@@ -84,6 +84,10 @@ extern lv_style_t st_lbl;           // FONT_10, COL_TEXT_2
 extern lv_style_t st_val16;         // FONT_16, COL_TEXT
 extern lv_style_t st_val24;         // FONT_24, COL_TEXT
 extern lv_style_t st_txt_center;    // solo text_align center
+extern lv_style_t st_txt12;         // FONT_12, COL_TEXT
+extern lv_style_t st_f10;           // solo FONT_10: hereda el color (paneles, chips)
+extern lv_style_t st_f16;           // solo FONT_16: hereda el color
+extern lv_style_t st_chip_sm;       // chip de alto 20: pad_hor 6, radio 4
 extern lv_style_t st_btn_pri;
 extern lv_style_t st_btn_pri_pr;    // LV_STATE_PRESSED
 extern lv_style_t st_btn_sec;

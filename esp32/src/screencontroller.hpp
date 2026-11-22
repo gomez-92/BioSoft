@@ -8,6 +8,8 @@
 #include "systemdata.hpp"
 #include "iscreen.hpp"
 #include "ui.h"
+#include "ui_theme.h"
+#include "ui_components.h"
 #include "log.hpp"
 
 
@@ -978,7 +980,8 @@ class ResultadoController : public BaseScreenController {
     StatusIconsCache _statusIcons;
     void _updateStatusIcons();
     void _applyResult();
-    void _applyPanel(lv_obj_t* panel, bool visible, lv_obj_t* modeLabel, lv_obj_t* detailLabel, const char* detail);
+    void _applyPanel(lv_style_t* style, const char* symbol, const char* title, const char* headline, const char* detail);
+    void _layoutButtons(bool showRepeat);
     void _buildAlertsClause(char* out, size_t size) const;
     void _buildCriticalTexts(char* headline, size_t headlineSize, char* detail, size_t detailSize) const;
     void _buildRefusedTexts(char* headline, size_t headlineSize, char* detail, size_t detailSize) const;
@@ -992,14 +995,6 @@ inline void ResultadoController::init() {
 
   lv_obj_add_event_cb(ui_ButtonResultadoPrincipal, btnResultadoVolverClick, LV_EVENT_CLICKED, this);
   lv_obj_add_event_cb(ui_ButtonResultadoRepetir, btnResultadoRepetirClick, LV_EVENT_CLICKED, this);
-
-  // Los 3 paneles (Completado/Falla/Detenido) ocupan el mismo lugar. El
-  // export deja Completado visible y los otros dos ocultos; se ocultan los
-  // 3 aca para no depender de ese default, _applyResult() muestra el que
-  // corresponde a _data.result.reason.
-  lv_obj_add_flag(ui_ResultadoCompletado, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_add_flag(ui_ResultadoFalla, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_add_flag(ui_ResultadoDetenido, LV_OBJ_FLAG_HIDDEN);
 }
 
 inline void ResultadoController::onVolver() {
@@ -1032,10 +1027,10 @@ inline void ResultadoController::_updateStatusIcons() {
   if (_statusIcons.matches(_data.communication)) return;
   _statusIcons.remember(_data.communication);
 
-  applyStatusIcon(ui_ResultadoMegaOk, ui_ResultadoMegaNo, _data.communication.serialOk);
-  applyStatusIcon(ui_ResultadoWifiOk, ui_ResultadoWifiNo, _data.communication.wifiOk);
-  applyStatusIcon(ui_ResultadoBrokerOk, ui_ResultadoBrokerNo, _data.communication.brokerOk);
-  applyStatusIcon(ui_ResultadoSdOk, ui_ResultadoSdNo, _data.communication.sdOk);
+  ui_status_icon_set(ui_ResultadoIconoMega, _data.communication.serialOk);
+  ui_status_icon_set(ui_ResultadoIconoWifi, _data.communication.wifiOk);
+  ui_status_icon_set(ui_ResultadoIconoBroker, _data.communication.brokerOk);
+  ui_status_icon_set(ui_ResultadoIconoSd, _data.communication.sdOk);
 }
 
 // "sin alertas activas" / "1 alerta activa" / "N alertas activas". Sale del
@@ -1111,14 +1106,43 @@ inline void ResultadoController::_buildRefusedTexts(char* headline, size_t headl
   }
 }
 
-inline void ResultadoController::_applyPanel(lv_obj_t* panel, bool visible, lv_obj_t* modeLabel, lv_obj_t* detailLabel, const char* detail) {
-  if (!visible) {
-    lv_obj_add_flag(panel, LV_OBJ_FLAG_HIDDEN);
-    return;
+// Un solo panel con cinco variantes: estilo de estado, simbolo, titulo,
+// titular y detalle. El chip de modo es el del experimento, igual en todas.
+inline void ResultadoController::_applyPanel(lv_style_t* style, const char* symbol, const char* title,
+                                             const char* headline, const char* detail) {
+  lv_obj_remove_style(ui_ResultadoPanel, &st_panel_ok, 0);
+  lv_obj_remove_style(ui_ResultadoPanel, &st_panel_warn, 0);
+  lv_obj_remove_style(ui_ResultadoPanel, &st_panel_crit, 0);
+  lv_obj_remove_style(ui_ResultadoPanel, &st_panel_neutral, 0);
+  lv_obj_add_style(ui_ResultadoPanel, style, 0);
+
+  lv_label_set_text(ui_ResultadoPanelSimbolo, symbol);
+  lv_label_set_text(ui_ResultadoPanelTitulo, title);
+  lv_label_set_text(ui_ResultadoPanelTitular, headline);
+  // Si el Mega no mando detalle queda vacio y el panel conserva su alto.
+  lv_label_set_text(ui_ResultadoPanelDetalle, detail);
+
+  // Relleno = campo encendido, contorno = sin campo (handoff).
+  bool nullField = strcmp(_data.result.fieldMode, "CAMPO NULO") == 0;
+  lv_obj_remove_style(ui_ResultadoPanelModo, &st_mode_x, 0);
+  lv_obj_remove_style(ui_ResultadoPanelModo, &st_mode_null, 0);
+  lv_obj_add_style(ui_ResultadoPanelModo, nullField ? &st_mode_null : &st_mode_x, 0);
+  lv_label_set_text(ui_ResultadoPanelModoTexto, nullField ? "CAMPO NULO" : LV_SYMBOL_CHARGE " CAMPO X");
+}
+
+// Con REPETIR: PRINCIPAL secundario a la izquierda. Sin REPETIR: PRINCIPAL
+// ocupa el ancho completo y pasa a primario (es la unica accion).
+inline void ResultadoController::_layoutButtons(bool showRepeat) {
+  if (showRepeat) {
+    lv_obj_remove_flag(ui_ButtonResultadoRepetir, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_width(ui_ButtonResultadoPrincipal, 148);
+    ui_button_set_kind(ui_ButtonResultadoPrincipal, UI_BTN_SECONDARY);
   }
-  lv_label_set_text(modeLabel, _data.result.fieldMode);
-  lv_label_set_text(detailLabel, detail);
-  lv_obj_remove_flag(panel, LV_OBJ_FLAG_HIDDEN);
+  else {
+    lv_obj_add_flag(ui_ButtonResultadoRepetir, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_width(ui_ButtonResultadoPrincipal, 304);
+    ui_button_set_kind(ui_ButtonResultadoPrincipal, UI_BTN_PRIMARY);
+  }
 }
 
 inline void ResultadoController::_applyResult() {
@@ -1126,49 +1150,40 @@ inline void ResultadoController::_applyResult() {
   bool isCritical  = strcmp(_data.result.reason, "critical") == 0;
   bool isStopped   = strcmp(_data.result.reason, "stopped") == 0;
   bool isRefused   = strcmp(_data.result.reason, "refused") == 0;
-  // Cualquier otro motivo ("unknown": el Mega no lo informo, ver
-  // MySystem::_applyResult) va al panel de falla. Antes no mostraba ningun
-  // panel y la pantalla quedaba en blanco sin decir que paso.
+  // Cualquier otro motivo ("unknown": el Mega no lo informo; "lost": la
+  // corrida se cerro sin result_data, ver MySystem::_applyResult) va al
+  // panel neutro con la descripcion que armo la ESP32.
   bool isUnknown   = !isCompleted && !isCritical && !isStopped && !isRefused;
 
   char alerts[32];
   _buildAlertsClause(alerts, sizeof(alerts));
 
-  // Completado: el titular fijo del export ("LA EXPOSICION LLEGO A SU FIN")
-  // ya dice todo, el detalle aporta como quedaron las alertas.
-  char completedDetail[64];
-  snprintf(completedDetail, sizeof(completedDetail), "%s", alerts);
-
-  // Detenido: de donde vino la orden. Para el experimento es lo mismo, pero
-  // no para quien lee el resultado despues.
-  char stoppedDetail[64];
-  snprintf(stoppedDetail, sizeof(stoppedDetail), "%s - %s",
-           _data.result.fromEmergency ? "pulsador de emergencia" : "boton de la pantalla",
-           alerts);
-
-  char criticalHeadline[48];
-  char criticalDetail[64];
-  _buildCriticalTexts(criticalHeadline, sizeof(criticalHeadline), criticalDetail, sizeof(criticalDetail));
-
-  _applyPanel(ui_ResultadoCompletado, isCompleted, ui_ResultadoMotivoCompletadoTipoCampo, ui_ResultadoMotivoCompletadoMotivoDetalle, completedDetail);
-  _applyPanel(ui_ResultadoDetenido, isStopped, ui_ResultadoMotivoDetenidoTipoCampo, ui_ResultadoMotivoDetenidoMotivoDetalle, stoppedDetail);
-  char refusedHeadline[40];
-  char refusedDetail[64];
-  _buildRefusedTexts(refusedHeadline, sizeof(refusedHeadline), refusedDetail, sizeof(refusedDetail));
-
-  _applyPanel(ui_ResultadoFalla, isCritical || isRefused || isUnknown, ui_ResultadoMotivoFallaTipoCampo, ui_ResultadoMotivoFallaMotivoDetalle,
-              isRefused ? refusedDetail : (isUnknown ? _data.result.description : criticalDetail));
-
-  if (isCritical) {
-    lv_label_set_text(ui_ResultadoMotivoFallaMotivo, criticalHeadline);
+  if (isCompleted) {
+    // El titular ya dice todo; el detalle aporta como quedaron las alertas.
+    _applyPanel(&st_panel_ok, LV_SYMBOL_OK, "COMPLETADO", "LA EXPOSICION LLEGO A SU FIN", alerts);
+  }
+  else if (isStopped) {
+    // De donde vino la orden: para el experimento es lo mismo, pero no para
+    // quien lee el resultado despues.
+    char detail[64];
+    snprintf(detail, sizeof(detail), "%s - %s",
+             _data.result.fromEmergency ? "pulsador de emergencia" : "boton de la pantalla", alerts);
+    _applyPanel(&st_panel_warn, LV_SYMBOL_STOP, "DETENIDO", "EL OPERADOR DETUVO LA EXPOSICION", detail);
+  }
+  else if (isCritical) {
+    char headline[48];
+    char detail[64];
+    _buildCriticalTexts(headline, sizeof(headline), detail, sizeof(detail));
+    _applyPanel(&st_panel_crit, LV_SYMBOL_CLOSE, "FALLA", headline, detail);
   }
   else if (isRefused) {
-    lv_label_set_text(ui_ResultadoMotivoFallaTitle, "NO INICIO");
-    lv_label_set_text(ui_ResultadoMotivoFallaMotivo, refusedHeadline);
+    char headline[40];
+    char detail[64];
+    _buildRefusedTexts(headline, sizeof(headline), detail, sizeof(detail));
+    _applyPanel(&st_panel_crit, LV_SYMBOL_CLOSE, "NO INICIO", headline, detail);
   }
-  else if (isUnknown) {
-    lv_label_set_text(ui_ResultadoMotivoFallaTitle, "TERMINO");
-    lv_label_set_text(ui_ResultadoMotivoFallaMotivo, "MOTIVO DESCONOCIDO");
+  else {
+    _applyPanel(&st_panel_neutral, "?", "TERMINO", "MOTIVO DESCONOCIDO", _data.result.description);
   }
 
   // REPETIR se oculta cuando corto por falla: repetir el mismo experimento
@@ -1179,37 +1194,36 @@ inline void ResultadoController::_applyResult() {
   // una configuracion remota esperando el reinicio: correria con la vieja
   // (ver MySystem::_rebootForConfigIfIdle).
   bool hideRepeat = isCritical || isRefused || isUnknown || _data.configRebootPending;
-  if (hideRepeat) lv_obj_add_flag(ui_ButtonResultadoRepetir, LV_OBJ_FLAG_HIDDEN);
-  else            lv_obj_remove_flag(ui_ButtonResultadoRepetir, LV_OBJ_FLAG_HIDDEN);
+  _layoutButtons(!hideRepeat);
 
   // Progreso, tiempo y campo medio: snapshot congelado en SystemData::result
   // al llegar result_data (ver systemdata.hpp), no los getters en vivo.
   char text[16];
-  snprintf(text, sizeof(text), "%.0f%%", _data.result.progressPercent);
+  snprintf(text, sizeof(text), "%.0f", _data.result.progressPercent);
   lv_label_set_text(ui_ResultadoProgresoValor, text);
 
   unsigned long totalMinutes = _data.result.elapsedSeconds / 60;
-  snprintf(text, sizeof(text), "%lu", totalMinutes / 60);
-  lv_label_set_text(ui_ResultadoProgresoHorasValor, text);
-  snprintf(text, sizeof(text), "%02lu", totalMinutes % 60);
-  lv_label_set_text(ui_ResultadoProgresoMinutosValor, text);
+  snprintf(text, sizeof(text), "%lu h %02lu", totalMinutes / 60, totalMinutes % 60);
+  lv_label_set_text(ui_ResultadoTranscurridoValor, text);
 
   if (_data.result.hasMeanMagneticField) {
     snprintf(text, sizeof(text), "%.2f", _data.result.meanMagneticField);
+    lv_label_set_text(ui_ResultadoCampoMedioUnidadValor, text);
+    lv_obj_remove_flag(ui_ResultadoCampoMedioUnidad, LV_OBJ_FLAG_HIDDEN);
   }
   else {
     // Sin ninguna muestra de CEM1 durante el experimento: no hay promedio
     // que mostrar, y un "0.00" se leeria como campo nulo medido.
-    snprintf(text, sizeof(text), "--");
+    lv_label_set_text(ui_ResultadoCampoMedioUnidadValor, "--");
+    lv_obj_add_flag(ui_ResultadoCampoMedioUnidad, LV_OBJ_FLAG_HIDDEN);
   }
-  lv_label_set_text(ui_ResultadoCampoMedioUnidadValor, text);
 }
 
 inline void ResultadoController::update() {
   _updateStatusIcons();
   // La configuracion puede llegar con esta pantalla ya abierta.
   if (_data.configRebootPending && !lv_obj_has_flag(ui_ButtonResultadoRepetir, LV_OBJ_FLAG_HIDDEN)) {
-    lv_obj_add_flag(ui_ButtonResultadoRepetir, LV_OBJ_FLAG_HIDDEN);
+    _layoutButtons(false);
   }
 }
 
