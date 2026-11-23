@@ -583,8 +583,8 @@ Key collaborators:
   list keeps the previous one. Its refusal reasons are an enum, not strings:
   as plain literals they cost ~150 bytes of RAM (measured). Sampled arrays
   were rejected for RAM (an hour of TEMP1 at 5 s is 2.9 KB).
-  **Profiles live in `tools/escenarios.json`, one per source** (12 factory
-  ones: 7 TEMP1 + 5 CEM1, since 2026-11-19 — they used to carry both sources
+  **Profiles live in `tools/escenarios.json`, one per source** (13 factory
+  ones: 7 TEMP1 + 6 CEM1, since 2026-11-19 — they used to carry both sources
   at once; the operator now picks one for temperature and one for field,
   e.g. normal + unstable). Each carries its `source`, `enabled` (whether the
   source is watched is part of what the scenario tests: "campo caido" proves
@@ -617,7 +617,20 @@ Key collaborators:
   the target, field = target·duty/setpointDuty + (level value − target), so
   the `FieldController` really regulates — and can legitimately *compensate*
   a slow disturbance; `setpointDuty: 0` drops the plant to force the field
-  out of range. Time is `Scenario::startMs`, reset in `_start()`; noise is a
+  out of range. In the generator that number is the CEM1 selector **"Que simula"**
+  (lectura = 0 / perturbacion = > 0; user found the bare number
+  unreadable, 2026-11-23): in perturbation mode the chart line is "sin
+  control", the dots the compensated reading, and a strip below draws the
+  loop's common duty (`SIM` already recorded it). Under the parameters,
+  levels are translated to units for the reference run, with an amber note
+  when a shape beyond +-1 is flattened by a narrow warning band (CEM1:
+  `criticalMultiplier` 1.25; a button sets 2, which makes levels linear) and
+  when `setpointDuty` differs from the map duty — the loop tunes kp with the
+  map's, so the effective alpha becomes `alpha x map / setpointDuty` (also a
+  `validate()` warning). Factory `campoOscilanteCompensado` (+-3 levels,
+  240 s) is the control test; `test_oscillation_without_plant_cuts` pins
+  that the same shape without plant does cut, or the profile proves
+  nothing. Time is `Scenario::startMs`, reset in `_start()`; noise is a
   local xorshift32 (no `random()` in native).
   **With CEM1 not real (`sim` or `scenario`) nothing is energized**:
   `_applySourceSettings()` sets `_syntheticField`, `_start()` calls

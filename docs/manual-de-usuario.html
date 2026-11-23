@@ -1880,7 +1880,8 @@ table.pins tbody td{padding:7px 12px 7px 0}
         <tr><td>Temperatura (TEMP1)</td><td>normal, alta, que sube, baja, que se
           recupera, en advertencia sostenida, sensor caído</td></tr>
         <tr><td>Campo (CEM1)</td><td>normal, perturbación compensada por el
-          lazo, inestable, fuera de rango, sensor caído</td></tr>
+          lazo, prueba del control (oscilación compensada), inestable, fuera
+          de rango, sensor caído</td></tr>
       </tbody>
     </table></div>
 
@@ -1895,7 +1896,41 @@ table.pins tbody td{padding:7px 12px 7px 0}
     <p>Los escenarios se adaptan solos a los rangos elegidos en la pantalla
       Configuración: la señal se define en <em>niveles</em> (0 es el centro
       del rango normal, 1 su borde, 2 el borde del crítico), de modo que
-      «temperatura alta» supera el rango crítico elegido, cualquiera sea.</p>
+      «temperatura alta» supera el rango crítico elegido, cualquiera sea.
+      Debajo de los parámetros de cada fuente, el generador traduce los
+      niveles a unidades con la corrida de referencia («1 nivel = 0,05 mT; la
+      forma va de 0,925 a 1,075 mT»). Hasta ±1 cada nivel vale medio rango
+      normal; más allá, lo que mide la franja de advertencia, que en el campo
+      depende del <em>criticalMultiplier</em> (paso 5). Con el 1,25 de fábrica
+      esa franja es angosta y una oscilación que pase de ±1 sale aplastada en
+      los picos: el generador lo avisa y ofrece poner 2, con el que cada nivel
+      vale lo mismo y la forma sale tal cual.</p>
+
+    <p><strong>En el campo, la forma puede significar dos cosas</strong>, y
+      el selector «Qué simula la forma de abajo» del bloque de CEM1 elige cuál:</p>
+
+    <ul>
+      <li><strong>La lectura del sensor</strong>: la forma es exactamente lo
+        que lee la placa; el regulador corre pero no cambia nada. Sirve para
+        probar el <em>detector</em> (alertas y cortes).</li>
+      <li><strong>Una perturbación que el regulador tiene que
+        compensar</strong>: la forma es lo que leería el sensor <em>si el
+        regulador no hiciera nada</em>, como un campo externo que suma o
+        resta. Las bobinas simuladas responden al duty, el regulador lo mueve
+        y el campo medido queda cerca del objetivo: <strong>lo que se mueve es
+        el duty</strong>, que el generador dibuja en una franja debajo del
+        gráfico. Sirve para probar el <em>control de intensidad</em>. Se
+        indica además el duty con que las bobinas simuladas dan el objetivo;
+        tiene que coincidir con el del mapa para esa intensidad y frecuencia,
+        porque el regulador se ajusta con el del mapa (si difieren, el
+        generador avisa con qué alfa se va a comportar en realidad y ofrece
+        igualarlos).</li>
+    </ul>
+
+    <p>Para ver la misma perturbación con y sin control, se hacen dos
+      corridas que solo cambian ese selector: con «lectura», el campo medido
+      es la forma completa; con «perturbación», queda casi plano y el duty la
+      copia invertida.</p>
 
     <p>Bajo cada fuente, un gráfico dibuja la señal y lo que leería la placa
       de control contra una corrida de referencia (intensidad, rangos,
@@ -1905,8 +1940,10 @@ table.pins tbody td{padding:7px 12px 7px 0}
       gráfico: arrastrar un punto lo mueve, un clic en un lugar vacío agrega
       uno (hasta 8) y un doble clic sobre un punto lo borra; dos puntos en el
       mismo segundo forman un salto. También se ajustan el ruido, una
-      oscilación, el segundo en que el sensor deja de responder y, en el
-      campo, si responde al regulador.</p>
+      oscilación y el segundo en que el sensor deja de responder. Una
+      leyenda arriba del gráfico dice qué es la línea (la forma dibujada, o
+      «sin control» en modo perturbación) y qué son los puntos (lo que lee
+      la placa).</p>
 
     <p>Desde el monitor web, el mismo paso trae la <strong>biblioteca de
       escenarios</strong>. Un administrador puede guardar lo dibujado en el

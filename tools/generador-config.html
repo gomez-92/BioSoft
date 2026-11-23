@@ -221,6 +221,26 @@
   .chart .ev-silence{fill:var(--muted)}
   .chart .cp{fill:var(--panel);stroke:var(--accent);stroke-width:2.5;cursor:grab}
   .chart .cp:hover{fill:var(--accent)}
+  .chart-leyenda{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:12px;color:var(--muted);margin:4px 0 6px}
+  .chart-leyenda span{display:inline-flex;align-items:center;gap:5px}
+  .chart-leyenda i{display:inline-block}
+  .lg-linea{width:18px;height:0;border-top:2px solid var(--accent)}
+  .lg-punto{width:7px;height:7px;border-radius:50%;background:var(--ok)}
+  .lg-zona{width:12px;height:10px;border-radius:2px}
+  .lg-zona.z1{background:var(--ok);opacity:.25} .lg-zona.z2{background:var(--warn);opacity:.35}
+  .lg-zona.z3{background:var(--err);opacity:.3}
+  .lg-duty{width:18px;height:0;border-top:2px solid var(--ink)}
+  .duty-franja svg{display:block;width:100%;height:auto;border:1px solid var(--line);border-top:0;
+         border-radius:0 0 6px 6px;background:var(--bg)}
+  .duty-franja .grid{stroke:var(--line);stroke-width:1}
+  .duty-franja .ax,.duty-franja .lbl{fill:var(--muted);font-size:11px}
+  .duty-franja .duty{fill:none;stroke:var(--ink);stroke-width:1.6}
+  .duty-franja .ref{stroke:var(--muted);stroke-dasharray:4 3}
+  .scn-equiv{font-size:12.5px;color:var(--muted);line-height:1.5;margin-top:6px}
+  .scn-equiv p{margin:4px 0}
+  .scn-equiv b{color:var(--ink)}
+  .scn-equiv .aviso,.scn-equiv .aviso b,.scn-equiv .aviso-in{color:var(--warn)}
+  .scn-equiv .mini{margin-left:6px;padding:2px 8px;font-size:11.5px}
   pre{background:var(--code);border:1px solid var(--line);border-radius:6px;
       padding:12px;font-size:12px;white-space:pre-wrap;word-break:break-word}
   /* Un paso con poco contenido no queda como una tarjeta chica arriba y un
@@ -666,6 +686,25 @@ const SCENARIO_FILE = {
         "noise": 0.1,
         "oscAmp": 0,
         "oscPeriod": 0,
+        "dropAt": 0,
+        "setpointDuty": 0.5
+      }
+    },
+    {
+      "key": "campoOscilanteCompensado",
+      "source": "CEM1",
+      "name": "Prueba del control: oscilacion compensada",
+      "description": "Perturbacion lenta de +-3 niveles cada 4 minutos: sin el lazo el campo cruzaria el limite critico y cortaria; con el lazo el campo medido queda en el normal y el que oscila es el duty (franja de abajo del grafico). Es la prueba del control de intensidad. Con criticalMultiplier 2 en CEM1 la perturbacion es una senoide limpia y mas grande.",
+      "expect": {
+        "reason": "completed"
+      },
+      "minDuration": 300,
+      "enabled": true,
+      "scenario": {
+        "points": [],
+        "noise": 0.1,
+        "oscAmp": 3,
+        "oscPeriod": 240,
         "dropAt": 0,
         "setpointDuty": 0.5
       }
@@ -1339,7 +1378,7 @@ const SIM = (() => {
     return out;
   }
 
-  return {pointsLevelAt, shapeAt, levelToValue, valueToLevel, fieldValue, cemRanges, makeNoise, run};
+  return {pointsLevelAt, shapeAt, levelToValue, valueToLevel, fieldValue, cemRanges, findMapPoint, makeNoise, run};
 })();
 
 /* ---------- helpers de render ---------- */
@@ -1717,8 +1756,8 @@ function sScenarios(){
     '<h3 class="paso"><span>2</span> Que sensor lee cada fuente</h3>' +
     '<p class="hint">En cada grafico: <b>arrastrar</b> un punto para moverlo · <b>clic</b> en un lugar vacio ' +
     'para agregar uno (hasta 8) · <b>doble clic</b> en un punto para borrarlo. Dos puntos en el mismo segundo ' +
-    'hacen un salto. La linea es la senal dibujada; los puntos chicos, lo que leeria el Mega (con ruido y, ' +
-    'en el campo, con el lazo de control corrigiendo).</p>';
+    'hacen un salto. Arriba de cada grafico, la leyenda dice que es la linea y que son los puntos; ' +
+    'debajo de los parametros, cuanto vale cada nivel en unidades con la corrida de arriba.</p>';
   SCENARIO_SOURCES.forEach(src => { h += scenarioSourceBlock(src); });
   h += '<h3 class="paso"><span>3</span> Resultado previsto de la combinacion</h3><div id="scnOutcome"></div>';
   return h + '</section>';
@@ -1770,9 +1809,13 @@ function scenarioSourceBlock(src){
     return h + '</div>';
   }
   const b = "detector.sources." + i + ".scenario.";
+  const perturba = s.name === "CEM1" && s.scenario.setpointDuty > 0;
   h += '<div style="margin:6px 0 8px">' + chk("detector.sources." + i + ".enabled",
-      "Vigilada por el Detector (sus alertas pueden cortar el experimento)") + '</div>' +
+      "Vigilada por el Detector (sus alertas pueden cortar el experimento)") + '</div>';
+  if (s.name === "CEM1") h += cemModeBlock(i, perturba);
+  h += '<div class="chart-leyenda" data-chartlegend="' + s.name + '"></div>' +
     '<div class="chart" data-chart="' + s.name + '" data-src="' + i + '"></div>' +
+    '<div class="duty-franja" data-dutystrip="' + s.name + '"></div>' +
     '<div class="grid" style="margin-top:10px">' +
     '<label class="f" style="grid-column:1/-1"><span>Puntos (segundo:nivel) — tambien se pueden ' +
     'escribir, ej. <code>0:0  60:0  60:2,5</code></span><input type="text" data-path="' + b +
@@ -1782,10 +1825,151 @@ function scenarioSourceBlock(src){
     num(b + "oscAmp", FLT, "Oscilacion ± (niveles)") +
     num(b + "oscPeriod", FLT, "Periodo de la oscilacion (s, 0 = no oscila)") +
     num(b + "dropAt", FLT, "El sensor deja de responder a los (s, 0 = nunca)") +
-    (s.name === "CEM1" ? num(b + "setpointDuty", FLT,
-      "Duty con el que las bobinas dan el objetivo (0 = el campo no responde al lazo)") : "") +
-    '</div>' + libraryBar(src.name, current);
+    (perturba ? num(b + "setpointDuty", FLT,
+      "Duty con el que las bobinas simuladas dan el objetivo (0 a 1)") : "") +
+    '</div><div class="scn-equiv" data-scnequiv="' + s.name + '"></div>' + libraryBar(src.name, current);
   return h + '</div>';
+}
+
+// CEM1: que representa la forma dibujada. Es setpointDuty (0 = la lectura,
+// > 0 = una perturbacion con planta), pero dicho en palabras: con solo el
+// numero no se veia que el mismo dibujo significa dos cosas distintas.
+function cemModeBlock(i, perturba){
+  return '<label class="f scnpick"><span>Que simula la forma de abajo</span><select data-cemmode="' + i + '">' +
+    '<option value="lectura"' + (perturba ? "" : " selected") + '>La lectura del sensor (el lazo no la puede corregir)</option>' +
+    '<option value="perturbacion"' + (perturba ? " selected" : "") + '>Una perturbacion que el lazo tiene que compensar</option>' +
+    '</select></label>' +
+    '<p class="hint scndesc">' + (perturba
+      ? '<b>Perturbacion:</b> la forma es lo que leeria el sensor <b>si el lazo no hiciera nada</b> (un campo ' +
+        'externo que suma o resta). Las bobinas simuladas responden al duty y el lazo lo mueve para compensarla: ' +
+        'el campo medido queda cerca del objetivo y <b>el que se mueve es el duty</b> (franja de abajo del grafico). ' +
+        'Sirve para probar el <b>control de intensidad</b>.'
+      : '<b>Lectura:</b> la forma es <b>exactamente lo que lee el sensor</b>; el lazo corre pero no cambia nada. ' +
+        'Sirve para probar el <b>Detector</b> (alertas y cortes).') + '</p>';
+}
+
+// Duty del mapa para la corrida de referencia (campo X), o null.
+function refMapDuty(){
+  const ref = refResolved();
+  if (!ref || ref.mode === "null") return null;
+  const pt = SIM.findMapPoint(state.control && state.control.map, ref.intensity, ref.frequency);
+  return pt && isNum(pt.duty) && pt.duty > 0 ? pt.duty : null;
+}
+
+// Leyenda del grafico: que es la linea y que son los puntos (en modo
+// perturbacion son dos senales distintas, y sin decirlo no se entendia).
+function chartLegend(name){
+  const s = state.detector.sources.find(x => x.name === name);
+  if (!s || !s.scenario) return "";
+  const perturba = name === "CEM1" && s.scenario.setpointDuty > 0;
+  const lazo = state.control && state.control.enabled !== false;
+  return '<span><i class="lg-linea"></i>' + (perturba
+      ? 'Sin control: lo que leeria el sensor si el lazo no corrigiera'
+      : 'La forma dibujada (sin ruido)') + '</span>' +
+    '<span><i class="lg-punto"></i>Lo que lee el Mega' + (perturba ? (lazo ? ', con el lazo compensando' : ' (lazo apagado)') : ', con ruido') + '</span>' +
+    '<span><i class="lg-zona z1"></i>normal <i class="lg-zona z2"></i>advertencia <i class="lg-zona z3"></i>critico</span>' +
+    (perturba ? '<span><i class="lg-duty"></i>Abajo: el duty comun que aplica el lazo</span>' : '');
+}
+
+// Franja con el duty comun del lazo (solo CEM1 en modo perturbacion). Es un
+// SVG aparte, FUERA del [data-chart]: el grafico de arriba es arrastrable y
+// sus coordenadas salen de su propio svg.
+function dutyStripSvg(name, sim){
+  const s = state.detector.sources.find(x => x.name === name);
+  if (name !== "CEM1" || !s || !s.scenario || !(s.scenario.setpointDuty > 0)) return "";
+  if (state.control && state.control.enabled === false)
+    return '<p class="hint">Lazo apagado (paso 3): el duty queda en 0 y la perturbacion no se compensa.</p>';
+  if (sim.ref && sim.ref.mode === "null") return "";
+  const H = 130, T = 14, B = 26, dur = sim.durationS;
+  const pw = CH.W - CH.L - CH.R, ph = H - T - B;
+  const sd = s.scenario.setpointDuty;
+  // Escala ajustada a lo que se mueve (una correccion de pocos puntos de %
+  // no se veria de 0 a 100), siempre mostrando el duty sin perturbacion.
+  const ds = (sim.duty || []).map(p => Math.max(0, Math.min(1, p.d))).concat([sd]);
+  const span = Math.max(0.04, Math.max(...ds) - Math.min(...ds));
+  const lo = Math.max(0, Math.min(...ds) - span * 0.15), hi = Math.min(1, Math.max(...ds) + span * 0.15);
+  const x = t => CH.L + pw * t / dur, y = d => T + ph * (1 - (d - lo) / (hi - lo));
+  let h = '<svg viewBox="0 0 ' + CH.W + ' ' + H + '" role="img" aria-label="Duty del lazo">';
+  const st = niceStep((hi - lo) * 100, 4) / 100;
+  for (let d = Math.ceil(lo / st - 1e-9) * st; d <= hi + 1e-9; d += st)
+    h += '<line class="grid" x1="' + CH.L + '" x2="' + (CH.W - CH.R) + '" y1="' + y(d) + '" y2="' + y(d) + '"/>' +
+         '<text class="ax" x="' + (CH.L - 6) + '" y="' + (y(d) + 4) + '" text-anchor="end">' + fmtN(d * 100, 1) + ' %</text>';
+  h += '<text class="lbl" x="' + (CH.L + 4) + '" y="' + (T + 10) + '">duty comun</text>';
+  h += '<line class="ref" x1="' + CH.L + '" x2="' + (CH.W - CH.R) + '" y1="' + y(sd) + '" y2="' + y(sd) + '"/>' +
+       '<text class="lbl" x="' + (CH.W - CH.R + 4) + '" y="' + (y(sd) + 4) + '">sin pert.</text>';
+  const xs = [5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600].find(k => dur / k <= 8) || 7200;
+  for (let t = 0; t <= dur + 1e-9; t += xs)
+    h += '<text class="ax" x="' + x(t) + '" y="' + (H - 8) + '" text-anchor="middle">' + fmtT(t) + '</text>';
+  const pts = (sim.duty || []).map(p => x(p.t).toFixed(1) + "," + y(Math.max(0, Math.min(1, p.d))).toFixed(1));
+  if (pts.length) h += '<polyline class="duty" points="' + pts.join(" ") + '"/>';
+  return h + '</svg>';
+}
+
+// Debajo de los parametros: que significan los niveles EN UNIDADES con la
+// corrida de referencia, si la forma sale deformada (mas alla de +-1 cada
+// nivel vale lo que mide la franja de advertencia) y, en modo perturbacion,
+// cuanto tiene que moverse el duty y si el mapa coincide con la planta.
+function scnEquivHtml(name, res){
+  const s = state.detector.sources.find(x => x.name === name);
+  if (!s || !s.scenario || !res || res.sim.refused) return "";
+  const sim = res.sim, ref = res.ref, r = sim.ranges[name], sc = s.scenario;
+  const unit = name === "CEM1" ? "mT" : "&deg;C", d = name === "CEM1" ? 4 : 1;
+  const L = SIM.levelToValue, c = L(r, 0), half = (r.normalMax - r.normalMin) / 2;
+  const f = v => fmtN(v, d) + " " + unit;
+  let lo = Infinity, hi = -Infinity;
+  for (let k = 0; k <= 400; k++) {
+    const lv = SIM.shapeAt(sc, sim.durationS * k / 400);
+    lo = Math.min(lo, lv); hi = Math.max(hi, lv);
+  }
+  const corrida = name === "CEM1"
+    ? fmtN(ref.intensity, 3) + " mT, " + fmtN(ref.tolerance, 1) + " %" + (ref.mode === "null" ? ", campo nulo" : "")
+    : "normal " + fmtN(ref.tempNormal.min, 1) + "~" + fmtN(ref.tempNormal.max, 1) + " &deg;C";
+  let h = '<p>Con la corrida de referencia (' + corrida + '), <b>1 nivel = ' + f(half) + '</b> hasta el borde del ' +
+    'normal. La forma va del nivel ' + fmtN(lo, 2) + ' al ' + fmtN(hi, 2) + ': <b>de ' + f(L(r, lo)) + ' a ' + f(L(r, hi)) +
+    '</b> (centro ' + f(c) + ')' + (sc.noise > 0 ? ', con ruido de &plusmn;' + f(Math.min(sc.noise, 1) * half) : '') + '.</p>';
+
+  // Mas alla de +-1: cada nivel vale la franja de advertencia de ese lado.
+  const gapHi = r.criticalMax - r.normalMax, gapLo = r.normalMin - r.criticalMin;
+  const lineal = g => g <= 0 || Math.abs(g - half) <= half * 0.01;
+  const usaHi = hi > 1 + 1e-9 && !lineal(gapHi), usaLo = lo < -1 - 1e-9 && !lineal(gapLo);
+  if (usaHi || usaLo) {
+    const g = usaHi ? gapHi : gapLo;
+    const oscila = sc.oscPeriod > 0 && sc.oscAmp > 0;
+    h += '<p class="' + (oscila ? "aviso" : "") + '">Mas alla de &plusmn;1, <b>cada nivel vale ' + f(g) + '</b> (lo que ' +
+      'mide la franja de advertencia) en vez de ' + f(half) + '.' +
+      (oscila ? ' <b>La oscilacion sale deformada</b>: ' + (g < half ? 'aplastada en los picos' : 'estirada en los picos') + '.' : '') +
+      (name === "CEM1" && s.range && s.range.mode === "derived"
+        ? ' Con <b>criticalMultiplier 2</b> (paso 5, CEM1) cada nivel vale lo mismo y la forma sale tal cual.' +
+          ' <button type="button" class="mini" data-scnmult="2">Poner criticalMultiplier 2</button>'
+        : name === "TEMP1" ? ' Depende de los menus de temperatura elegidos.' : '') + '</p>';
+  }
+
+  // Modo perturbacion: el duty que hace falta y la coherencia con el mapa.
+  if (name === "CEM1" && sc.setpointDuty > 0 && ref.mode !== "null") {
+    const sd = sc.setpointDuty, T = ref.intensity;
+    const dutyPara = v => sd * (1 - (v - T) / T);
+    const dA = dutyPara(L(r, hi)), dB = dutyPara(L(r, lo));
+    const dMin = Math.min(dA, dB), dMax = Math.max(dA, dB);
+    h += '<p>Sin control el campo iria de ' + f(L(r, lo)) + ' a ' + f(L(r, hi)) + '. Para dejarlo en ' + f(T) +
+      ' el lazo tiene que mover el duty entre <b>' + fmtN(dMin * 100, 1) + ' %</b> y <b>' + fmtN(dMax * 100, 1) + ' %</b>' +
+      (dMin < 0 || dMax > 1 ? ' &mdash; <span class="aviso-in">no le alcanza: el duty se satura y esa parte no se compensa</span>' : '') +
+      '.</p>';
+    const md = refMapDuty();
+    const alpha = state.control && isNum(state.control.alpha) ? state.control.alpha : NaN;
+    if (md !== null && Math.abs(md - sd) > 1e-6) {
+      h += '<p class="aviso">El mapa tiene duty <b>' + fmtN(md, 3) + '</b> para ' + fmtN(T, 3) + ' mT y ' +
+        fmtN(ref.frequency, 1) + ' Hz: el lazo arranca y se sintoniza con ese duty, pero las bobinas simuladas dan el ' +
+        'objetivo con ' + fmtN(sd, 3) + '.' + (isNum(alpha) && alpha > 0
+          ? ' El lazo se comporta como <b>alfa ' + fmtN(alpha * md / sd, 2) + '</b> en vez de ' + fmtN(alpha, 2) + '.' : '') +
+        ' <button type="button" class="mini" data-scnsd="' + md + '">Usar ' + fmtN(md, 3) + ' (el del mapa)</button></p>';
+    } else if (md === null) {
+      h += '<p>Sin punto del mapa para esta intensidad y frecuencia: el lazo arranca en ' + fmtN(sd, 3) +
+        ' y se sintoniza con ese duty, como hace el Mega.</p>';
+    }
+  } else if (name === "CEM1" && sc.setpointDuty > 0 && ref.mode === "null") {
+    h += '<p>En campo nulo el lazo no corre (duty fijo del mapa): la perturbacion pasa entera.</p>';
+  }
+  return h;
 }
 
 // Con que se comprobo la promesa de un escenario de fabrica: el normal de
@@ -2047,6 +2231,17 @@ function paintScenario(){
   box.innerHTML = outcomeHtml(res);
   document.querySelectorAll("[data-chart]").forEach(el => {
     el.innerHTML = res && !res.sim.refused ? chartSvg(el.dataset.chart, res.sim) : "";
+  });
+  const ok = res && !res.sim.refused;
+  if (ok) res.sim.ref = res.ref;
+  document.querySelectorAll("[data-chartlegend]").forEach(el => {
+    el.innerHTML = ok ? chartLegend(el.dataset.chartlegend) : "";
+  });
+  document.querySelectorAll("[data-dutystrip]").forEach(el => {
+    el.innerHTML = ok ? dutyStripSvg(el.dataset.dutystrip, res.sim) : "";
+  });
+  document.querySelectorAll("[data-scnequiv]").forEach(el => {
+    el.innerHTML = ok ? scnEquivHtml(el.dataset.scnequiv, res) : "";
   });
 }
 
@@ -2990,6 +3185,18 @@ function onEdit(e){
     else if (v.charAt(0) !== "@") applyProfile(v);
     return;
   }
+  // Que simula CEM1: lectura (setpointDuty 0) o perturbacion (> 0, de
+  // partida el duty del mapa para la corrida de referencia, si no 0,5).
+  if (el.dataset && el.dataset.cemmode !== undefined) {
+    if (e.type !== "change") return;
+    const p = "detector.sources." + el.dataset.cemmode + ".scenario.setpointDuty";
+    const prev = getPath(p);
+    const v = el.value === "perturbacion" ? (refMapDuty() || (prev > 0 ? prev : 0.5)) : 0;
+    setPath(p, v);
+    lastValid[p] = v;
+    render();
+    return;
+  }
   const path = el.dataset && el.dataset.path;
   if (!path) return;
   const kind = el.dataset.kind;
@@ -3041,6 +3248,22 @@ function onEdit(e){
 }
 
 document.addEventListener("click", e => {
+  if (e.target.dataset && e.target.dataset.scnmult) {
+    const i = state.detector.sources.findIndex(x => x.name === "CEM1");
+    const p = "detector.sources." + i + ".range.criticalMultiplier", v = Number(e.target.dataset.scnmult);
+    setPath(p, v);
+    lastValid[p] = v;
+    render();
+    return;
+  }
+  if (e.target.dataset && e.target.dataset.scnsd) {
+    const i = state.detector.sources.findIndex(x => x.name === "CEM1");
+    const p = "detector.sources." + i + ".scenario.setpointDuty", v = Number(e.target.dataset.scnsd);
+    setPath(p, v);
+    lastValid[p] = v;
+    render();
+    return;
+  }
   if (e.target.dataset && e.target.dataset.sugerido) {
     const path = e.target.dataset.sugerido, sg = sugerido(path);
     if (sg) {
@@ -3462,7 +3685,18 @@ function validate(){
              "(cada " + cad + " s): se lee deformada o no se ve. Usar un periodo de " + (4 * cad) + " s o mas.");
       if (s.name === "CEM1" && sc.setpointDuty > 0 && state.control && state.control.enabled === false)
         warn(tag + ": con el lazo apagado (control.enabled false) el duty queda en 0 y la planta da campo 0: " +
-             "CEM1 se lee fuera de rango toda la corrida. Usar duty que da el objetivo 0 (sin planta).");
+             "CEM1 se lee fuera de rango toda la corrida. En \"Que simula\" elegir \"La lectura del sensor\".");
+      // La planta simulada da el objetivo con setpointDuty; el lazo se
+      // sintoniza con el duty del mapa. Si difieren, el alfa real es otro.
+      if (s.name === "CEM1" && sc.setpointDuty > 0 && !(state.control && state.control.enabled === false)) {
+        const distintos = (Array.isArray(state.control.map) ? state.control.map : [])
+          .filter(q => isNum(q.duty) && q.duty > 0 && Math.abs(q.duty - sc.setpointDuty) > 1e-6);
+        if (distintos.length)
+          warn(tag + ": las bobinas simuladas dan el objetivo con duty " + sc.setpointDuty + ", pero el mapa tiene " +
+               distintos.map(q => q.duty + " (" + q.intensity + " mT, " + q.frequency + " Hz)").join(", ") +
+               ": en esas combinaciones el lazo se sintoniza con el del mapa y se comporta como alfa x mapa / " +
+               sc.setpointDuty + ". Para probar el control, igualarlos.");
+      }
       vsec = "5";
       if (s.name === "CEM1" && (!isNum(sc.setpointDuty) || sc.setpointDuty < 0 || sc.setpointDuty > 1))
         err(tag + ": el duty que da el objetivo tiene que estar entre 0 y 1.");

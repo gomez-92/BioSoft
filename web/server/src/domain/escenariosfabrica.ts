@@ -275,6 +275,25 @@ export const ESCENARIOS_FABRICA = {
       }
     },
     {
+      "key": "campoOscilanteCompensado",
+      "source": "CEM1",
+      "name": "Prueba del control: oscilacion compensada",
+      "description": "Perturbacion lenta de +-3 niveles cada 4 minutos: sin el lazo el campo cruzaria el limite critico y cortaria; con el lazo el campo medido queda en el normal y el que oscila es el duty (franja de abajo del grafico). Es la prueba del control de intensidad. Con criticalMultiplier 2 en CEM1 la perturbacion es una senoide limpia y mas grande.",
+      "expect": {
+        "reason": "completed"
+      },
+      "minDuration": 300,
+      "enabled": true,
+      "scenario": {
+        "points": [],
+        "noise": 0.1,
+        "oscAmp": 3,
+        "oscPeriod": 240,
+        "dropAt": 0,
+        "setpointDuty": 0.5
+      }
+    },
+    {
       "key": "campoInestable",
       "source": "CEM1",
       "name": "Campo inestable",

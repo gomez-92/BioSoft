@@ -333,13 +333,14 @@ PROFILE_TEST(tempAdvertencia)
 PROFILE_TEST(tempCaido)
 PROFILE_TEST(campoNormal)
 PROFILE_TEST(campoCompensado)
+PROFILE_TEST(campoOscilanteCompensado)
 PROFILE_TEST(campoInestable)
 PROFILE_TEST(campoFuera)
 PROFILE_TEST(campoCaido)
 
 static const char* const CheckedProfiles[] = {
     "tempNormal", "tempAlta", "tempSube", "tempBaja", "tempRecupera", "tempAdvertencia", "tempCaido",
-    "campoNormal", "campoCompensado", "campoInestable", "campoFuera", "campoCaido",
+    "campoNormal", "campoCompensado", "campoOscilanteCompensado", "campoInestable", "campoFuera", "campoCaido",
 };
 
 // Cada perfil es de UNA fuente, y la pareja de cada fuente existe y es de
@@ -401,6 +402,21 @@ void test_plant_starting_at_zero_duty_cuts_early(void) {
     TEST_ASSERT_TRUE(cem.getMagneticField() < r.criticalMin);
 }
 
+// Lo que promete la descripcion de "Prueba del control": la misma
+// perturbacion SIN planta (el lazo no la puede corregir) cruza el critico y
+// corta. Si dejara de cortar, el perfil compensado no probaria nada.
+void test_oscillation_without_plant_cuts(void) {
+    JsonDocument copy;
+    copy.set(profileByKey("campoOscilanteCompensado"));
+    copy["scenario"]["setpointDuty"] = 0;
+    JsonObjectConst temp = profileByKey(profilesDoc["pairWith"]["TEMP1"] | "");
+    for (const Ranges& r : Combos) {
+        Outcome o = run(copy.as<JsonObjectConst>(), temp, 300, r, 250, 1100);
+        TEST_ASSERT_TRUE(o.cut);
+        TEST_ASSERT_EQUAL_STRING("CEM1", o.source.c_str());
+    }
+}
+
 int main(int argc, char** argv) {
     bool loaded = loadProfiles(profilesDoc);
     UNITY_BEGIN();
@@ -417,6 +433,8 @@ int main(int argc, char** argv) {
         RUN_TEST(test_profile_tempCaido);
         RUN_TEST(test_profile_campoNormal);
         RUN_TEST(test_profile_campoCompensado);
+        RUN_TEST(test_profile_campoOscilanteCompensado);
+        RUN_TEST(test_oscillation_without_plant_cuts);
         RUN_TEST(test_profile_campoInestable);
         RUN_TEST(test_profile_campoFuera);
         RUN_TEST(test_profile_campoCaido);
