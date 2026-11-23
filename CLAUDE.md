@@ -1936,6 +1936,34 @@ Other things worth knowing before touching it:
   window bottom without adding a scrollbar). The generator needs
   `[hidden]{display:none !important}`: its `display:flex` blocks otherwise
   ignore `hidden`.
+- **Layout: sidebar, not tabs** (2026-11-23). ≥1000 px a fixed 240 px
+  sidebar (groups Experimentos / Placa / Administracion / Proyecto, user +
+  theme + Salir at its foot); below that a sticky top bar with a ☰ that
+  opens the same `<aside>` as a drawer (closes on navigation, Escape or
+  the backdrop; `body.sin-scroll` while open). The connection status
+  (`.barra-estado`) sits at the top of `main`. **Phone zoom-out cause**:
+  the status pill was `nowrap` and wider than a phone, so the browser
+  shrank the whole page to fit; it wraps now, and `text-size-adjust`
+  stops iOS enlarging text on rotation. Any new `nowrap`/`min-width`
+  wider than ~330 px brings it back. Column breakpoints inside pages are
+  **`@container`** on `.contenido main` (`container-type: inline-size`),
+  not `@media`: with the sidebar the content is ~300 px narrower than the
+  window. `BotonArriba` lives outside `main` for that reason (a fixed
+  element inside a containment context may anchor to it).
+  **Campo and duty charts stack** (`.grilla-campo-duty`, markup order
+  campo, duty, temperatura, corriente, filled by columns): they are read
+  together. **Acerca de** (`pages/Acerca.tsx`, text in the `ACERCA`
+  object, empty fields not rendered) is **public** (user decision): `/acerca`
+  without a session renders it standalone, linked from the login. It
+  carries the author's contact, so whatever goes in `ACERCA` is public.
+  Without a session there is no sidebar: Acerca shows its own bar with an
+  Iniciar sesion button.
+  **The visible name is SEMBAF** (renamed 2026-11-23): tab title, sidebar,
+  login, reset page, Acerca, the reset email and the generator's title.
+  Everything that is a contract keeps `biosoft` on purpose — MQTT topics
+  (`biosoft/...`), `/biosoft/config.json`, localStorage keys, DB names —
+  renaming those needs a reflash and a data migration. The mail sender in
+  production comes from `MAIL_FROM` on Fly, not from the code default.
 - **The current-config meta arrives LAST** (after the chunks), so the
   snapshot is already complete when it lands: `recibirVigente()` applies
   the meta's `loadStatus`/`effective` to the stored snapshot instead of

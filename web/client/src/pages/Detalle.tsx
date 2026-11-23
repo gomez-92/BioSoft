@@ -143,20 +143,27 @@ export function DetalleCorrida() {
 
       {mediciones && mediciones.points.length > 0 ? (
         <section className="panel">
-          <div className="grilla-graficos">
-            <GraficoCampo puntos={mediciones.points} bucket={mediciones.bucket}
-              contexto={contexto} alertas={alertas} fin={fin} />
-            <GraficoTemperatura puntos={mediciones.points} bucket={mediciones.bucket}
-              contexto={contexto} alertas={alertas} fin={fin} />
-            {bobinas && bobinas.points.length > 0 && (
-              <>
-                <GraficoBobinas puntos={bobinas.points} bucket={bobinas.bucket} bobinas={bobinasVisibles}
-                  magnitud="corriente" inicio={inicio} fin={fin} />
-                <GraficoBobinas puntos={bobinas.points} bucket={bobinas.bucket} bobinas={bobinasVisibles}
-                  magnitud="duty" inicio={inicio} fin={fin} />
-              </>
-            )}
-          </div>
+          {/* Campo con el duty justo debajo (se leen juntos); sin bobinas
+              quedan campo y temperatura lado a lado, como antes. */}
+          {bobinas && bobinas.points.length > 0 ? (
+            <div className="grilla-graficos grilla-campo-duty">
+              <GraficoCampo puntos={mediciones.points} bucket={mediciones.bucket}
+                contexto={contexto} alertas={alertas} fin={fin} />
+              <GraficoBobinas puntos={bobinas.points} bucket={bobinas.bucket} bobinas={bobinasVisibles}
+                magnitud="duty" inicio={inicio} fin={fin} />
+              <GraficoTemperatura puntos={mediciones.points} bucket={mediciones.bucket}
+                contexto={contexto} alertas={alertas} fin={fin} />
+              <GraficoBobinas puntos={bobinas.points} bucket={bobinas.bucket} bobinas={bobinasVisibles}
+                magnitud="corriente" inicio={inicio} fin={fin} />
+            </div>
+          ) : (
+            <div className="grilla-graficos">
+              <GraficoCampo puntos={mediciones.points} bucket={mediciones.bucket}
+                contexto={contexto} alertas={alertas} fin={fin} />
+              <GraficoTemperatura puntos={mediciones.points} bucket={mediciones.bucket}
+                contexto={contexto} alertas={alertas} fin={fin} />
+            </div>
+          )}
           {alertas.length > 0 && (
             <p className="tenue">
               Cada alerta es un punto en el grafico de su magnitud (CEM1 en el campo, TEMP1 en la temperatura), a la

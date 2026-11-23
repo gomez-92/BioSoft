@@ -73,6 +73,10 @@
 
 * { box-sizing: border-box; }
 
+/* Sin esto, Safari (iOS) agranda la letra al girar el celular a horizontal y
+   la pagina queda con otra escala que al volver a vertical. */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+
 body {
   margin: 0;
   background: var(--bg);
@@ -95,6 +99,10 @@ button, input, select, textarea { font-family: inherit; }
    celular todo sigue apilado como antes. */
 main { max-width: 1440px; margin: 0 auto; padding: 16px 16px 48px; }
 @media (min-width: 1100px) { main { padding: 20px 28px 56px; } }
+/* Las columnas de adentro se deciden por el ancho de main, no de la ventana:
+   con la barra lateral, una ventana de 1100 px deja ~800 px de contenido.
+   (Contenedor de consultas: ver los @container mas abajo.) */
+.contenido main { container-type: inline-size; }
 
 h1 { font-size: 1.35rem; margin: 0; letter-spacing: -0.01em; }
 h2 { font-size: 1.15rem; margin: 0 0 8px; letter-spacing: -0.01em; }
@@ -105,23 +113,23 @@ h3 .h3-nota { font-weight: 400; color: var(--muted); font-size: 0.8rem; margin-l
 .tenue { color: var(--muted); font-size: 0.75rem; margin: 6px 0 0; }
 .empty { color: var(--muted); margin: 0; }
 
-.cabecera {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding-bottom: 4px;
-}
 /* Estado de las conexiones, cada una con su SUJETO ("Monitor", "Placa"):
-   antes decia "En linea" a secas y no se sabia que estaba en linea. */
+   antes decia "En linea" a secas y no se sabia que estaba en linea.
+   Tiene que poder partirse: el estado de la placa ("conectada · 45 ms ·
+   red (senal buena, -60 dBm)") mide mas que un celular, y con nowrap la
+   pagina entera desbordaba y el navegador la achicaba para que entrara. */
+.barra-estado { display: flex; justify-content: flex-end; }
 .conexiones {
-  display: inline-flex; align-items: center; gap: 2px; padding: 3px;
-  background: var(--panel); border: 1px solid var(--border); border-radius: 999px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 2px; padding: 3px; max-width: 100%;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 18px;
 }
 .conexion {
   display: inline-flex; align-items: center; gap: 7px; padding: 4px 10px; border-radius: 999px;
-  font-size: 0.78rem; color: var(--text); white-space: nowrap; cursor: help;
+  font-size: 0.78rem; color: var(--text); cursor: help; min-width: 0;
+}
+@media (max-width: 999px) {
+  .barra-estado { justify-content: stretch; }
+  .conexiones { width: 100%; }
 }
 .conexion b { font-weight: 500; color: var(--muted); }
 .punto { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
@@ -134,7 +142,7 @@ h3 .h3-nota { font-weight: 400; color: var(--muted); font-size: 0.8rem; margin-l
 .enlace-caido { background: rgba(255, 92, 92, 0.12); color: var(--down); }
 .enlace-aviso { background: rgba(255, 176, 32, 0.12); color: var(--warn); }
 .enlace-desconocido { background: rgba(139, 147, 167, 0.15); color: var(--muted); }
-.estado-placa { display: inline-flex; align-items: center; gap: 4px; }
+.estado-placa { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 0; }
 .estado-placa .enlace { cursor: help; }
 .boton-ping {
   font: inherit; font-size: 0.72rem; padding: 3px 9px; border-radius: 999px;
@@ -200,7 +208,7 @@ h3 .h3-nota { font-weight: 400; color: var(--muted); font-size: 0.8rem; margin-l
 .progreso-datos {
   display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; margin: 0;
 }
-@media (min-width: 560px) { .progreso-datos { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@container (min-width: 540px) { .progreso-datos { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 .progreso-datos dt { font-size: 0.75rem; color: var(--muted); }
 .progreso-datos dd { margin: 0; font-size: 1.15rem; font-weight: 600; font-variant-numeric: tabular-nums; }
 
@@ -240,7 +248,7 @@ h3 .h3-nota { font-weight: 400; color: var(--muted); font-size: 0.8rem; margin-l
 .escala-etiquetas span { position: absolute; transform: translateX(-50%); font-variant-numeric: tabular-nums; }
 
 .grilla-mediciones { display: grid; grid-template-columns: 1fr; gap: 0 16px; }
-@media (min-width: 560px) { .grilla-mediciones { grid-template-columns: 1fr 1fr; } }
+@container (min-width: 540px) { .grilla-mediciones { grid-template-columns: 1fr 1fr; } }
 
 .medicion-valor {
   margin: 0;
@@ -308,26 +316,81 @@ h3 .h3-nota { font-weight: 400; color: var(--muted); font-size: 0.8rem; margin-l
   width: 34px; height: 34px; border-radius: 10px; display: inline-grid; place-items: center;
   background: linear-gradient(135deg, #3d6fe0, #6b9bff); color: #fff; flex: none;
 }
-/* Pestañas con icono y subrayado: la seccion activa se ve sin leer. En el
-   celular se desplazan de costado en vez de partirse en dos lineas. */
-.navegacion {
-  display: flex; gap: 2px; margin-top: 10px; border-bottom: 1px solid var(--border);
-  overflow-x: auto; scrollbar-width: none;
+.marca-nombre { display: block; font-size: 1.15rem; font-weight: 700; letter-spacing: -0.01em; line-height: 1.2; }
+.marca-sub { display: block; margin: 0; font-size: 0.75rem; }
+
+/* Esqueleto (2026-11-23): barra lateral fija en pantallas anchas; en el
+   celular, barra superior con boton de menu y el lateral como cajon que
+   entra desde la izquierda. Reemplaza la fila de pestañas, que con seis
+   secciones ya no entraba y en el celular se desplazaba de costado. */
+.app { min-height: 100dvh; }
+.contenido { min-width: 0; }
+
+.lateral {
+  display: flex; flex-direction: column; gap: 12px;
+  background: var(--panel); border-right: 1px solid var(--border);
+  padding: 16px 12px; overflow-y: auto;
 }
-.navegacion a {
-  display: inline-flex; align-items: center; gap: 7px;
-  color: var(--muted);
-  text-decoration: none;
-  font-size: 0.9rem;
-  padding: 10px 14px;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-  white-space: nowrap;
+.lateral-cabeza { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 4px 8px; }
+.lateral-nav { display: flex; flex-direction: column; gap: 2px; flex: 1; }
+.lateral-grupo {
+  margin: 14px 10px 4px; font-size: 0.68rem; font-weight: 600; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--muted);
 }
-.navegacion a svg { opacity: 0.8; }
-.navegacion a:hover { color: var(--text); }
-.navegacion a.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
-.navegacion a.active svg { opacity: 1; color: var(--accent); }
+.lateral-grupo:first-child { margin-top: 4px; }
+.lateral-nav a {
+  display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 9px;
+  color: var(--muted); text-decoration: none; font-size: 0.9rem;
+}
+.lateral-nav a svg { opacity: 0.8; flex: none; }
+.lateral-nav a:hover { color: var(--text); background: var(--panel-2); }
+.lateral-nav a.active { color: var(--text); background: var(--panel-2); font-weight: 600; box-shadow: inset 3px 0 0 var(--accent); }
+.lateral-nav a.active svg { opacity: 1; color: var(--accent); }
+
+.lateral-pie { display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--border); padding-top: 12px; }
+.lateral-usuario {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 9px;
+  color: var(--muted); text-decoration: none; min-width: 0;
+}
+.lateral-usuario > span { min-width: 0; }
+.lateral-usuario:hover, .lateral-usuario.active { background: var(--panel-2); color: var(--text); }
+.lateral-usuario-nombre { display: block; color: var(--text); font-size: 0.88rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lateral-usuario-rol { display: block; font-size: 0.72rem; }
+.lateral-acciones { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 4px; }
+.salir { display: inline-flex; align-items: center; gap: 6px; }
+
+.boton-icono {
+  display: inline-grid; place-items: center; width: 40px; height: 40px; flex: none;
+  border: 0; border-radius: 10px; background: none; color: var(--text); cursor: pointer;
+}
+.boton-icono:hover { background: var(--panel-2); }
+
+.barra-superior {
+  position: sticky; top: 0; z-index: 40;
+  display: flex; align-items: center; gap: 6px; padding: 8px 12px;
+  background: var(--panel); border-bottom: 1px solid var(--border);
+}
+.fondo-menu { display: none; }
+body.sin-scroll { overflow: hidden; }
+
+/* Celular y tablet: el lateral es un cajon. */
+@media (max-width: 999px) {
+  .lateral {
+    position: fixed; z-index: 60; top: 0; bottom: 0; left: 0; width: min(290px, 86vw);
+    transform: translateX(-100%); transition: transform 0.2s ease; visibility: hidden;
+    box-shadow: 0 0 40px rgba(0, 0, 0, 0.4);
+  }
+  .menu-abierto .lateral { transform: none; visibility: visible; }
+  .menu-abierto .fondo-menu { display: block; position: fixed; inset: 0; z-index: 50; background: rgba(0, 0, 0, 0.5); }
+}
+@media (max-width: 999px) and (prefers-reduced-motion: reduce) { .lateral { transition: none; } }
+
+/* Pantallas anchas: lateral fijo a la izquierda, sin boton de menu. */
+@media (min-width: 1000px) {
+  .app { display: grid; grid-template-columns: 240px minmax(0, 1fr); }
+  .lateral { position: sticky; top: 0; height: 100dvh; }
+  .lateral-cerrar, .barra-superior { display: none; }
+}
 
 /* ---------------- historial ---------------- */
 
@@ -420,7 +483,9 @@ h3 .h3-nota { font-weight: 400; color: var(--muted); font-size: 0.8rem; margin-l
 
 /* ---------------- login ---------------- */
 
-.login { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.login { min-height: 100dvh; display: flex; flex-direction: column; gap: 14px; align-items: center; justify-content: center; padding: 16px; }
+.login-acerca { color: var(--muted); font-size: 0.82rem; }
+.login-acerca:hover { color: var(--text); }
 .login-caja { width: 100%; max-width: 360px; margin: 0; display: flex; flex-direction: column; }
 .login-caja h1 { margin: 0; }
 .login-logo { width: 44px; height: 44px; border-radius: 12px; margin-bottom: 14px; }
@@ -454,7 +519,6 @@ h3 .h3-nota { font-weight: 400; color: var(--muted); font-size: 0.8rem; margin-l
 }
 .boton-primario:disabled { opacity: 0.6; }
 
-.cabecera-derecha { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px; }
 .salir {
   background: none;
   border: 1px solid var(--border);
@@ -526,20 +590,26 @@ h3 .h3-nota { font-weight: 400; color: var(--muted); font-size: 0.8rem; margin-l
 /* En curso: lo que se mira (mediciones y graficos) a la izquierda, lo que se
    consulta (bobinas, alertas, objetivos) a la derecha. */
 .en-curso { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0 16px; align-items: start; }
-@media (min-width: 1100px) { .en-curso { grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr); } }
+@container (min-width: 1000px) { .en-curso { grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr); } }
 .en-curso-principal, .en-curso-lateral { min-width: 0; }
 
 .grilla-graficos { display: grid; grid-template-columns: minmax(0, 1fr); gap: 22px 24px; }
 .grilla-graficos .figura { margin: 0; }
-@media (min-width: 900px) { .grilla-graficos { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container (min-width: 760px) { .grilla-graficos { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* Campo y duty se leen juntos: en dos columnas van uno debajo del otro (el
+   orden del marcado es campo, duty, temperatura, corriente y se llena por
+   columnas); en una columna, seguidos. */
+@container (min-width: 760px) {
+  .grilla-campo-duty { grid-template-rows: auto auto; grid-auto-flow: column; }
+}
 
 .columnas-2 { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0 16px; align-items: start; }
-@media (min-width: 900px) { .columnas-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container (min-width: 760px) { .columnas-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 .columnas-usuarios { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0 16px; align-items: start; }
-@media (min-width: 1000px) { .columnas-usuarios { grid-template-columns: minmax(0, 2fr) minmax(300px, 1fr); } }
+@container (min-width: 900px) { .columnas-usuarios { grid-template-columns: minmax(0, 2fr) minmax(300px, 1fr); } }
 
-@media (min-width: 1100px) { .medicion-valor { font-size: 2.6rem; } }
+@container (min-width: 1000px) { .medicion-valor { font-size: 2.6rem; } }
 
 /* ---------------- alertas en el grafico ---------------- */
 
@@ -617,7 +687,8 @@ h3 .h3-nota { font-weight: 400; color: var(--muted); font-size: 0.8rem; margin-l
 }
 .col-tipo { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .tipo-texto { font-size: 0.82rem; color: var(--text); }
-@media (min-width: 900px) {
+/* Las columnas fijas suman ~1090 px: por debajo, tarjetas. */
+@container (min-width: 1100px) {
   .fila-titulos, .tabla-corridas .fila-corrida {
     display: grid;
     grid-template-columns: 64px 170px minmax(150px, 1.3fr) 120px minmax(150px, 1fr) 90px 100px 100px;
@@ -663,24 +734,23 @@ td .enlace-texto, .enlace-en-linea { margin-top: 0; text-align: left; }
 .tabla select { margin: 0; padding: 4px 8px; font-size: 0.82rem; }
 .formulario input:focus, .formulario select:focus { outline: none; border-color: var(--accent); }
 
-.usuario-actual {
-  color: var(--muted); text-decoration: none; font-size: 0.75rem; padding: 4px 10px;
-  border: 1px solid var(--border); border-radius: 999px; white-space: nowrap;
-}
-.usuario-actual:hover, .usuario-actual.active { color: var(--text); border-color: var(--muted); }
 
 /* Solo en pantallas angostas la tabla puede correrse de costado: en las
    demas entra entera y el unico scroll es el de la pagina. */
-@media (max-width: 700px) { .tabla-scroll { overflow-x: auto; } }
+@container (max-width: 680px) { .tabla-scroll { overflow-x: auto; } }
 
 /* Bloques con poco contenido (Usuarios, Historial con pocas corridas): un
    alto minimo para que la pagina no quede con un panel chico arriba y un
    hueco abajo. */
-/* Hasta el pie de la ventana: lo que ocupan arriba la cabecera y la
-   navegacion (~150 px) y el margen de abajo de main (48 px). Historial suma
-   sus pestanas y filtros. */
-.panel-lleno { min-height: calc(100dvh - 214px); }
-.panel-corridas.panel-lleno { min-height: calc(100dvh - 312px); }
+/* Hasta el pie de la ventana. Arriba: en el celular la barra del menu y el
+   estado de conexiones (~130 px); en pantallas anchas solo el estado
+   (~60 px). Abajo, el margen de main. Historial suma pestañas y filtros. */
+.panel-lleno { min-height: calc(100dvh - 210px); }
+.panel-corridas.panel-lleno { min-height: calc(100dvh - 308px); }
+@media (min-width: 1000px) {
+  .panel-lleno { min-height: calc(100dvh - 150px); }
+  .panel-corridas.panel-lleno { min-height: calc(100dvh - 248px); }
+}
 .columnas-usuarios > .panel-lleno { align-self: stretch; }
 /* Dentro del panel, la lista de corridas no repite el margen de arriba. */
 .panel-corridas .lista-corridas { margin-top: 0; }
@@ -700,7 +770,7 @@ td .enlace-texto, .enlace-en-linea { margin-top: 0; text-align: left; }
 .enlace-generado { border-color: var(--accent); }
 .enlace-generado p { margin: 0 0 10px; font-size: 0.85rem; }
 .enlace-fila { display: flex; gap: 8px; flex-wrap: wrap; }
-.enlace-fila input { flex: 1; min-width: 220px; margin: 0; font-family: ui-monospace, monospace; font-size: 0.8rem; }
+.enlace-fila input { flex: 1; min-width: min(220px, 100%); margin: 0; font-family: ui-monospace, monospace; font-size: 0.8rem; }
 .enlace-fila .boton { margin-top: 0; }
 
 .letra-chica { margin-top: 12px; font-size: 0.82rem; color: var(--muted); }
@@ -759,3 +829,36 @@ td .enlace-texto, .enlace-en-linea { margin-top: 0; text-align: left; }
 a.chip-corrida:hover { text-decoration: underline; }
 .filtro-corrida { display: inline-flex; align-items: center; gap: 10px; padding: 6px 12px; }
 .filtro-corrida .enlace-texto { margin: 0; font-size: 0.75rem; }
+
+/* ---------------- acerca de ---------------- */
+.main-publica { padding-top: 24px; container-type: inline-size; }
+.main-publica .acerca { margin: 0 auto; max-width: 1000px; }
+.acerca-barra { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.acerca a.acerca-entrar { margin: 0; color: var(--on-accent); text-decoration: none; }
+/* Publica: el logo ya esta en la barra, no se repite en la portada. */
+.main-publica .acerca-logo { display: none; }
+
+.acerca-portada { padding: 28px 24px; }
+.acerca-logo { width: 48px; height: 48px; border-radius: 14px; margin-bottom: 14px; }
+.acerca-sigla { margin: 0; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.1em; color: var(--accent); }
+.acerca-titulo { margin: 4px 0 12px; font-size: 1.5rem; line-height: 1.25; text-wrap: balance; }
+.acerca-lead { margin: 0; max-width: 68ch; color: var(--text); font-size: 0.98rem; }
+.acerca-piezas { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+@container (min-width: 760px) { .acerca-piezas { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.acerca-pieza { background: var(--panel-2); border-radius: 10px; padding: 14px; }
+.acerca-pieza-icono {
+  display: inline-grid; place-items: center; width: 32px; height: 32px; border-radius: 9px;
+  background: var(--chip-bg); color: var(--accent); margin-bottom: 8px;
+}
+.acerca-pieza h4 { margin: 0 0 4px; font-size: 0.92rem; }
+.acerca-pieza p { margin: 0; color: var(--muted); font-size: 0.85rem; }
+.acerca-nota { margin: 14px 0 0; color: var(--muted); font-size: 0.85rem; max-width: 80ch; }
+.acerca h3 { display: flex; align-items: center; gap: 8px; }
+.acerca h3 svg { color: var(--accent); }
+.acerca-nombre { margin: 0; font-size: 1.1rem; font-weight: 600; }
+.acerca-rol { margin: 0 0 12px; font-size: 0.85rem; }
+.acerca-texto { margin: 12px 0 0; font-size: 0.9rem; }
+.acerca a { color: var(--accent); }
+.acerca-enlaces { list-style: none; padding: 0; margin: 12px 0 0; display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 0.88rem; }
+.acerca-equipo { margin-top: 12px; }
+.acerca-equipo-fila { display: contents; }

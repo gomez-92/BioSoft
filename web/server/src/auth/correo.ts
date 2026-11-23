@@ -28,10 +28,10 @@ export async function enviarCorreoDeClave(destino: string, usuario: string, toke
   await transporte.sendMail({
     from: config.mail.from,
     to: destino,
-    subject: 'BioSoft: restablecer contraseña',
+    subject: 'SEMBAF: restablecer contraseña',
     text:
       `Hola ${usuario}:\n\n` +
-      `Para fijar una contraseña nueva en el monitor de BioSoft, abrí este enlace:\n\n${enlace}\n\n` +
+      `Para fijar una contraseña nueva en el monitor de SEMBAF, abrí este enlace:\n\n${enlace}\n\n` +
       `Vale por ${horas} horas y una sola vez. Si no lo pediste, ignorá este correo: ` +
       'tu contraseña actual sigue funcionando.\n',
   });

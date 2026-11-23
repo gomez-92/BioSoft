@@ -160,14 +160,16 @@ export default function GraficosEnVivo({ runId, startedAt, targets, config, meas
           </span>
         )}
       </div>
-      <div className="grilla-graficos">
+      {/* Campo y duty uno debajo del otro: se leen juntos (el duty es lo que
+          el lazo hace para sostener ese campo). Ver .grilla-campo-duty. */}
+      <div className="grilla-graficos grilla-campo-duty">
         <GraficoCampo puntos={enVentana} bucket="raw" contexto={contexto} alertas={alertasEnVentana}
           desde={ejeDesde} fin={fin} alto={220} />
+        <GraficoBobinas puntos={bobinasEnVentana} bucket="raw" bobinas={bobinas} magnitud="duty"
+          inicio={ejeDesde} fin={fin} alto={180} />
         <GraficoTemperatura puntos={enVentana} bucket="raw" contexto={contexto} alertas={alertasEnVentana}
           desde={ejeDesde} fin={fin} alto={220} />
         <GraficoBobinas puntos={bobinasEnVentana} bucket="raw" bobinas={bobinas} magnitud="corriente"
-          inicio={ejeDesde} fin={fin} alto={180} />
-        <GraficoBobinas puntos={bobinasEnVentana} bucket="raw" bobinas={bobinas} magnitud="duty"
           inicio={ejeDesde} fin={fin} alto={180} />
       </div>
     </>

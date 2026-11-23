@@ -17,6 +17,19 @@ const TRAZOS: Record<string, string> = {
   bitacora: 'M6 3h11a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6zM6 3v18M10 8h5M10 12h5M10 16h3',
   // lineas de campo entre dos polos
   campo: 'M4 12c4-7 12-7 16 0M4 12c4 7 12 7 16 0M4 12h16',
+  // menu del celular: tres renglones / cruz para cerrarlo
+  menu: 'M4 6h16M4 12h16M4 18h16',
+  cerrar: 'M6 6l12 12M18 6 6 18',
+  // circulo con una "i"
+  info: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 11v5M12 8h.01',
+  // una persona
+  cuenta: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0',
+  // puerta con flecha hacia afuera
+  salir: 'M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l5-5-5-5M15 12H3',
+  // birrete
+  facultad: 'M2 9l10-5 10 5-10 5zM6 11v5c3 2.5 9 2.5 12 0v-5M22 9v6',
+  // chip / placa
+  placa: 'M7 7h10v10H7zM10 3v4M14 3v4M10 17v4M14 17v4M3 10h4M3 14h4M17 10h4M17 14h4',
 };
 
 export function Icono({ nombre, tamaño = 16 }: { nombre: keyof typeof TRAZOS | string; tamaño?: number }) {

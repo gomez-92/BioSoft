@@ -60,7 +60,7 @@ export const config = {
   mail: {
     smtpUrl: process.env.SMTP_URL || '',
     publicUrl: process.env.PUBLIC_URL || '',
-    from: env('MAIL_FROM', 'BioSoft <no-responder@biosoft.local>'),
+    from: env('MAIL_FROM', 'SEMBAF <no-responder@biosoft.local>'),
   },
 
   run: {

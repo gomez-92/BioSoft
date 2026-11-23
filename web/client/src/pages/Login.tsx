@@ -50,7 +50,7 @@ export function Login({ onEntrar }: { onEntrar: (perfil: Perfil) => void }) {
     <main className="login">
       <form className="panel login-caja" onSubmit={modo === 'entrar' ? entrar : olvide}>
         <span className="marca-logo login-logo" aria-hidden="true"><Icono nombre="campo" tamaño={20} /></span>
-        <h1>BioSoft</h1>
+        <h1>SEMBAF</h1>
         <p className="subtitle">{modo === 'entrar' ? 'Monitor remoto' : 'Recuperar contraseña'}</p>
 
         <label htmlFor="usuario">{modo === 'entrar' ? 'Usuario' : 'Usuario o correo'}</label>
@@ -81,6 +81,7 @@ export function Login({ onEntrar }: { onEntrar: (perfil: Perfil) => void }) {
           {modo === 'entrar' ? '¿Olvidaste tu contraseña?' : 'Volver a ingresar'}
         </button>
       </form>
+      <a href="/acerca" className="login-acerca">Acerca del proyecto</a>
     </main>
   );
 }

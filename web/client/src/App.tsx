@@ -1,5 +1,5 @@
 import { Suspense, lazy, useEffect, useState } from 'react';
-import { BrowserRouter, Link, NavLink, Route, Routes, useNavigate } from 'react-router-dom';
+import { BrowserRouter, Link, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { authFetch, clearToken, getToken, onSesionPerdida } from './lib/auth.js';
 import { useLive } from './lib/useLive.js';
 import type { Perfil } from './lib/types.js';
@@ -12,6 +12,7 @@ import { Live } from './pages/Live.js';
 import { Login } from './pages/Login.js';
 import { Restablecer } from './pages/Restablecer.js';
 import { BotonArriba } from './components/BotonArriba.js';
+import { Acerca } from './pages/Acerca.js';
 
 // El detalle carga aparte: los graficos (recharts) son mas de la mitad del
 // bundle y solo se usan ahi y en el grafico de En curso, que tambien los pide
@@ -63,7 +64,12 @@ export function App() {
     );
   }
   if (comprobando) return <main className="login"><p className="empty">Cargando...</p></main>;
-  if (!sesion) return <Login onEntrar={setSesion} />;
+  if (!sesion) {
+    // "Acerca de" se puede leer sin cuenta (enlace en el login). Va por
+    // pathname, como /restablecer, porque sin sesion no hay router.
+    if (window.location.pathname === '/acerca') return <main className="main-publica"><Acerca publica /></main>;
+    return <Login onEntrar={setSesion} />;
+  }
 
   return (
     <SesionContext.Provider value={sesion}>
@@ -79,49 +85,101 @@ function Contenido({ sesion, onSalir }: { sesion: Perfil; onSalir: () => void })
   // navegar al historial y volver no reconecta ni vuelve a pedir el snapshot.
   const estado = useLive();
   const navigate = useNavigate();
+  const ubicacion = useLocation();
+  const esAdmin = sesion.role === 'admin';
+  // Menu lateral: fijo en pantallas anchas, cajon que se abre con el boton
+  // en el celular. Solo el cajon usa este estado.
+  const [menuAbierto, setMenuAbierto] = useState(false);
+
+  // Elegir una seccion cierra el cajon: en el celular tapa la pagina.
+  useEffect(() => { setMenuAbierto(false); }, [ubicacion.pathname]);
+
+  // Con el cajon abierto: Escape lo cierra y la pagina de atras no scrollea.
+  useEffect(() => {
+    if (!menuAbierto) return;
+    const alTeclear = (e: KeyboardEvent) => { if (e.key === 'Escape') setMenuAbierto(false); };
+    window.addEventListener('keydown', alTeclear);
+    document.body.classList.add('sin-scroll');
+    return () => {
+      window.removeEventListener('keydown', alTeclear);
+      document.body.classList.remove('sin-scroll');
+    };
+  }, [menuAbierto]);
 
   return (
-    <main>
-      <header className="cabecera">
-        <Link to="/" className="marca">
-          <span className="marca-logo" aria-hidden="true"><Icono nombre="campo" /></span>
-          <span>
-            <h1>BioSoft</h1>
-            <span className="subtitle">Monitor remoto{estado.deviceId ? ` · ${estado.deviceId}` : ''}</span>
-          </span>
-        </Link>
-        <div className="cabecera-derecha">
+    <div className={`app${menuAbierto ? ' menu-abierto' : ''}`}>
+      <aside className="lateral" id="menu-lateral" aria-label="Menu">
+        <div className="lateral-cabeza">
+          <Marca deviceId={estado.deviceId} />
+          <button type="button" className="boton-icono lateral-cerrar" aria-label="Cerrar el menu"
+            onClick={() => setMenuAbierto(false)}>
+            <Icono nombre="cerrar" tamaño={20} />
+          </button>
+        </div>
+
+        <nav className="lateral-nav" aria-label="Secciones">
+          <p className="lateral-grupo">Experimentos</p>
+          <NavLink to="/" end><Icono nombre="vivo" />En curso</NavLink>
+          <NavLink to="/historial"><Icono nombre="historial" />Historial</NavLink>
+          {/* Configuracion muestra redes WiFi y broker de la placa, y la
+              bitacora es diagnostico del sistema: las dos, solo admin. */}
+          {esAdmin && <>
+            <p className="lateral-grupo">Placa</p>
+            <NavLink to="/configuracion"><Icono nombre="config" />Configuracion</NavLink>
+            <NavLink to="/bitacora"><Icono nombre="bitacora" />Bitacora</NavLink>
+            <p className="lateral-grupo">Administracion</p>
+            <NavLink to="/usuarios"><Icono nombre="usuarios" />Usuarios</NavLink>
+          </>}
+          <p className="lateral-grupo">Proyecto</p>
+          <NavLink to="/acerca"><Icono nombre="info" />Acerca de</NavLink>
+        </nav>
+
+        <div className="lateral-pie">
+          <NavLink to="/cuenta" className="lateral-usuario" title="Mi cuenta">
+            <Icono nombre="cuenta" />
+            <span>
+              <span className="lateral-usuario-nombre">{sesion.username}</span>
+              <span className="lateral-usuario-rol">{esAdmin ? 'Administrador' : 'Solo lectura'}</span>
+            </span>
+          </NavLink>
+          <div className="lateral-acciones">
+            <SelectorTema />
+            <button type="button" className="salir" onClick={onSalir}>
+              <Icono nombre="salir" tamaño={14} />Salir
+            </button>
+          </div>
+        </div>
+      </aside>
+      {/* Fondo oscuro detras del cajon: tocarlo lo cierra. */}
+      <div className="fondo-menu" aria-hidden="true" onClick={() => setMenuAbierto(false)} />
+
+      <div className="contenido">
+        {/* Solo en el celular: boton del menu y la marca. En pantallas anchas
+            la marca esta en el lateral. */}
+        <header className="barra-superior">
+          <button type="button" className="boton-icono" aria-label="Abrir el menu"
+            aria-expanded={menuAbierto} aria-controls="menu-lateral" onClick={() => setMenuAbierto(true)}>
+            <Icono nombre="menu" tamaño={22} />
+          </button>
+          <Marca deviceId={estado.deviceId} />
+        </header>
+
+        <main>
           {/* Cada estado dice DE QUIEN es: "Monitor" es este servidor
               escuchando al broker; "Placa" es la ESP32 contestando el ping. */}
-          <div className="conexiones">
-            <span className="conexion" title={
-              !estado.conectado ? 'Este navegador perdio la conexion con el servidor del monitor.'
-                : estado.brokerOk ? 'El servidor del monitor esta conectado al broker y recibe la telemetria.'
-                  : 'El servidor del monitor no llega al broker: no entra telemetria.'}>
-              <span className={`punto ${estado.conectado && estado.brokerOk ? 'punto-ok' : 'punto-caido'}`} />
-              <b>Monitor</b>{estado.conectado ? (estado.brokerOk ? 'en linea' : 'sin broker') : 'sin servidor'}
-            </span>
-            {estado.conectado && <EstadoPlaca placa={estado.placa} brokerOk={estado.brokerOk} />}
+          <div className="barra-estado">
+            <div className="conexiones">
+              <span className="conexion" title={
+                !estado.conectado ? 'Este navegador perdio la conexion con el servidor del monitor.'
+                  : estado.brokerOk ? 'El servidor del monitor esta conectado al broker y recibe la telemetria.'
+                    : 'El servidor del monitor no llega al broker: no entra telemetria.'}>
+                <span className={`punto ${estado.conectado && estado.brokerOk ? 'punto-ok' : 'punto-caido'}`} />
+                <b>Monitor</b>{estado.conectado ? (estado.brokerOk ? 'en linea' : 'sin broker') : 'sin servidor'}
+              </span>
+              {estado.conectado && <EstadoPlaca placa={estado.placa} brokerOk={estado.brokerOk} />}
+            </div>
           </div>
-          <SelectorTema />
-          <NavLink to="/cuenta" className="usuario-actual" title="Mi cuenta">
-            {sesion.username}{sesion.role === 'admin' ? ' · admin' : ''}
-          </NavLink>
-          <button type="button" className="salir" onClick={onSalir}>Salir</button>
-        </div>
-      </header>
 
-      <nav className="navegacion">
-        <NavLink to="/" end><Icono nombre="vivo" />En curso</NavLink>
-        <NavLink to="/historial"><Icono nombre="historial" />Historial</NavLink>
-        {/* Configuracion muestra redes WiFi y broker de la placa: solo admin. */}
-        {sesion.role === 'admin' && <NavLink to="/configuracion"><Icono nombre="config" />Configuracion</NavLink>}
-        {sesion.role === 'admin' && <NavLink to="/usuarios"><Icono nombre="usuarios" />Usuarios</NavLink>}
-        {/* Diagnostico del sistema (reinicios, enlaces, broker): solo admin. */}
-        {sesion.role === 'admin' && <NavLink to="/bitacora"><Icono nombre="bitacora" />Bitacora</NavLink>}
-      </nav>
-
-      <BotonArriba />
       <Suspense fallback={<p className="empty panel">Cargando...</p>}>
         <Routes>
           <Route path="/" element={<Live estado={estado} onVerCorrida={(id) => navigate(`/corrida/${id}`)} />} />
@@ -137,10 +195,28 @@ function Contenido({ sesion, onSalir }: { sesion: Perfil; onSalir: () => void })
             ? <Usuarios />
             : <p className="empty panel">Solo los administradores gestionan usuarios.</p>} />
           <Route path="/cuenta" element={<Cuenta />} />
+          <Route path="/acerca" element={<Acerca />} />
           <Route path="*" element={<p className="empty panel">Esa pagina no existe. <Link to="/">Ir al inicio</Link></p>} />
         </Routes>
       </Suspense>
-    </main>
+        </main>
+      </div>
+      {/* Fuera de <main>: main es contenedor de consultas (container-type),
+          y un position: fixed adentro podria quedar atado a el. */}
+      <BotonArriba />
+    </div>
+  );
+}
+
+function Marca({ deviceId }: { deviceId?: string | null }) {
+  return (
+    <Link to="/" className="marca">
+      <span className="marca-logo" aria-hidden="true"><Icono nombre="campo" /></span>
+      <span>
+        <span className="marca-nombre">SEMBAF</span>
+        <span className="subtitle marca-sub">Monitor remoto{deviceId ? ` · ${deviceId}` : ''}</span>
+      </span>
+    </Link>
   );
 }
 

@@ -29,7 +29,7 @@ export function Restablecer({ token, onListo }: { token: string; onListo: () => 
   return (
     <main className="login">
       <form className="panel login-caja" onSubmit={enviar}>
-        <h1>BioSoft</h1>
+        <h1>SEMBAF</h1>
         <p className="subtitle">Fijar contraseña</p>
 
         {listo !== null ? (
