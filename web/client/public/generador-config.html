@@ -63,6 +63,22 @@
   .chk{display:flex;gap:7px;align-items:center;white-space:nowrap}
   .sub{border:1px solid var(--line);border-radius:6px;padding:12px 14px;margin-top:12px}
   .sub h3{font-size:13.5px;margin:0 0 10px}
+  /* Explicacion mapa <-> control (seccion 3): se lee antes de tocar numeros. */
+  .sub.explica{border-left:3px solid var(--accent)}
+  .pasos{margin:0 0 12px;padding-left:20px;font-size:13px;line-height:1.55}
+  .pasos li{margin-bottom:6px}
+  /* Unidad pegada a la caja y equivalencia debajo (seccion 3). */
+  .campo-u label.f{position:relative}
+  .campo-u label.f input{padding-right:118px}
+  .unidad-caja{position:absolute;right:8px;bottom:7px;font-size:11.5px;color:var(--muted);pointer-events:none}
+  .equiv{font-size:12px;color:var(--muted);margin-top:4px;line-height:1.4}
+  .equiv b{color:var(--ink);font-weight:600}
+  .rango{font-size:11.5px;color:var(--muted);margin-top:4px;line-height:1.45}
+  .rango b{font-weight:600}
+  .rango .rango-fuera{color:var(--warn)}
+  .rango-por{display:block}
+  .rango .mini{margin-top:4px;padding:2px 8px;font-size:11.5px}
+  .formula{display:inline-block;margin-top:4px;padding:2px 8px;border-radius:4px;border:1px solid var(--line);font-weight:600}
   /* Un solo scroll, el de la pagina: las tablas entran enteras. Solo en
      pantallas angostas pueden correrse de costado. */
   @media (max-width:700px){ .tablewrap{overflow-x:auto} }
@@ -281,7 +297,7 @@ const DEFAULTS = {
            measureMagneticField:2000,updateProgress:1000,sendFlags:25000,sendResult:1000,
            settlingTime:10000}
   },
-  control: {enabled:true,kp:0.1,maxStep:0.05,deadBand:0.01,balanceMax:0.2,map:[]},
+  control: {enabled:true,alpha:0.25,deadBandPct:1.5,kp:0.1,maxStep:0.05,deadBand:0.01,balanceMax:0.2,map:[]},
   coils: [
     {name:"BOB1",enabled:true, calibrationFactor:1.0},
     {name:"BOB2",enabled:true, calibrationFactor:1.0},
@@ -1250,7 +1266,10 @@ const SIM = (() => {
     } else if (point) startDuty = point.duty;
     else if (out.simulated.CEM1 && cemS.scenario.setpointDuty > 0) startDuty = cemS.scenario.setpointDuty;
     const loopOn = ctl.enabled !== false;
-    const controller = makeController(ctl, cemMs);
+    // Engine::_start(): kp y zona muerta de ESTA corrida (tuneLoop).
+    const tuning = loopTuning(ref.intensity, startDuty, ctl);
+    out.tuning = tuning;
+    const controller = makeController(Object.assign({}, ctl, {kp: tuning.kp, deadBand: tuning.deadBand}), cemMs);
     controller.setSetpoint(ref.mode === "null" ? 0 : ref.intensity);
     controller.preload(loopOn ? startDuty : 0);
     let duty = loopOn ? controller.output : 0;
@@ -1339,6 +1358,8 @@ const FIELD_LIMITS = [
   [/^menus\.\w+\.\d+\.value$/, EPS, 1e9, false],
   [/^intervals\.\w+\.\w+$/, 1, 3600000, true],
   [/^control\.kp$/, EPS, 100, false],
+  [/^control\.alpha$/, 0, 1, false],
+  [/^control\.deadBandPct$/, 0, 20, false],
   [/^control\.maxStep$/, EPS, 1, false],
   [/^control\.deadBand$/, 0, 100, false],
   [/^control\.balanceMax$/, 0, MAX_BALANCE, false],
@@ -1389,6 +1410,125 @@ function num(path, kind, label){
       (withinLimits(v, lim) ? '' : ' class="fuera"') : '') +
     ' value="' + v + '"></label>';
 }
+// Campo numerico con su UNIDAD pegada a la caja y una linea debajo que
+// traduce el valor a algo concreto ("1,5 % del objetivo -> a 1 mT son
+// 0,015 mT"). Se usa en la seccion 3, donde un numero suelto no dice si es
+// un %, mT o duty. La linea la recalcula refreshTuning() mientras se escribe.
+function numU(path, label, unit){
+  return '<div class="campo-u">' + num(path, FLT, label).replace('></label>',
+    '><span class="unidad-caja">' + unit + '</span></label>') +
+    '<div class="equiv" data-equiv="' + path + '">' + equivText(path) + '</div>' +
+    '<div class="rango" data-rango="' + path + '">' + rangoText(path) + '</div></div>';
+}
+
+// Rango sugerido y valor de fabrica de cada parametro del lazo, para quien
+// llega por primera vez. "Permitido" sale de FIELD_LIMITS (lo mismo que acepta
+// el Mega); "sugerido" es criterio, no un limite: fuera de el se avisa en
+// ambar pero no se bloquea. kp y zona muerta fijos dependen del equipo, asi
+// que su sugerido se calcula con el mapa y los menus.
+function sugerido(path){
+  const c = state.control || {};
+  const D = DEFAULTS.control;
+  switch (path) {
+    case "control.alpha": return {min: 0.2, max: 0.3, def: D.alpha,
+      por: "rapido sin oscilar; menos es mas suave, mas sigue el ruido"};
+    case "control.deadBandPct": return {min: 1, max: 2, def: D.deadBandPct,
+      por: "por encima del ruido de la medicion y muy por debajo de la tolerancia (5-10 %)"};
+    case "control.maxStep": return {min: 0.02, max: 0.1, def: D.maxStep,
+      por: "frena una lectura espuria sin limitar las correcciones normales"};
+    case "control.balanceMax": return {min: 0.1, max: 0.2, def: D.balanceMax,
+      por: "subirlo solo si el banco mide un balance mayor en algun punto"};
+    case "control.kp": {
+      // alfa / K con la K mediana del mapa: el mismo comportamiento que los
+      // puntos medidos, para cuando la combinacion no esta en el mapa.
+      const ks = (Array.isArray(c.map) ? c.map : [])
+        .filter(q => isNum(q.intensity) && q.intensity > 0 && isNum(q.duty) && q.duty > 0)
+        .map(q => q.intensity / q.duty).sort((a, b) => a - b);
+      if (ks.length && isNum(c.alpha) && c.alpha > 0) {
+        const k = ks[Math.floor(ks.length / 2)];
+        const v = c.alpha * 1 / k;
+        return {min: v * 0.8, max: v * 1.25, def: D.kp, calc: v,
+          por: "alfa / K con la K mediana de tu mapa (" + fmtN(k, 2) + " mT por unidad de duty)"};
+      }
+      return {min: 0.05, max: 0.3, def: D.kp, por: "sin mapa: alfa / K, con la K del paso 1 del protocolo"};
+    }
+    case "control.deadBand": {
+      const ints = menuIntensities();
+      if (ints.length) {
+        const v = ints[0] * 0.015;
+        return {min: v * 0.66, max: v * 1.34, def: D.deadBand, calc: v,
+          por: "1,5 % de la intensidad mas chica del menu (" + fmtN(ints[0]) + " mT)"};
+      }
+      return {min: 0.005, max: 0.02, def: D.deadBand, por: "1-2 % de la intensidad"};
+    }
+  }
+  return null;
+}
+
+function rangoText(path){
+  const sg = sugerido(path), lim = limitsFor(path), v = getPath(path);
+  if (!sg) return "";
+  const d = path === "control.kp" || path === "control.deadBand" ? 4 : 2;
+  const fuera = isNum(v) && (v < sg.min - 1e-9 || v > sg.max + 1e-9);
+  return '<span class="' + (fuera ? "rango-fuera" : "") + '">' +
+    (lim ? 'Permitido ' + fmtN(lim.min, 4) + ' a ' + fmtN(lim.max, 4) + ' &middot; ' : '') +
+    '<b>Sugerido ' + (isNum(sg.calc) ? '~' + fmtN(sg.calc, d) : fmtN(sg.min, d) + ' a ' + fmtN(sg.max, d)) + '</b>' +
+    ' &middot; De fabrica ' + fmtN(sg.def, 4) +
+    (fuera ? ' &middot; <b>fuera de lo sugerido</b>' : '') + '</span>' +
+    '<span class="rango-por">' + sg.por + '.</span>' +
+    (fuera
+      ? ' <button class="mini" data-sugerido="' + path + '">Usar ' +
+        (isNum(sg.calc) ? 'el sugerido' : 'el de fabrica') + '</button>' : '');
+}
+
+// Numero en formato de la pantalla: coma decimal, sin ceros de sobra.
+function fmtN(v, d){
+  if (!isNum(v)) return "&mdash;";
+  return String(Number(Number(v).toFixed(d === undefined ? 4 : d))).replace(".", ",");
+}
+
+// Intensidades que ofrece el menu (paso 1), sin repetir y ordenadas.
+function menuIntensities(){
+  const vals = ((state.menus && state.menus.fieldIntensity) || []).map(o => o.value).filter(v => isNum(v) && v > 0);
+  return [...new Set(vals)].sort((a, b) => a - b);
+}
+
+function equivText(path){
+  const c = state.control || {};
+  const v = getPath(path);
+  if (!isNum(v)) return "";
+  const ints = menuIntensities();
+  const iv = state.intervals && state.intervals.mega ? state.intervals.mega.measureMagneticField : NaN;
+  const porIntensidad = f => ints.length ? ints.map(i => "a " + fmtN(i) + " mT: " + f(i)).join(" &middot; ") : "";
+  switch (path) {
+    case "control.alpha":
+      if (v === 0) return "Apagado: siempre se usa el kp fijo de abajo.";
+      return "Corrige el <b>" + fmtN(v * 100, 1) + " % del error</b> en cada lectura, en cualquier punto del mapa.";
+    case "control.deadBandPct":
+      if (v === 0) return "Apagado: se usa la zona muerta fija en mT de abajo.";
+      return "<b>" + fmtN(v, 2) + " % de la intensidad pedida</b>" +
+        (ints.length ? " &rarr; " + porIntensidad(i => "<b>" + fmtN(i * v / 100, 5) + " mT</b>") : "") +
+        ". Por debajo de eso el duty no se toca.";
+    case "control.maxStep": {
+      const lecturas = Math.ceil(1 / v);
+      return "El duty se mueve como mucho <b>" + fmtN(v * 100, 2) + " puntos de % por lectura</b> (de 0 a 100 %). " +
+        "Ir de 0 a pleno lleva al menos " + lecturas + " lecturas" +
+        (isNum(iv) ? " (" + fmtN(lecturas * iv / 1000, 1) + " s)" : "") + ".";
+    }
+    case "control.balanceMax":
+      return "Tope de &plusmn;<b>" + fmtN(v * 100, 1) + " %</b>: en campo nulo un grupo de bobinas puede llevar hasta " +
+        fmtN(v * 100, 1) + " % mas de duty y el otro " + fmtN(v * 100, 1) + " % menos.";
+    case "control.kp":
+      return "Si faltan <b>0,1 mT</b>, el duty sube <b>" + fmtN(v * 0.1, 5) + "</b> (" + fmtN(v * 10, 3) +
+        " puntos de %). Solo sin punto en el mapa.";
+    case "control.deadBand":
+      return "<b>" + fmtN(v, 5) + " mT</b> absolutos" +
+        (ints.length ? " &rarr; " + porIntensidad(i => "<b>" + fmtN(v / i * 100, 2) + " %</b>") : "") +
+        ". Solo con la zona muerta en % apagada.";
+  }
+  return "";
+}
+
 function txt(path, label, maxlen){
   return '<label class="f"><span>' + esc(label) + '</span>' +
     '<input type="text" maxlength="' + (maxlen || 60) + '" data-path="' + path + '" data-kind="str"' +
@@ -2372,21 +2512,102 @@ function sIntervals(){
     '</section>';
 }
 
+// ---- fieldcontroller.hpp (tuneLoop): kp y zona muerta de una corrida.
+// Misma regla que el Mega; el simulador (5b) y la tabla de la seccion 3 la
+// usan, y test-generador.js la fija con los mismos casos que test_fieldcontroller.
+function loopTuning(target, startDuty, ctl){
+  const t = {kp: ctl.kp, deadBand: ctl.deadBand, kpFromMap: false, deadBandFromPct: false};
+  if (ctl.alpha > 0 && startDuty > 0 && target > 0) { t.kp = ctl.alpha * startDuty / target; t.kpFromMap = true; }
+  if (ctl.deadBandPct > 0 && target > 0) { t.deadBand = target * ctl.deadBandPct / 100; t.deadBandFromPct = true; }
+  return t;
+}
+
 function sControl(){
   return '<section><h2>3 · Control de intensidad</h2>' +
-    '<p class="hint">Calibracion de <code>FieldController</code>. <b>kp no se elige a ojo</b>: es ' +
-    '<code>alfa/K</code>, con alfa entre 0,1 y 0,3 y K la ganancia de planta medida en lazo abierto ' +
-    '(ver <code>docs/protocolo-calibracion-intensidad.md</code>). <code>sampleTime</code> no esta aca ' +
-    'a proposito: se deriva de <code>measureMagneticField</code>, para que no se pueda desincronizar ' +
-    'de lo que tiene que seguir. Viaja al Mega2560.</p>' +
-    '<div class="grid">' +
-      '<div style="align-self:end;padding-bottom:6px">' +
-        chk("control.enabled", "Lazo activo (si no, mide pero no toca el PWM)") + '</div>' +
-      num("control.kp", FLT, "kp — ganancia proporcional (duty/mT)") +
-      num("control.maxStep", FLT, "maxStep — clamp del paso (duty)") +
-      num("control.deadBand", FLT, "deadBand — zona muerta (mT)") +
-      num("control.balanceMax", FLT, "balanceMax — tope del balance del campo nulo (0 a " + MAX_BALANCE + ")") +
-    '</div>' + sControlMap() + '</section>';
+    '<div class="sub explica"><h3>Como se relacionan el mapa y el control</h3>' +
+    '<ol class="pasos">' +
+      '<li><b>El mapa dice desde donde arrancar.</b> Para cada intensidad y frecuencia guarda el ' +
+        '<i>duty</i> que en el banco dio ese campo. La corrida empieza directamente ahi, en vez de subir desde 0.</li>' +
+      '<li><b>El lazo corrige lo que falte.</b> En cada lectura del campo mueve el duty ' +
+        '<code>kp &times; error</code>: por cada mT que falta, sube <code>kp</code> de duty.</li>' +
+      '<li><b>El kp sale del mismo punto del mapa.</b> Si duty <code>d</code> da <code>B</code> mT, cada unidad ' +
+        'de duty da <code>K = B / d</code> mT (la <i>ganancia</i> de bobinas y etapa de potencia en ese punto). ' +
+        'Para que cada lectura corrija una fraccion <b>alfa</b> del error: ' +
+        '<code class="formula">kp = alfa &times; d / B</code></li>' +
+      '<li><b>Por eso aca se elige alfa, no kp.</b> Alfa no tiene unidades y vale lo mismo en todos los puntos: ' +
+        'la placa calcula el kp de cada corrida con el punto que corresponde. La ganancia cambia con la intensidad ' +
+        'y con la frecuencia (la bobina responde distinto), y eso ya esta medido en el duty de cada punto.</li>' +
+      '<li><b>La zona muerta va en % del objetivo</b> por lo mismo: 0,01 mT es el 1 % a 1 mT, pero toda la ' +
+        'tolerancia a 0,1 mT.</li>' +
+    '</ol>' +
+    '<p class="hint"><b>Sin punto en el mapa</b> (campo X con una combinacion no medida) no hay ganancia conocida: ' +
+      'el lazo arranca de duty 0 con el <b>kp fijo</b> de abajo, mucho mas lento. <b>En campo nulo el lazo no corre</b>: ' +
+      'se aplica el duty del punto, fijo, y alfa no interviene. En un escenario de prueba con planta, el duty de partida ' +
+      'es su <code>setpointDuty</code>.</p>' +
+    '<p class="hint"><b>Alfa:</b> 0,1 lento y suave &middot; <b>0,2 a 0,3 recomendado</b> &middot; 0,5 rapido, ' +
+      'empieza a seguir el ruido &middot; 1 corrige todo el error de un saque &middot; mas de 1 oscila. ' +
+      'El calculo supone campo proporcional al duty; conviene confirmarlo en el banco midiendo 2 o 3 duty por punto ' +
+      '(ver <code>docs/protocolo-calibracion-intensidad.md</code>).</p></div>' +
+    '<div class="sub"><h3>Lo que se elige</h3>' +
+      '<div style="margin-bottom:10px">' +
+        chk("control.enabled", "Lazo activo (si no, mide pero no toca el PWM)") + '</div><div class="grid">' +
+      numU("control.alpha", "alfa — fraccion del error que se corrige por lectura (0 a 1)", "fraccion") +
+      numU("control.deadBandPct", "zona muerta (0 a 20)", "% del objetivo") +
+      numU("control.maxStep", "maxStep — paso maximo por lectura (0 a 1)", "duty") +
+      numU("control.balanceMax", "balanceMax — tope del balance del campo nulo (0 a " + MAX_BALANCE + ")", "fraccion") +
+    '</div></div>' +
+    '<div class="sub"><h3>Valores fijos (solo cuando no hay punto de partida)</h3>' +
+      '<p class="hint">Se usan en campo X sin punto en el mapa, o con alfa / zona muerta en 0.</p><div class="grid">' +
+      numU("control.kp", "kp fijo", "duty / mT") +
+      numU("control.deadBand", "zona muerta fija", "mT") +
+    '</div></div>' +
+    sControlMap() +
+    '<div class="sub"><h3>Lo que va a usar la placa en cada punto del mapa</h3><div id="sintonia">' + tuningTable() + '</div></div>' +
+    '</section>';
+}
+
+// Tabla en vivo: para cada punto del mapa, la ganancia que mide, el kp y la
+// zona muerta que va a calcular la placa, y cuanto tarda en corregir.
+function tuningTable(){
+  const ctl = state.control || {};
+  const map = Array.isArray(ctl.map) ? ctl.map : [];
+  const iv = state.intervals && state.intervals.mega ? state.intervals.mega.measureMagneticField : NaN;
+  const f = (v, d) => isNum(v) ? Number(v).toFixed(d).replace(".", ",") : "&mdash;";
+  // Tiempo para corregir 2/3 del error: cada lectura deja (1 - fraccion) del
+  // error, asi que hacen falta ln(1/3)/ln(1 - fraccion) lecturas.
+  const reaccion = frac => (frac > 0 && frac < 1 && isNum(iv))
+    ? f(Math.log(1 / 3) / Math.log(1 - frac) * iv / 1000, 1) + " s" : (frac >= 1 ? "1 lectura" : "&mdash;");
+  let h = '<div class="tablewrap"><table><tr><th>Intensidad</th><th>Frecuencia</th><th>Duty del mapa</th>' +
+    '<th>Ganancia K<br><small>mT por unidad de duty</small></th><th>kp que usa</th><th>Zona muerta</th>' +
+    '<th>Corrige 2/3 del error en</th></tr>';
+  const valid = map.filter(p => isNum(p.intensity) && p.intensity > 0 && isNum(p.duty) && p.duty > 0);
+  valid.forEach(p => {
+    const t = loopTuning(p.intensity, p.duty, ctl);
+    const frac = t.kp * p.intensity / p.duty;   // = alfa si el kp es derivado
+    h += '<tr><td>' + f(p.intensity, 3) + ' mT</td><td>' + f(p.frequency, 1) + ' Hz</td><td>' + f(p.duty, 3) + '</td>' +
+      '<td>' + f(p.intensity / p.duty, 2) + '</td>' +
+      '<td>' + f(t.kp, 4) + (t.kpFromMap ? '' : ' <small>(fijo)</small>') + '</td>' +
+      '<td>' + f(t.deadBand, 4) + ' mT</td><td>' + reaccion(frac) + '</td></tr>';
+  });
+  h += '<tr><td colspan="3"><i>Sin punto en el mapa (campo X)</i></td><td>no se conoce</td>' +
+    '<td>' + f(ctl.kp, 4) + ' <small>(fijo)</small></td><td>' +
+    (ctl.deadBandPct > 0 ? f(ctl.deadBandPct, 1) + ' % del objetivo' : f(ctl.deadBand, 4) + ' mT') +
+    '</td><td>depende de la intensidad; arranca de duty 0</td></tr></table></div>';
+  if (!valid.length) h += '<p class="hint">El mapa todavia no tiene puntos con duty medido: cada corrida va a usar el kp fijo.</p>';
+  h += '<p class="hint">Ejemplo: 1 mT con duty 0,40 da K = 2,5 mT por unidad de duty. Con alfa 0,25, ' +
+    'kp = 0,25 &times; 0,40 / 1 = 0,1: si faltan 0,1 mT, el duty sube 0,01 y el campo sube 0,025 mT, ' +
+    'un cuarto de lo que faltaba. Los tiempos usan el intervalo de medicion de campo del paso 2 ' +
+    '(<code>measureMagneticField</code>).</p>';
+  return h;
+}
+
+function refreshTuning(){
+  const el = document.getElementById("sintonia");
+  if (el) el.innerHTML = tuningTable();
+  if (typeof document.querySelectorAll === "function")
+    document.querySelectorAll("[data-equiv]").forEach(n => { n.innerHTML = equivText(n.dataset.equiv); });
+  if (typeof document.querySelectorAll === "function")
+    document.querySelectorAll("[data-rango]").forEach(n => { n.innerHTML = rangoText(n.dataset.rango); });
 }
 
 function sControlMap(){
@@ -2789,10 +3010,21 @@ function onEdit(e){
   if (/^detector\.sources\.\d+\.sensor$/.test(path)) { render(); return; }
   // Vigilada o no cambia el aviso del titulo del bloque del escenario.
   if (/^detector\.sources\.\d+\.enabled$/.test(path) && e.type === "change") { render(); return; }
+  if (/^(control|intervals|menus)\./.test(path)) refreshTuning();
   validate();
 }
 
 document.addEventListener("click", e => {
+  if (e.target.dataset && e.target.dataset.sugerido) {
+    const path = e.target.dataset.sugerido, sg = sugerido(path);
+    if (sg) {
+      const v = isNum(sg.calc) ? Number(sg.calc.toFixed(4)) : sg.def;
+      setPath(path, v);
+      lastValid[path] = v;
+      render();
+    }
+    return;
+  }
   const add = e.target.dataset && e.target.dataset.add;
   const del = e.target.dataset && e.target.dataset.del;
   if (e.target.dataset && e.target.dataset.mapadd){
@@ -3122,6 +3354,14 @@ function validate(){
   /* --- 3. control --- */
   vsec = "3";
   if (!isNum(state.control.kp) || state.control.kp <= 0) err("control.kp tiene que ser mayor que 0.");
+  if (!isNum(state.control.alpha) || state.control.alpha < 0 || state.control.alpha > 1)
+    err("control.alpha tiene que estar entre 0 y 1 (0 apaga el kp derivado del mapa).");
+  else if (state.control.alpha === 0)
+    warn("control.alpha = 0: el lazo usa siempre el kp fijo, aunque haya punto en el mapa.");
+  else if (state.control.alpha > 0.5)
+    warn("control.alpha = " + state.control.alpha + ": corrige mas de la mitad del error por lectura y va a seguir el ruido de la medicion. Lo recomendado es 0,2 a 0,3.");
+  if (!isNum(state.control.deadBandPct) || state.control.deadBandPct < 0 || state.control.deadBandPct > 20)
+    err("control.deadBandPct tiene que estar entre 0 y 20 (0 usa la zona muerta fija en mT).");
   if (!isNum(state.control.maxStep) || state.control.maxStep <= 0) err("control.maxStep tiene que ser mayor que 0.");
   if (!isNum(state.control.deadBand) || state.control.deadBand < 0) err("control.deadBand no puede ser negativo.");
   if (!state.control.enabled)

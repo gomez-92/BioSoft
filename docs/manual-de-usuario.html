@@ -1921,6 +1921,51 @@ table.pins tbody td{padding:7px 12px 7px 0}
       puntos que la tarjeta actual no declara. El generador de configuración
       valida el mapa antes de permitir guardar.</p>
 
+    <h3>El mapa y el regulador de intensidad</h3>
+
+    <p>En campo X el equipo mantiene la intensidad con un <em>regulador</em>:
+      en cada lectura del campo compara lo medido con lo pedido y ajusta el
+      ciclo de trabajo. El mapa y el regulador trabajan juntos, y un mismo
+      punto del mapa sirve para las dos cosas:</p>
+
+    <ol>
+      <li><strong>Desde dónde arrancar.</strong> La corrida empieza con el
+        ciclo de trabajo del punto ya aplicado, así que el campo nace cerca de
+        lo pedido y el regulador solo corrige lo que falte.</li>
+      <li><strong>Con qué fuerza corregir.</strong> El punto dice cuánto campo
+        da cada unidad de ciclo de trabajo en esa intensidad y esa frecuencia
+        (por ejemplo, 1 mT con 0,40 equivale a 2,5 mT por unidad). Con ese dato
+        la placa calcula, al arrancar cada corrida, cuánto mover el ciclo de
+        trabajo por cada mT de diferencia.</li>
+    </ol>
+
+    <p>Lo que se configura no es ese cálculo sino un único número,
+      <strong>alfa</strong> (<code>control.alpha</code>): qué parte de la
+      diferencia corrige el regulador en cada lectura. Con alfa 0,25 (el valor
+      de fábrica) corrige un cuarto por lectura, y lo hace igual en todas las
+      intensidades y frecuencias del mapa. La <strong>zona muerta</strong>
+      (<code>control.deadBandPct</code>, 1,5&nbsp;% de fábrica) es la
+      diferencia, en porcentaje de lo pedido, por debajo de la cual el regulador
+      no toca nada, para no perseguir el ruido de la medición.</p>
+
+    <table>
+      <thead><tr><th>Alfa</th><th>Comportamiento</th></tr></thead>
+      <tbody>
+        <tr><td>0,1</td><td>Lento y suave: tarda en llegar, pero no reacciona al ruido.</td></tr>
+        <tr><td>0,2 a 0,3</td><td>Recomendado: corrige rápido sin sobrepasar.</td></tr>
+        <tr><td>0,5</td><td>Rápido, pero empieza a seguir el ruido de la medición.</td></tr>
+        <tr><td>1</td><td>Corrige toda la diferencia de una vez y amplifica el ruido. Por encima de 1 oscila.</td></tr>
+      </tbody>
+    </table>
+
+    <p>Dos casos no usan alfa: en <strong>campo nulo</strong> el regulador no
+      corre (se aplica el ciclo de trabajo del punto, fijo), y en campo X con
+      una combinación <strong>sin punto en el mapa</strong> el regulador usa
+      un valor fijo (<code>control.kp</code>) y arranca de cero, por lo que
+      tarda bastante más en llegar a la intensidad. El generador de
+      configuración muestra, en su sección 3, cuánto va a corregir el equipo en
+      cada punto del mapa y cuánto tarda.</p>
+
     <div class="callout warn">
       <span class="tag">Valores sin verificar</span>
       <p>Los puntos del mapa y su balance deben obtenerse con el procedimiento de

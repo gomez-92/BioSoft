@@ -351,10 +351,32 @@ Key collaborators:
   built standalone in tests. CEM1's cadence is now the RMS window (2000 ms,
   see the `MagnetometerMlx90393` bullet), so `kp`/`maxStep` must be retuned
   for a ~2 s loop (four times slower than the 500 ms they were guessed for).
-  The tuning parameters (`kp`, `maxStep`, `deadBand`)
-  are deliberately *not* derived — they are set in `SoftMega2560.ino`, which is
-  the single place the SD config will override once it exists, and they are
-  still uncalibrated header defaults rather than measured values.
+  **`kp` is per run, derived from the map** (2026-11-23, `tuneLoop()` in
+  `fieldcontroller.hpp`): `kp = control.alpha × startDuty / intensity`, where
+  `startDuty` is the map point's duty (or a scenario's `setpointDuty`). The
+  point already measures the plant gain `K = intensity / duty`, which changes
+  with intensity *and* frequency, so one dimensionless `alpha` (0.25) gives
+  the same fraction corrected per reading everywhere; a fixed `kp` that is
+  right at 1 mT is 10× too slow at 0.1 mT. The dead band follows the same
+  logic as `control.deadBandPct` (% of the target). `control.kp`/`deadBand`
+  are only the fallback (field X with no map point, or alpha/pct = 0); Engine
+  keeps them in `_fixedKp`/`_fixedDeadBand` because the per-run values
+  overwrite the controller's. Null field never runs the loop, so none of this
+  applies there. Logged at start as `I CONTROL sintonia kp=… (alfa|fijo)
+  zona_muerta=… mT`. Same rule in the generator (`loopTuning`, used by `SIM`
+  and the live table in section 3) — pinned on both sides with the same
+  cases. Section 3 is written for a first-time user (user request): every
+  loop value shows its unit inside the box (`numU`), what the number means
+  with the menu's intensities (`equivText`), and allowed / suggested /
+  factory (`sugerido`). Suggested is advice, not a limit: outside it the line
+  turns amber with a "back to suggested" button, never blocks the download;
+  fixed kp and dead band suggestions are computed from the map and menus. The explanation for operators lives in the calibration protocol
+  §1.1, the manual and the generator's section 3; keep the three telling the
+  same story. `config_intervals` now also calls `setSampleIntervalMs()`: the
+  controller was built in `setup()` with the compiled interval and never
+  heard about the SD's.
+  `maxStep` is still set in `SoftMega2560.ino` and overridden by the SD; it
+  and `alpha` are uncalibrated defaults, not measured values.
 - `CoilExcitation` (`coilexcitation.hpp`) — the only place that
   decides *what signal the coils get*. `Engine` no longer touches
   `SignalGenerator` directly: `_start()`/`_stop()` go through

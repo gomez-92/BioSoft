@@ -66,6 +66,81 @@ mide: se calcula** a partir de `K`.
 producir el mismo campo que las demás. Sale de comparar las bobinas entre sí, y
 es lo que permite que las 4 den el mismo campo real con un único lazo.
 
+## 1.1 Cómo se relacionan el mapa y el control
+
+El mapa (`control.map`, paso 5) y el control (`control.alpha`, paso 2) parecen
+dos calibraciones distintas, pero salen de la misma medición. Esta sección
+explica por qué, porque es lo que decide qué números hay que cargar.
+
+**Qué hace el lazo.** En cada lectura de campo compara lo medido con la
+intensidad pedida y mueve el duty común:
+
+```
+duty_nuevo = duty_anterior + kp × error        (error en mT, kp en duty por mT)
+```
+
+**Qué hace el mapa.** Para cada combinación de intensidad y frecuencia guarda
+el duty que, en el banco, dio esa intensidad. La corrida **arranca** con ese
+duty ya aplicado, así que el lazo solo tiene que corregir lo poco que falte (en
+vez de subir desde 0, que con `maxStep` = 0,05 lleva más de 10 lecturas).
+
+**Por qué el mismo punto sirve para elegir `kp`.** El efecto de un paso de duty
+sobre el campo depende de la ganancia `K` del sistema (mT por unidad de duty).
+`K` no es una constante del equipo: cambia con la intensidad (la etapa de
+potencia no es perfectamente lineal) y con la frecuencia (la bobina tiene
+reactancia, así que a más frecuencia da menos corriente con la misma tensión).
+Pero cada punto del mapa ya la mide, sin proponérselo:
+
+```
+K = intensidad / duty                  (en ese punto)
+```
+
+Para que cada lectura corrija una fracción **α** del error, el paso de duty
+tiene que mover el campo `α × error`, o sea `kp × error × K = α × error`:
+
+```
+kp = α / K = α × duty / intensidad
+```
+
+**Ejemplo.** El punto 1 mT a 50 Hz tiene duty 0,40, así que `K = 2,5` mT por
+unidad de duty. Con α = 0,25:
+
+| | Valor |
+|---|---|
+| `kp` | 0,25 × 0,40 / 1 = 0,10 duty/mT |
+| Si faltan 0,10 mT | el duty sube 0,10 × 0,10 = 0,01 |
+| Efecto en el campo | 0,01 × 2,5 = 0,025 mT: **un cuarto** de lo que faltaba |
+
+Con un `kp` fijo de 0,10 en el punto 0,1 mT, duty 0,05 (`K` = 2), el mismo
+paso corregiría solo el 20 %, y en un punto con `K` = 0,5 apenas el 5 %: el
+lazo sería varias veces más lento justo donde nadie lo nota hasta que la corrida
+corta. Con α, el comportamiento es el mismo en todos los puntos.
+
+**Qué se elige y qué se calcula.**
+
+| Número | Quién lo pone | Dónde |
+|---|---|---|
+| `duty` de cada punto | se **mide** en el banco (paso 5) | `control.map` |
+| `α` | se **elige** una vez (paso 2): 0,2 a 0,3 | `control.alpha` |
+| zona muerta en % del objetivo | se **elige** una vez (paso 2) | `control.deadBandPct` |
+| `kp` de cada corrida | lo **calcula** el Mega al arrancar | — (se ve en el log) |
+| `kp` fijo | respaldo para campo X **sin punto** en el mapa | `control.kp` |
+
+El Mega deja escrito en el log USB qué usó en cada corrida:
+`I CONTROL    sintonia kp=0.1000 (alfa) zona_muerta=0.0150 mT (% del objetivo)`.
+El generador muestra la misma cuenta para cada punto en la sección 3
+(«Lo que va a usar la placa en cada punto del mapa»).
+
+**Límites.**
+- **Campo nulo:** el lazo no corre (el objetivo es 0); se aplica el duty del
+  punto fijo, con su balance. α no interviene.
+- **Sin punto en el mapa** (campo X): no hay `K` conocida, así que se usa el
+  `kp` fijo y la corrida arranca de duty 0.
+- **Supone que el campo es proporcional al duty** (duty 0 → campo 0). Para
+  corregir alrededor del punto alcanza aunque no sea una recta perfecta; el
+  paso 1 dice si la etapa tiene un umbral. Si lo tiene, `K` del punto
+  sobreestima la pendiente real y conviene bajar α.
+
 ## 2. Por qué un solo magnetómetro alcanza
 
 El sistema tiene **un** sensor de campo, por diseño y no por omisión. Eso
@@ -95,7 +170,7 @@ físico (ver sección 9).
 `sampleTime` **no** es un prerrequisito: se deriva solo de
 `intervals.mega.measureMagneticField` vía `makeFieldControllerConfig()`, así
 que cambiar la cadencia de medición retonifica el controlador sin que haya que
-tocar nada más. (Esto antes había que corregirlo a mano y era el prerrequisito
+tocar nada más — también cuando la cambia la tarjeta SD (`config_intervals`). (Esto antes había que corregirlo a mano y era el prerrequisito
 número uno de este protocolo; ya no.)
 
 ### Configuración de partida en `config.json`
@@ -173,18 +248,22 @@ duty.
   casi no queda margen de control y cualquier factor por bobina mayor que 1
   satura.
 
-## 5. Paso 2 — `kp`, `maxStep` y `deadBand`
+## 5. Paso 2 — `α`, zona muerta y `maxStep`
 
-`kp · error` es un **paso de duty**, así que `kp` tiene unidades de duty/mT: es
-el inverso de `K`.
+Se elige **α** (`control.alpha`), no `kp`: el Mega calcula el `kp` de cada
+corrida con el punto del mapa que corresponde (sección 1.1).
 
 ```
-kp = α / K       con α entre 0,1 y 0,3
+kp = α / K = α × duty / intensidad       con α entre 0,2 y 0,3
 ```
 
 `α = 1` corregiría todo el error en un solo paso — exactamente el rebote que ya
 se corrigió una vez en `FieldController` (MOD-011, cuando el paso era fijo).
-Empezar por `α = 0,15` y ajustar.
+Empezar por `α = 0,25` (el valor de fábrica) y ajustar.
+
+El **`kp` fijo** (`control.kp`) solo se usa en campo X con una combinación sin
+punto en el mapa. Cargarlo como `α / K` con la `K` del paso 1 en la intensidad
+más usada; es un respaldo, no el valor de trabajo.
 
 `maxStep` acota cuánto puede moverse el duty por llamada, como red de seguridad
 frente a una lectura espuria. Con 500 ms por muestra, `maxStep = 0,05` significa
@@ -192,11 +271,15 @@ que ir de 0 a duty pleno lleva 10 s como mínimo. Debe ser **mayor** que el paso
 típico `kp · error` en operación normal, o el clamp actúa siempre y el control
 degenera otra vez en pasos fijos.
 
-`deadBand` es el error por debajo del cual no se toca el duty. Sirve para que el
-lazo no persiga el ruido del sensor una vez llegado al setpoint. Un punto de
-partida razonable es el ruido pico a pico observado en el paso 1 con duty fijo:
-si el campo medido oscila ±0,01 mT sin que nadie toque nada, un `deadBand`
-menor que eso garantiza que el duty nunca se quede quieto.
+La **zona muerta** es el error por debajo del cual no se toca el duty. Sirve
+para que el lazo no persiga el ruido del sensor una vez llegado al setpoint. Va
+en **% del objetivo** (`control.deadBandPct`, 1,5 % de fábrica): en mT absolutos
+un mismo número es irrelevante a 2 mT y se come toda la tolerancia a 0,1 mT. Un
+punto de partida razonable es el ruido pico a pico observado en el paso 1 con
+duty fijo, expresado como % de la intensidad: si a 1 mT el campo oscila
+±0,01 mT sin que nadie toque nada, una zona muerta menor que el 1 % garantiza
+que el duty nunca se quede quieto. Con `deadBandPct` en 0 se usa la fija en mT
+(`control.deadBand`).
 
 **Verificación con escalón**: `control.enabled: true`, consigna desde reposo,
 registrar duty y campo en cada muestra hasta que se estabilice.
@@ -302,7 +385,9 @@ nuevas; el generador avisa cuáles quedaron sin punto.
    montadas como van en el experimento, dejar que el campo converja al
    objetivo (paso 4) y anotar el duty común estable. Ese es `duty`. A partir de
    la tarjeta, el experimento arranca con ese duty ya aplicado y el lazo solo
-   corrige. (Conviene promediar varios minutos: el duty en equilibrio tiene un
+   corrige, con un `kp` calculado a partir de ese mismo duty (sección 1.1): un
+   `duty` mal medido no solo arranca lejos, también hace al lazo más lento o
+   más brusco en ese punto. (Conviene promediar varios minutos: el duty en equilibrio tiene un
    poco de rizado.)
 2. **Balance `balance` en campo nulo.** Con modo **nulo**, cargar ese `duty` en
    el punto con `balance: 0` y arrancar: el Mega excita con el duty fijo, sin
@@ -364,7 +449,8 @@ Al terminar, estos valores tienen que quedar asentados **y cargados en
 
 | Dato | Dónde va |
 |---|---|
-| `kp`, `maxStep`, `deadBand` | `control` |
+| `alpha`, `deadBandPct`, `maxStep` | `control` |
+| `kp` y `deadBand` fijos (respaldo sin punto en el mapa) | `control` |
 | Los 4 factores `f_i` | `coils[].calibrationFactor` |
 | `duty` y `balance` de cada combinación intensidad x frecuencia | `control.map` |
 | `balanceMax` elegido y por qué | `control.balanceMax` |
@@ -374,8 +460,8 @@ Al terminar, estos valores tienen que quedar asentados **y cargados en
 
 Sin la fecha y la posición del sensor la calibración no es reproducible: son lo
 primero que hay que poder reconstruir si los números dejan de cerrar. `K` no lo
-consume el firmware, pero es de donde sale `kp`: sin registrarlo, recalcular
-`kp` obliga a repetir el paso 1 entero.
+consume el firmware, pero es de donde sale el `kp` fijo de respaldo y lo que
+dice si la etapa es lineal (supuesto del `kp` derivado del mapa).
 
 ## 9. Cuándo repetir la calibración
 

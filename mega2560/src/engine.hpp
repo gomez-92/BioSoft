@@ -85,6 +85,16 @@ class Engine :
     ControlMap _controlMap;
     // Tope operativo del |delta| de balance (`control.balanceMax` de la SD).
     float _balanceMax = 0.2f;
+    // Sintonia por corrida (tuneLoop en fieldcontroller.hpp): alfa y zona
+    // muerta en % del objetivo, de `control.alpha`/`control.deadBandPct`.
+    // _fixedKp/_fixedDeadBand son los de la SD (o compilados): se usan cuando
+    // no hay duty de partida, y son la base que _start() vuelve a mirar en
+    // cada corrida, porque el kp aplicado a la anterior pisa el del
+    // FieldController. 16 bytes de RAM.
+    float _alpha = LoopTuningDefaults::Alpha;
+    float _deadBandPct = LoopTuningDefaults::DeadBandPct;
+    float _fixedKp = 0.0f;
+    float _fixedDeadBand = 0.0f;
     // true en una corrida de campo nulo con el lazo activo: el duty es el del
     // mapa, fijo, y FieldController NO corre (el objetivo es 0, regular
     // hacia arriba no tiene sentido). Lo fija _start().
@@ -317,6 +327,10 @@ inline Engine::Engine(
   _lastTemperatureSampleSent(0),
   _lastMagnetometerSampleSent(0)
 {
+  // Los fijos arrancan con lo que el .ino le dio al FieldController.
+  _fixedKp = _fieldController.kp();
+  _fixedDeadBand = _fieldController.deadBand();
+
   // Defaults compilados de las dos fuentes (docs/config-schema.md seccion
   // 12): TEMP1 vigilada, CEM1 no. CEM1 arranca deshabilitada porque su
   // entrada analogica puede no estar cableada, y una A0 flotante dispara
@@ -531,11 +545,20 @@ inline void Engine::_start() {
       LOG_I(CONTROL, "campo nulo: duty fijo del mapa=%.3f balance=%.3f", plan.initialDuty, plan.balance);
     } else {
       float startDuty = _scenarioStartDuty(plan.initialDuty);
+      // kp y zona muerta de ESTA corrida: del punto de partida y alfa, o los
+      // fijos si no hay punto (fieldcontroller.hpp, tuneLoop).
+      LoopTuning tuning = tuneLoop(target.cemTarget, startDuty, _alpha, _fixedKp,
+                                   _deadBandPct, _fixedDeadBand);
+      _fieldController.setKp(tuning.kp);
+      _fieldController.setDeadBand(tuning.deadBand);
       _fieldController.setSetpoint(target.cemTarget);
       _fieldController.preload(startDuty);
       _coilChannels.writeAll(_fieldController.getOutput());
       LOG_I(CONTROL, "lazo desde duty=%.3f origen=%S", startDuty,
             plan.initialDuty > 0.0f ? PSTR("mapa") : startDuty > 0.0f ? PSTR("escenario") : PSTR("cero"));
+      LOG_I(CONTROL, "sintonia kp=%.4f (%S) zona_muerta=%.4f mT (%S)", tuning.kp,
+            tuning.kpFromMap ? PSTR("alfa") : PSTR("fijo"), tuning.deadBand,
+            tuning.deadBandFromPct ? PSTR("% del objetivo") : PSTR("fija"));
     }
     _coilChannels.enableAll();
   } else {
@@ -1433,6 +1456,9 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
     _applyIntervalParam(params, "measureTemperature", Intervals::MeasureTemperature);
     _applyIntervalParam(params, "measureCurrent", Intervals::MeasureCurrent);
     _applyIntervalParam(params, "measureMagneticField", Intervals::MeasureMagneticField);
+    // El FieldController se armo en setup() con el intervalo compilado: si la
+    // SD lo cambia, su termino integral tiene que enterarse.
+    _fieldController.setSampleIntervalMs(Intervals::MeasureMagneticField);
     _applyIntervalParam(params, "updateProgress", Intervals::UpdateProgress);
     _applyIntervalParam(params, "sendFlags", Intervals::SendFlags);
     _applyIntervalParam(params, "sendResult", Intervals::SendResult);
@@ -1449,14 +1475,28 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
 
   else if (strcmp(command, Commands::ConfigControl) == 0) {
 
-    if (params["kp"].is<float>() && !_fieldController.setKp(params["kp"].as<float>())) {
-      LOG_W(CONFIG, "config_control kp=%.4f invalido: se ignora", params["kp"].as<float>());
+    if (params["kp"].is<float>()) {
+      if (_fieldController.setKp(params["kp"].as<float>())) _fixedKp = _fieldController.kp();
+      else LOG_W(CONFIG, "config_control kp=%.4f invalido: se ignora", params["kp"].as<float>());
+    }
+    // alfa y deadBandPct: 0 apaga la derivacion (quedan los fijos); fuera de
+    // rango se rechaza entero, igual que los demas.
+    if (params["alpha"].is<float>()) {
+      float alpha = params["alpha"].as<float>();
+      if (alpha >= 0.0f && alpha <= LoopTuningLimits::MaxAlpha) _alpha = alpha;
+      else LOG_W(CONFIG, "config_control alpha=%.3f fuera de 0..1: se ignora", alpha);
+    }
+    if (params["deadBandPct"].is<float>()) {
+      float pct = params["deadBandPct"].as<float>();
+      if (pct >= 0.0f && pct <= LoopTuningLimits::MaxDeadBandPct) _deadBandPct = pct;
+      else LOG_W(CONFIG, "config_control deadBandPct=%.2f fuera de 0..20: se ignora", pct);
     }
     if (params["maxStep"].is<float>() && !_fieldController.setMaxStep(params["maxStep"].as<float>())) {
       LOG_W(CONFIG, "config_control maxStep=%.4f invalido: se ignora", params["maxStep"].as<float>());
     }
-    if (params["deadBand"].is<float>() && !_fieldController.setDeadBand(params["deadBand"].as<float>())) {
-      LOG_W(CONFIG, "config_control deadBand=%.4f invalido: se ignora", params["deadBand"].as<float>());
+    if (params["deadBand"].is<float>()) {
+      if (_fieldController.setDeadBand(params["deadBand"].as<float>())) _fixedDeadBand = _fieldController.deadBand();
+      else LOG_W(CONFIG, "config_control deadBand=%.4f invalido: se ignora", params["deadBand"].as<float>());
     }
     // Tope del balance del campo nulo: se rechaza entero si esta fuera de
     // 0..MaxBalance (CoilChannels), igual que los demas valores de control.
@@ -1474,8 +1514,8 @@ inline void Engine::onCommand(const char* command, JsonVariantConst params) {
     if (params["enabled"].is<bool>()) {
       _controlLoopEnabled = params["enabled"].as<bool>();
     }
-    LOG_D(CONFIG, "config_control kp=%.4f maxStep=%.4f deadBand=%.4f balanceMax=%.3f lazo=%d",
-          _fieldController.kp(), _fieldController.maxStep(), _fieldController.deadBand(), _balanceMax,
+    LOG_D(CONFIG, "config_control kp=%.4f alfa=%.2f maxStep=%.4f deadBand=%.4f (%.1f %%) balanceMax=%.3f lazo=%d",
+          _fixedKp, _alpha, _fieldController.maxStep(), _fixedDeadBand, _deadBandPct, _balanceMax,
           _controlLoopEnabled);
 
     JsonDocument doc;

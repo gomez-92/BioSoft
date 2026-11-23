@@ -608,6 +608,32 @@ check("un archivo sin mapa (anterior a esta clave) carga con balanceMax y mapa d
   return T.state.control.balanceMax === 0.2 && Array.isArray(T.state.control.map) && T.state.control.map.length === 0;
 })());
 
+// Sintonia por corrida: mismos casos que test_fieldcontroller (tuneLoop).
+{
+  const ctl = {alpha: 0.25, kp: 0.1, deadBandPct: 0, deadBand: 0.01};
+  const a = ctx.loopTuning(1.0, 0.4, ctl);
+  check("loopTuning: kp = alfa x duty / intensidad (1 mT, duty 0,4 -> 0,1)", a.kpFromMap && Math.abs(a.kp - 0.1) < 1e-9);
+  const b = ctx.loopTuning(1.0, 0, Object.assign({}, ctl, {kp: 0.07}));
+  check("loopTuning: sin duty de partida usa el kp fijo", !b.kpFromMap && b.kp === 0.07);
+  const c = ctx.loopTuning(1.0, 0.4, Object.assign({}, ctl, {alpha: 0, kp: 0.07}));
+  check("loopTuning: alfa 0 apaga la derivacion", !c.kpFromMap && c.kp === 0.07);
+  const d1 = ctx.loopTuning(0.1, 0, Object.assign({}, ctl, {deadBandPct: 1.5}));
+  const d2 = ctx.loopTuning(2.0, 0, Object.assign({}, ctl, {deadBandPct: 1.5}));
+  check("loopTuning: zona muerta en % del objetivo", d1.deadBandFromPct && Math.abs(d1.deadBand - 0.0015) < 1e-9 &&
+        Math.abs(d2.deadBand - 0.03) < 1e-9);
+  const e = ctx.loopTuning(0.1, 0, Object.assign({}, ctl, {deadBandPct: 0}));
+  check("loopTuning: % en 0 deja la zona muerta fija", !e.deadBandFromPct && e.deadBand === 0.01);
+}
+check("un archivo sin alfa (anterior a la sintonia por corrida) carga con alfa y % de fabrica", (() => {
+  reset(); T.loadParsed({ schemaVersion: 1, control: { enabled: true, kp: 0.1, maxStep: 0.05, deadBand: 0.01 } });
+  return T.state.control.alpha === 0.25 && T.state.control.deadBandPct === 1.5;
+})());
+check("alfa fuera de 0..1 es error", (() => {
+  reset(); T.state.control.alpha = 1.5; T.validate();
+  const ok = T.errors.some(x => x.includes("control.alpha"));
+  reset(); return ok;
+})());
+
 check("un archivo viejo con control.tare se lee y no se vuelve a escribir", (() => {
   reset(); T.loadParsed({ schemaVersion: 1, control: { tare: { samples: 4, maxSpread: 10, maxAmbient: 300 } } });
   const j = JSON.parse(JSON.stringify(T.buildJson()));

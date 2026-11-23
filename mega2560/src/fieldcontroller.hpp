@@ -81,6 +81,11 @@ class FieldController {
     bool setKp(float kp);
     bool setMaxStep(float maxStep);
     bool setDeadBand(float deadBand);
+    // Cadencia real de update(), en ms. Engine la llama cuando config_intervals
+    // cambia measureMagneticField: el Config se arma en setup() con el valor
+    // compilado, y sin esto el termino integral quedaba escalado al intervalo
+    // viejo (el mismo error que makeFieldControllerConfig vino a evitar).
+    bool setSampleIntervalMs(unsigned long intervalMs);
     float kp() const;
     float maxStep() const;
     float deadBand() const;
@@ -117,6 +122,75 @@ inline FieldController::Config makeFieldControllerConfig(unsigned long sampleInt
   FieldController::Config config;
   config.sampleTime = static_cast<float>(sampleIntervalMs) / 1000.0f;
   return config;
+}
+
+// =====================================================
+// Sintonia por corrida: kp y zona muerta a partir del mapa
+// =====================================================
+//
+// kp no es un numero de la placa sino del PUNTO de operacion. El paso del lazo
+// es kp * error: un paso de duty por cada mT de error. Que fraccion del error
+// corrige ese paso depende de cuantos mT da cada unidad de duty (la ganancia
+// K del sistema bobinas + etapa de potencia), y K cambia con la intensidad y
+// con la frecuencia (la reactancia de la bobina). Un kp fijo que corrige el
+// 25 % por lectura a 1 mT corrige el 2,5 % a 0,1 mT: diez veces mas lento.
+//
+// El mapa de calibracion ya mide K en cada punto sin proponerselo: si `duty`
+// da `intensidad`, entonces K = intensidad / duty. Con eso:
+//
+//     kp = alfa * duty / intensidad        (alfa = alfa / K)
+//
+// y alfa es lo unico que se elige: la fraccion del error que se corrige en
+// cada lectura, sin unidades, la misma en todos los puntos (0,2 a 0,3: rapido
+// sin oscilar; 1 corrige todo de un saque y amplifica el ruido; >1 oscila).
+//
+// Supone campo proporcional al duty (duty 0 -> campo 0). Para corregir
+// alrededor del punto alcanza aunque la curva no sea una recta perfecta; si la
+// etapa tuviera un umbral, se ve en el banco midiendo 2-3 duty por punto.
+//
+// La zona muerta sigue la misma logica: en mT absolutos, 0,01 es el 1 % a
+// 1 mT y TODA la tolerancia a 0,1 mT. En % del objetivo vale para todos.
+//
+// Sin duty de partida (campo X sin punto en el mapa) no hay K conocida: se usa
+// el kp fijo de la SD, como antes. alfa = 0 o deadBandPct = 0 apagan la
+// derivacion y dejan los valores fijos. En campo nulo el lazo no corre, asi
+// que nada de esto aplica.
+// Defaults compilados (una placa sin SD). Engine y test_scenario_runs leen
+// estos mismos: el test reproduce lo que hace Engine al arrancar.
+namespace LoopTuningDefaults {
+  constexpr float Alpha = 0.25f;
+  constexpr float DeadBandPct = 1.5f;
+}
+
+namespace LoopTuningLimits {
+  constexpr float MaxAlpha = 1.0f;        // por encima el lazo sobrecorrige
+  constexpr float MaxDeadBandPct = 20.0f; // mas que eso tapa cualquier tolerancia razonable
+}
+
+struct LoopTuning {
+  float kp = 0.0f;
+  float deadBand = 0.0f;
+  bool kpFromMap = false;        // true: kp derivado (alfa); false: el fijo
+  bool deadBandFromPct = false;  // true: % del objetivo; false: el fijo en mT
+};
+
+// Funcion pura (sin hardware) para que los tests fijen la regla.
+// startDuty: el duty con que arranca el lazo (punto del mapa, o el
+// setpointDuty de un escenario con planta). 0 = no hay punto de partida.
+inline LoopTuning tuneLoop(float target, float startDuty, float alpha, float fixedKp,
+                           float deadBandPct, float fixedDeadBand) {
+  LoopTuning tuning;
+  tuning.kp = fixedKp;
+  tuning.deadBand = fixedDeadBand;
+  if (alpha > 0.0f && startDuty > 0.0f && target > 0.0f) {
+    tuning.kp = alpha * startDuty / target;
+    tuning.kpFromMap = true;
+  }
+  if (deadBandPct > 0.0f && target > 0.0f) {
+    tuning.deadBand = target * deadBandPct / 100.0f;
+    tuning.deadBandFromPct = true;
+  }
+  return tuning;
 }
 
 inline FieldController::FieldController(const Config& config) : _config(config) {
@@ -173,6 +247,12 @@ inline bool FieldController::setDeadBand(float deadBand) {
 
 inline float FieldController::kp() const {
   return _config.kp;
+}
+
+inline bool FieldController::setSampleIntervalMs(unsigned long intervalMs) {
+  if (intervalMs == 0) return false;
+  _config.sampleTime = static_cast<float>(intervalMs) / 1000.0f;
+  return true;
 }
 
 inline float FieldController::maxStep() const {

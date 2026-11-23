@@ -187,6 +187,12 @@ static Outcome run(JsonObjectConst cemJ, JsonObjectConst tempJ, float minDuratio
     // (Engine::_scenarioStartDuty).
     FieldController controller(makeFieldControllerConfig(CemIntervalMs));
     controller.reset();
+    // Engine::_start(): kp y zona muerta de la corrida (tuneLoop), con los
+    // defaults compilados y los fijos del Config.
+    LoopTuning tuning = tuneLoop(r.intensity, cemSignal.setpointDuty, LoopTuningDefaults::Alpha,
+                                 controller.kp(), LoopTuningDefaults::DeadBandPct, controller.deadBand());
+    controller.setKp(tuning.kp);
+    controller.setDeadBand(tuning.deadBand);
     controller.setSetpoint(r.intensity);
     controller.preload(cemSignal.setpointDuty);
     commonDuty = controller.getOutput();

@@ -726,6 +726,8 @@ inline void MySystem::_buildConfigIntervalsDoc(JsonDocument& doc) {
 inline void MySystem::_buildConfigControlDoc(JsonDocument& doc) {
   const auto& control = ConfigLoader::controlConfig();
   if (control.hasKp) doc["kp"] = control.kp;
+  if (control.hasAlpha) doc["alpha"] = control.alpha;
+  if (control.hasDeadBandPct) doc["deadBandPct"] = control.deadBandPct;
   if (control.hasMaxStep) doc["maxStep"] = control.maxStep;
   if (control.hasDeadBand) doc["deadBand"] = control.deadBand;
   if (control.hasBalanceMax) doc["balanceMax"] = control.balanceMax;

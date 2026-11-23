@@ -408,8 +408,24 @@ void test_config_control_fits_with_balance_max(void) {
     TEST_ASSERT_TRUE(survivesTransport(Commands::ConfigControl, doc));
 }
 
+// Con alfa y la zona muerta en % (sintonia por corrida): todas las claves de
+// control en un frame.
+void test_config_control_fits_with_alpha_and_dead_band_pct(void) {
+    JsonDocument doc;
+    doc["kp"] = 0.123456f;
+    doc["alpha"] = 0.123456f;
+    doc["maxStep"] = 0.123456f;
+    doc["deadBand"] = 0.123456f;
+    doc["deadBandPct"] = 12.3456f;
+    doc["balanceMax"] = 0.123456f;
+    doc["enabled"] = true;
+
+    TEST_ASSERT_TRUE(survivesTransport(Commands::ConfigControl, doc));
+}
+
 int main(int argc, char** argv) {
     UNITY_BEGIN();
+    RUN_TEST(test_config_control_fits_with_alpha_and_dead_band_pct);
 
     RUN_TEST(test_config_intervals_fits_with_default_values);
     RUN_TEST(test_config_intervals_fits_with_seven_digit_values);

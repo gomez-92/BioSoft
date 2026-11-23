@@ -119,6 +119,8 @@
   },
   "control": {
     "enabled": true,
+    "alpha": 0.25,
+    "deadBandPct": 1.5,
     "kp": 0.1,
     "maxStep": 0.05,
     "deadBand": 0.01,

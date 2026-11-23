@@ -352,8 +352,86 @@ void test_reset_discards_a_preload(void) {
     TEST_ASSERT_EQUAL_FLOAT(0.0f, controller.getOutput());
 }
 
+// ---- sintonia por corrida (tuneLoop) -------------------------------------
+
+void test_tuneLoop_derives_kp_from_start_duty_and_alpha(void) {
+    // Punto del mapa: 1 mT con duty 0.4 -> K = 2.5 mT/duty, kp = 0.25/2.5.
+    LoopTuning t = tuneLoop(1.0f, 0.4f, 0.25f, 0.1f, 0.0f, 0.01f);
+    TEST_ASSERT_TRUE(t.kpFromMap);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.1f, t.kp);
+}
+
+void test_tuneLoop_without_start_duty_keeps_the_fixed_kp(void) {
+    // Campo X sin punto en el mapa: no hay K conocida.
+    LoopTuning t = tuneLoop(1.0f, 0.0f, 0.25f, 0.07f, 0.0f, 0.01f);
+    TEST_ASSERT_FALSE(t.kpFromMap);
+    TEST_ASSERT_EQUAL_FLOAT(0.07f, t.kp);
+}
+
+void test_tuneLoop_alpha_zero_turns_derivation_off(void) {
+    LoopTuning t = tuneLoop(1.0f, 0.4f, 0.0f, 0.07f, 0.0f, 0.01f);
+    TEST_ASSERT_FALSE(t.kpFromMap);
+    TEST_ASSERT_EQUAL_FLOAT(0.07f, t.kp);
+}
+
+void test_tuneLoop_dead_band_follows_the_target(void) {
+    LoopTuning a = tuneLoop(0.1f, 0.0f, 0.0f, 0.1f, 1.5f, 0.01f);
+    LoopTuning b = tuneLoop(2.0f, 0.0f, 0.0f, 0.1f, 1.5f, 0.01f);
+    TEST_ASSERT_TRUE(a.deadBandFromPct);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0015f, a.deadBand);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.03f, b.deadBand);
+}
+
+void test_tuneLoop_dead_band_pct_zero_keeps_the_fixed_one(void) {
+    LoopTuning t = tuneLoop(0.1f, 0.0f, 0.0f, 0.1f, 0.0f, 0.01f);
+    TEST_ASSERT_FALSE(t.deadBandFromPct);
+    TEST_ASSERT_EQUAL_FLOAT(0.01f, t.deadBand);
+}
+
+// Lo que justifica todo: con kp derivado, una lectura corrige la MISMA
+// fraccion del error (alfa) en cualquier punto, aunque la ganancia del
+// sistema cambie 20 veces. Planta lineal: campo = K * duty.
+static float fractionCorrectedInOneStep(float target, float mappedDuty) {
+    const float alpha = 0.25f;
+    float k = target / mappedDuty;                   // lo que el mapa mide
+    LoopTuning t = tuneLoop(target, mappedDuty, alpha, 0.1f, 0.0f, 0.0f);
+    FieldController::Config cfg;
+    cfg.kp = t.kp;
+    cfg.maxStep = 1.0f;                              // que el clamp no intervenga
+    cfg.deadBand = 0.0f;
+    FieldController controller(cfg);
+    controller.setSetpoint(target);
+    float duty = mappedDuty * 0.9f;                  // arranca 10 % abajo
+    controller.preload(duty);
+    float errorBefore = target - k * duty;
+    duty = controller.update(k * duty);              // una lectura
+    float errorAfter = target - k * duty;
+    return 1.0f - errorAfter / errorBefore;
+}
+
+void test_derived_kp_corrects_the_same_fraction_at_every_point(void) {
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f, 0.25f, fractionCorrectedInOneStep(0.1f, 0.05f));
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f, 0.25f, fractionCorrectedInOneStep(1.0f, 0.40f));
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f, 0.25f, fractionCorrectedInOneStep(2.0f, 0.90f));
+}
+
+void test_setSampleIntervalMs_updates_sample_time(void) {
+    FieldController::Config cfg = makeFieldControllerConfig(2000);
+    FieldController controller(cfg);
+    TEST_ASSERT_TRUE(controller.setSampleIntervalMs(500));
+    TEST_ASSERT_FALSE(controller.setSampleIntervalMs(0));
+}
+
 int main(int argc, char** argv) {
     UNITY_BEGIN();
+
+    RUN_TEST(test_tuneLoop_derives_kp_from_start_duty_and_alpha);
+    RUN_TEST(test_tuneLoop_without_start_duty_keeps_the_fixed_kp);
+    RUN_TEST(test_tuneLoop_alpha_zero_turns_derivation_off);
+    RUN_TEST(test_tuneLoop_dead_band_follows_the_target);
+    RUN_TEST(test_tuneLoop_dead_band_pct_zero_keeps_the_fixed_one);
+    RUN_TEST(test_derived_kp_corrects_the_same_fraction_at_every_point);
+    RUN_TEST(test_setSampleIntervalMs_updates_sample_time);
 
     RUN_TEST(test_error_within_deadband_leaves_output_unchanged);
     RUN_TEST(test_large_error_clamps_step_to_max_step);

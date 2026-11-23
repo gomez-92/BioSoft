@@ -77,6 +77,13 @@ namespace ConfigLoader {
     ControlMapPoint map[MaxMapPoints];
     bool hasKp = false;
     float kp = 0.0f;
+    // Sintonia por corrida (mega2560/src/fieldcontroller.hpp, tuneLoop): el
+    // Mega deriva kp del duty del mapa y alfa, y la zona muerta en % del
+    // objetivo. Rangos validados alla.
+    bool hasAlpha = false;
+    float alpha = 0.0f;
+    bool hasDeadBandPct = false;
+    float deadBandPct = 0.0f;
     bool hasMaxStep = false;
     float maxStep = 0.0f;
     bool hasDeadBand = false;
@@ -571,6 +578,14 @@ namespace ConfigLoader {
       if (control["kp"].is<float>()) {
         _controlConfig.hasKp = true;
         _controlConfig.kp = control["kp"].as<float>();
+      }
+      if (control["alpha"].is<float>()) {
+        _controlConfig.hasAlpha = true;
+        _controlConfig.alpha = control["alpha"].as<float>();
+      }
+      if (control["deadBandPct"].is<float>()) {
+        _controlConfig.hasDeadBandPct = true;
+        _controlConfig.deadBandPct = control["deadBandPct"].as<float>();
       }
       if (control["maxStep"].is<float>()) {
         _controlConfig.hasMaxStep = true;

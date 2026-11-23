@@ -222,6 +222,8 @@ Hoy viven en `SoftMega2560.ino`, que es el punto donde este archivo los pisa.
 ```json
 "control": {
   "enabled": true,
+  "alpha": 0.25,
+  "deadBandPct": 1.5,
   "kp": 0.1,
   "maxStep": 0.05,
   "deadBand": 0.01,
@@ -233,9 +235,11 @@ Hoy viven en `SoftMega2560.ino`, que es el punto donde este archivo los pisa.
 | Clave | Unidad | Que hace |
 |---|---|---|
 | `enabled` | bool | `false`: el lazo mide y reporta pero NO toca el PWM |
-| `kp` | duty/mT | ganancia proporcional: el paso de duty es `kp * error` |
+| `alpha` | adimensional, 0 a 1 | fraccion del error que corrige cada lectura; con ella el Mega calcula el `kp` de cada corrida a partir del mapa (abajo). `0` = usar siempre `kp` |
+| `deadBandPct` | % del objetivo, 0 a 20 | zona muerta relativa a la intensidad pedida. `0` = usar `deadBand` |
+| `kp` | duty/mT | ganancia **fija**: solo cuando no hay duty de partida (campo X sin punto en el mapa) o `alpha` es 0 |
 | `maxStep` | duty | clamp del paso por llamada a `update()` |
-| `deadBand` | mT | error por debajo del cual no se toca el output |
+| `deadBand` | mT | zona muerta **fija**: solo con `deadBandPct` en 0 |
 | `balanceMax` | adimensional, 0 a 0,5 | tope operativo del `balance` de cada punto del mapa (campo nulo) |
 | `map` | lista, hasta 9 puntos | mapa de calibracion intensidad x frecuencia -> duty y balance (abajo) |
 
@@ -244,19 +248,39 @@ Hoy viven en `SoftMega2560.ino`, que es el punto donde este archivo los pisa.
 bobinas. El default compilado es `true`, para que sin tarjeta SD el equipo
 pueda correr un experimento completo (seccion 1.1).
 
-**`kp` no es un numero que se elija a ojo.** Se calcula como `alfa / K`, donde
-`K` es la ganancia de planta (mT por unidad de duty) medida en lazo abierto y
-`alfa` va entre 0,1 y 0,3. Sale del procedimiento de banco documentado en
-`docs/protocolo-calibracion-intensidad.md`. Los valores del ejemplo son los
-defaults del firmware, **sin calibrar contra bobinas reales**.
+**El `kp` de cada corrida sale del mapa, no de este archivo.** El paso del lazo
+es `kp * error`, y la fraccion del error que ese paso corrige depende de la
+ganancia `K` (mT por unidad de duty), que cambia con la intensidad y con la
+frecuencia. Cada punto del mapa ya mide `K` en su combinacion: si `duty` da
+`intensity`, `K = intensity / duty`. Al arrancar, el Mega toma el duty de
+partida (punto del mapa, o `setpointDuty` de un escenario con planta) y calcula
+
+```
+kp = alpha * duty / intensity
+```
+
+(`tuneLoop()` en `fieldcontroller.hpp`; la misma regla vive en el generador y en
+su simulador). Asi un solo `alpha` (0,2 a 0,3 recomendado) da el mismo
+comportamiento en todos los puntos, y `deadBandPct` hace lo mismo con la zona
+muerta: 0,01 mT es el 1 % a 1 mT pero toda la tolerancia a 0,1 mT. En campo
+nulo el lazo no corre, asi que nada de esto aplica. Supone campo proporcional
+al duty; ver `docs/protocolo-calibracion-intensidad.md` para confirmarlo en el
+banco. `kp`/`deadBand` quedan como respaldo para cuando no hay punto de
+partida. Los valores del ejemplo son los defaults del firmware, **sin calibrar
+contra bobinas reales**.
 
 `maxStep` tiene que ser mayor que el paso tipico `kp * error` en operacion, o
 el clamp actua siempre y el control degenera en pasos fijos.
 
+El Mega escribe en el log USB, al arrancar cada corrida de campo X, que sintonia
+uso: `I CONTROL    sintonia kp=0.1000 (alfa) zona_muerta=0.0150 mT (% del objetivo)`.
+
 `sampleTime` **no** esta en esta seccion a proposito: se deriva del intervalo
 real de medicion (`intervals.mega.measureMagneticField`) via
 `makeFieldControllerConfig()`. Exponerlo como clave independiente permitiria
-desincronizarlo justamente de lo que tiene que seguir.
+desincronizarlo justamente de lo que tiene que seguir. Si la tarjeta cambia
+ese intervalo, el Mega le avisa al `FieldController` al recibir
+`config_intervals` (antes quedaba con el valor compilado).
 
 **`enabled` ahora si llega al Mega.** `ConfigLoader` lo leia desde el principio
 pero `MySystem::_buildConfigControlDoc()` no lo incluia en el frame, de modo que
@@ -994,7 +1018,7 @@ trajo. Por eso la configuracion se envia **fragmentada** y
 | Frame | Comando | Contenido |
 |---|---|---|
 | 1 | `config_intervals` | las 9 claves de `intervals.mega` |
-| 2 | `config_control` | las claves escalares de `control` (kp, maxStep, deadBand, balanceMax, enabled) |
+| 2 | `config_control` | las claves escalares de `control` (alpha, deadBandPct, kp, maxStep, deadBand, balanceMax, enabled) |
 | 3..6 | `config_coil` | un canal de `coils` cada uno (nombre, enabled, factor) |
 | 7..8 | `config_source` | la CABECERA de una fuente (nombre, enabled, sensor, bufferSize, maxMissedSamples, criticalMultiplier, address del DS18B20) |
 | 9..14 | `config_rule` | una regla de una fuente (`source`, `rule`, threshold, cooldown, maxEvents) |
