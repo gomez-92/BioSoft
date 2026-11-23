@@ -144,6 +144,34 @@ Sin esa regla, cualquiera con una credencial del broker (el simulador, otra
 placa) puede mandarle una configuración. No hay forma de configurarla desde el
 repositorio: es un paso manual, una sola vez.
 
+### Cambiar de broker (mudanza ordenada)
+
+La placa y el monitor solo se ven si comparten broker, y cada uno guarda su
+conexión en otro lado: la placa en su `config.json` (se cambia desde el monitor,
+Configuración → *Conexión*), el monitor en los secretos de Fly. Como el monitor
+le manda el broker nuevo a la placa **por el broker viejo**, el orden no es
+negociable:
+
+1. **Levantar el broker nuevo** con las dos credenciales y todas las reglas de
+   acceso de arriba (config, ping, bitácora, telemetría). No tocar el viejo.
+2. **Mudar la placa** desde *Conexión* → *Enviar solo la conexión*, sin
+   experimento en curso. Figura *aceptada*, la placa se reinicia y se conecta
+   al nuevo. El monitor deja de verla: esperado.
+3. **Mudar el monitor**:
+   `flyctl secrets set MQTT_URL=mqtts://<host>:8883 MQTT_USER=... MQTT_PASSWORD=...`
+   (Fly reinicia la app). Comprobar `/api/ping` → `mqtt: true`, la placa
+   responde al ping y la configuración pasa a *vigente*.
+4. **Recién ahí dar de baja el broker viejo.**
+
+Si un dato del paso 2 está mal, la placa no llega al nuevo en 5 minutos,
+vuelve sola al viejo y reporta *revertida* — el monitor lo ve porque todavía
+está ahí. Mudar el monitor primero, o apagar el viejo antes de tiempo, deja ese
+reporte sin nadie que lo escuche y la única salida es editar la SD a mano.
+
+El certificado de la placa está compilado: este procedimiento vale para otra
+instancia firmada por la misma CA (EMQX Cloud, DigiCert Global Root G2). Con
+otra CA hay que reflashear el ESP32 **y** cambiar `MQTT_CA` acá.
+
 ## Atajo: el asistente
 
 `web/tools/generador-despliegue.html` se abre con doble clic (sin build, sin

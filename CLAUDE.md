@@ -1171,7 +1171,12 @@ and `StateListener` (own app state, from `SystemData`).
     (`MySystem::_checkConfigTrial()`; with no `config.json` before, a stale
     prev is deleted at write time so the rollback can't resurrect it). The
     server refuses a `broker.clientId` equal to its own (the broker would
-    keep kicking one of them). Configuración (page and `/config/current`,
+    keep kicking one of them). **Changing broker is an ordered move**
+    (manual, generator's Conexion view, `despliegue-monitor-web.md`): new
+    broker up first, then the board (the new broker travels over the old
+    one), then the monitor's Fly secrets, old broker down last — moving the
+    monitor first leaves a `revertida` with nobody listening. The CA stays
+    compiled, so this only covers brokers signed by the same CA. Configuración (page and `/config/current`,
     `/config/requests`) is **admin-only** now; `/config/snapshots/:id`, used
     by the run detail, returns content without `wifi`/`broker`.
   - Rejected while `Running`/`Starting`/`Stopping`; applied by reboot, and

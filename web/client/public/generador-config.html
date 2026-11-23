@@ -2843,7 +2843,8 @@ function paintConnection(){
   const errores = credentialErrors();
   btn.disabled = errores > 0 || cambios.length === 0;
   resumen.textContent = errores > 0 ? "Hay errores en las redes o el broker (ver arriba)."
-    : cambios.length ? "Se envia: " + cambios.join(" y ") + ". El resto de la configuracion de la placa no cambia."
+    : cambios.length ? "Se envia: " + cambios.join(" y ") + ". El resto de la configuracion de la placa no cambia." +
+      (cambios.includes("broker") ? " Ojo: esto muda solo la placa; despues hay que mudar el monitor (paso 3 de \"Cambiar de broker sin perder la placa\")." : "")
     : "Sin cambios respecto de lo que tiene la placa.";
 }
 
@@ -2905,7 +2906,7 @@ function sBroker(){
         MAX_BROKER_PASS + '" data-path="broker.password" data-kind="str" value="' + esc(state.broker.password) +
         '" placeholder="(sin cambios)"></label>' +
       txt("broker.clientId", "Client ID", MAX_BROKER_CLIENTID) +
-    '</div></section>';
+    '</div>' + brokerMoveSteps() + '</section>';
   return '<section><h2>9 &middot; Broker MQTT</h2>' +
     '<p class="hint">Conexion al broker por donde sale la telemetria. A diferencia de las redes, ' +
     'aca <b>cada clave pisa por separado</b> a la de <code>secrets.h</code>: lo que se deje vacio se ' +
@@ -2918,7 +2919,32 @@ function sBroker(){
       txt("broker.user", "Usuario", MAX_BROKER_USER) +
       txt("broker.password", "Contrasena", MAX_BROKER_PASS) +
       txt("broker.clientId", "Client ID", MAX_BROKER_CLIENTID) +
-    '</div></section>';
+    '</div><p class="hint"><b>Placa y monitor tienen que usar el mismo broker.</b> Si se cambia aca, ' +
+    'hay que cambiar tambien el del monitor (secretos <code>MQTT_URL</code>, <code>MQTT_USER</code>, ' +
+    '<code>MQTT_PASSWORD</code> en Fly); si no, no se van a ver. Ver el manual, "Cambiar de broker".</p></section>';
+}
+
+// Mudar placa y monitor a otro broker sin perder el contacto. El monitor le
+// manda el broker nuevo a la placa POR EL VIEJO, asi que el orden importa:
+// placa primero, monitor despues, y el viejo se da de baja al final.
+function brokerMoveSteps(){
+  return '<div class="sub explica"><h3>Cambiar de broker sin perder la placa</h3>' +
+    '<p class="hint">Esta pantalla muda <b>solo la placa</b>. El monitor tiene su propia conexion en Fly ' +
+    'y se cambia aparte. Como la configuracion le llega a la placa por el broker actual, el orden importa:</p>' +
+    '<ol class="pasos">' +
+      '<li><b>Levantar el broker nuevo</b> con los usuarios de la placa y del monitor y los permisos de los ' +
+        'temas <code>biosoft/...</code>. El viejo sigue funcionando.</li>' +
+      '<li><b>Mudar la placa desde aca</b>, sin experimento en curso: cargar host, puerto, usuario y contrasena ' +
+        'nuevos y <b>Enviar solo la conexion</b>. El monitor la muestra <b>aceptada</b>; la placa se reinicia y ' +
+        'pasa al broker nuevo. Desde ese momento el monitor deja de verla: es lo esperado.</li>' +
+      '<li><b>Mudar el monitor</b>: <code>flyctl secrets set MQTT_URL=... MQTT_USER=... MQTT_PASSWORD=...</code> ' +
+        '(se reinicia solo). Vuelve a ver la placa y la configuracion pasa a <b>vigente</b>.</li>' +
+      '<li><b>Recien entonces dar de baja el broker viejo.</b></li>' +
+    '</ol>' +
+    '<p class="hint">Si algun dato del broker nuevo esta mal, la placa no llega en 5 minutos, vuelve sola al ' +
+    'viejo y el monitor (que sigue ahi) la informa <b>revertida</b>: por eso el monitor se muda ultimo. ' +
+    'El certificado no se cambia desde aca: sirve para otra instancia del mismo proveedor (EMQX Cloud); ' +
+    'un broker firmado por otra autoridad necesita reflashear el ESP32.</p></div>';
 }
 
 function sPreview(){
