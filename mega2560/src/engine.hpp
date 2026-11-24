@@ -383,6 +383,20 @@ inline void Engine::begin() {
     return static_cast<EmergencyButton*>(button)->isPressed();
   };
   CurrentSensorSct013::abortContext = &_emergencyButton;
+  // El pulsador dispara por FLANCO: si ya esta presionado al arrancar (o
+  // declarado con el contacto equivocado, NA vs NC -- ver EmergencyButton::
+  // Contact), apretarlo nunca va a cortar nada, y ademas cada ventana del
+  // SCT013 se aborta en la primera muestra (la corriente se queda en 0 sin
+  // otra pista). Se avisa una vez, aca. Con contacto NC tambien avisa si el
+  // cable del pulsador esta cortado o desconectado.
+  // La espera deja subir el pin tras activar el pull-up (capacidad de la
+  // linea). El LOW en reposo visto en banco el 2026-11-23 no era eso: el
+  // pulsador es NC y estaba declarado NA (banco 2026-11-24).
+  // setup() aun no armo el watchdog.
+  delay(5);
+  if (_emergencyButton.isPressed()) {
+    LOG_W(SISTEMA, "pulsador de emergencia leido como presionado al arrancar: no corta hasta soltarse y la corriente no se mide");
+  }
   _timer.start();
   _engineState.setState(State::Ready);
 }
@@ -1955,7 +1969,9 @@ inline void Engine::onEmergencyButtonPressed() {
   // mandarle a la ESP32 un result_data "stopped" para un experimento que
   // nunca arranco (la llevaria a la pantalla Resultado sin motivo).
   if (strcmp(_engineState.getState(), State::Running) != 0) {
-    LOG_D(CORRIDA, "parada de emergencia sin corrida: se ignora");
+    // I y no D: es la unica forma de probar el pulsador en banco sin
+    // arrancar una corrida, y pasa solo cuando alguien lo aprieta.
+    LOG_I(CORRIDA, "pulsador de emergencia apretado sin corrida: se ignora");
     return;
   }
 

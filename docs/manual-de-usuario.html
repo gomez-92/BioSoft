@@ -568,7 +568,7 @@ table.pins tbody td{padding:7px 12px 7px 0}
  │                                                    │◄─┤ EN  23/24/25/26 ─► habilitar  │
  │ senoidal ─► directa ─────────────► bobinas 1 y 3   │◄─┤ 22 ─► selector de modo (mux)  │
  │          └► inversor ─► mux ─────► bobinas 2 y 4   │◄─┤ 3  ─► relé general (act. alto)│
- │ PWM ─► filtro RC ─► nivel DC ─► amplitud           │  │ 4  ◄─ pulsador de emergencia  │
+ │ PWM ─► filtro RC ─► nivel DC ─► amplitud           │  │ 28 ◄─ pulsador de emergencia  │
  └────────────────────────────────────────────────────┘  └───────────────────────────────┘
 </pre>
       <figcaption>Figura 1. Diagrama de bloques del sistema con los pines
@@ -585,7 +585,6 @@ table.pins tbody td{padding:7px 12px 7px 0}
       <tbody>
         <tr><td>2</td><td>Bus OneWire — termómetro DS18B20 (TEMP1)</td><td>bidireccional</td><td>Requiere resistencia de <em>pull-up</em> de 4,7 kΩ entre la línea de datos y +5 V. Solo se atiende el sensor cuyo código ROM coincide con el configurado (de fábrica, <code>28 3F E5 57 04 E1 3D ED</code>; ver 3.5).</td></tr>
         <tr><td>3</td><td>Relé del interruptor general</td><td>salida</td><td><strong>Activo en alto</strong>: HIGH = relé cerrado = etapa de potencia habilitada. LOW, pin desconectado o placa sin alimentación = relé abierto. El driver del relé lleva <em>pull-down</em> en su entrada. Al arrancar queda en LOW (abierto).</td></tr>
-        <tr><td>4</td><td>Pulsador de emergencia</td><td>entrada</td><td><em>Pull-up</em> interno activado: el pulsador conecta el pin a GND al presionarse. Contacto normalmente abierto. Antirrebote de 30 ms por software.</td></tr>
         <tr><td>5</td><td>FSYNC (chip select) del generador AD9833</td><td>salida</td><td>Junto con el bus SPI de hardware (pines 50-52).</td></tr>
         <tr><td>6</td><td>PWM de intensidad — bobina 4 (BOB4)</td><td>salida</td><td>Timer4, 3906 Hz. Asignación provisoria: confirmar contra el ruteo de la placa.</td></tr>
         <tr><td>18</td><td>TX1 — enlace serie hacia la HMI</td><td>salida</td><td>Va al GPIO35 (RX2) del ESP32. Ver 3.3.</td></tr>
@@ -597,6 +596,7 @@ table.pins tbody td{padding:7px 12px 7px 0}
         <tr><td>24</td><td>Habilitación — bobina 2 (BOB2)</td><td>salida</td><td>Ídem.</td></tr>
         <tr><td>25</td><td>Habilitación — bobina 3 (BOB3)</td><td>salida</td><td>Ídem. Canal declarado, no registrado por defecto.</td></tr>
         <tr><td>26</td><td>Habilitación — bobina 4 (BOB4)</td><td>salida</td><td>Ídem. Canal declarado, no registrado por defecto.</td></tr>
+        <tr><td>28</td><td>Pulsador de emergencia</td><td>entrada</td><td><em>Pull-up</em> interno activado. Contacto normalmente cerrado: en reposo une el pin a GND y al presionarse lo abre. Antirrebote de 30 ms por software. En reposo el pin debe leer 0 V; si al arrancar se lee presionado (cable cortado o desconectado), el log lo advierte y la corriente no se mide.</td></tr>
         <tr><td>44</td><td>PWM de intensidad — bobina 1 (BOB1)</td><td>salida</td><td>Timer5, 3906 Hz, 8 bits.</td></tr>
         <tr><td>45</td><td>PWM de intensidad — bobina 2 (BOB2)</td><td>salida</td><td>Timer5, 3906 Hz.</td></tr>
         <tr><td>46</td><td>PWM de intensidad — bobina 3 (BOB3)</td><td>salida</td><td>Timer5, 3906 Hz.</td></tr>
@@ -805,10 +805,12 @@ table.pins tbody td{padding:7px 12px 7px 0}
       por software que ignora cambios de estado separados por menos de 200 ms,
       con el fin de no maltratar el contacto mecánico.</p>
 
-    <p>El pulsador de emergencia es un contacto normalmente abierto entre el
-      pin 4 y GND, con <em>pull-up</em> interno. Se detecta por flanco, con
-      antirrebote de 30 ms, y solo tiene efecto durante un experimento en
-      curso (sección 11).</p>
+    <p>El pulsador de emergencia es un contacto normalmente cerrado entre el
+      pin 28 y GND, con <em>pull-up</em> interno: al presionarse el contacto se
+      abre y el pin sube. Un cable cortado o un borne flojo se lee igual que el
+      pulsador presionado, de modo que corta el experimento en curso. Se detecta
+      por flanco, con antirrebote de 30 ms de nivel estable, y solo tiene
+      efecto durante un experimento en curso (sección 11).</p>
 
     <h2 id="s4">Sección 4</h2>
     <p class="h2title">Verificación del cableado</p>
@@ -840,8 +842,9 @@ table.pins tbody td{padding:7px 12px 7px 0}
         cada una en su entrada correspondiente. Un PWM conectado a la
         habilitación de otra bobina, o viceversa, no genera error alguno en el
         firmware.</li>
-      <li><strong>Pulsador.</strong> Continuidad entre pin 4 y GND únicamente
-        con el pulsador accionado.</li>
+      <li><strong>Pulsador.</strong> Continuidad entre pin 28 y GND con el
+        pulsador en reposo, que desaparece al accionarlo (contacto normalmente
+        cerrado).</li>
       <li><strong>Magnetómetro.</strong> Fijación mecánica en la posición
         registrada en la calibración.</li>
     </ol>

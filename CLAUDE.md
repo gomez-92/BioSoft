@@ -511,7 +511,20 @@ Key collaborators:
   discarded entirely and keeps its compiled default, since half a rule cuts (or
   fails to cut) an experiment on numbers nobody chose.
 - `EmergencyButton` (`emergencybutton.hpp`) is the physical e-stop: edge-detected
-  (not level), software-debounced, wired to pin 4. `Engine::onEmergencyButtonPressed()`
+  (not level), software-debounced, wired to **pin 28** (was 4 until 2026-11-23: on the
+  bench D4 read LOW with 5 V measured on it, so the input was taken as
+  damaged and the button moved — though on 2026-11-24 the button turned out
+  to be **normally closed**, declared NO, which reads LOW at rest exactly like
+  that, so D4 may be fine). It is `EmergencyButton::Contact::NormallyClosed`
+  now (pull-up, HIGH = pressed; fail-safe: a cut wire reads as pressed), and
+  the debounce requires the level **stable** 30 ms — the old one only spaced
+  edges and the contact's bounce on release fired extra presses. A press
+  while idle logs at I (`pulsador de emergencia apretado sin corrida`), which
+  is how to bench-test it. `tools/test-bobinas-mega` drives every coil output
+  (enables, PWM, AD9833, pin 22, pin 3) by hand over serial with nothing
+  watching. Its level is also what aborts every SCT013
+  window (`abortCheck`), so a pin stuck "pressed" shows up as current
+  never being measured; `Engine::begin()` warns about it at boot. `Engine::onEmergencyButtonPressed()`
   only calls `_finish()` while `State::Running` — pressing it while idle is a
   no-op, so it doesn't push a bogus `result_data` (and bounce the ESP32 to
   Resultado) for an experiment that never ran.

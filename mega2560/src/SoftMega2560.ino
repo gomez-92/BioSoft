@@ -90,7 +90,9 @@ void logOneWireDevices(DallasTemperature& dallas) {
 /* ===== definiciones =====*/
 #define WIRE_PIN 2
 #define RELE1_PIN 3
-#define EMERGENCY_BUTTON_PIN 4
+// Era 4 hasta 2026-11-23: en banco D4 leia LOW con 5 V medidos en el borne
+// (entrada daniada) y el pulsador se movio a 28, libre y sin funcion alternativa.
+#define EMERGENCY_BUTTON_PIN 28
 #define TEMP1_ADDRESS { 0x28, 0x3F, 0xE5, 0x57, 0x04, 0xE1, 0x3D, 0xED }
 // Un canal PWM por bobina. 44/45/46 son Timer5 y 6 es Timer4: los dos timers
 // se configuran a la misma frecuencia, asi que el reparto entre ellos es
@@ -242,7 +244,10 @@ FieldController fieldController(config);
 Relay mainRelay(RELE1_PIN, Relay::ACTIVE_HIGH);
 MainPowerSwitch mainPowerSwitch(mainRelay);
 Detector detector;
-EmergencyButton emergencyButton(EMERGENCY_BUTTON_PIN);
+// Contacto NC (normal cerrado) con pull-up: en reposo el pin esta a GND y al
+// apretar sube. Verificado en banco el 2026-11-24 (tools/test-bobinas-mega).
+// Si se recablea al contacto NA, cambiar a Contact::NormallyOpen.
+EmergencyButton emergencyButton(EMERGENCY_BUTTON_PIN, EmergencyButton::Contact::NormallyClosed);
 
 Engine engine(
   timer,
