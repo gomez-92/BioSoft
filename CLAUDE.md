@@ -1995,6 +1995,12 @@ Other things worth knowing before touching it:
   window bottom without adding a scrollbar). The generator needs
   `[hidden]{display:none !important}`: its `display:flex` blocks otherwise
   ignore `hidden`.
+- **Installable on a phone** (2026-11-24): `client/public/manifest.webmanifest`
+  (`standalone`), icons drawn for the project (two gold coils with blue field
+  lines; `icon.svg` is the source, the PNGs are rendered from it — 192/512,
+  maskable 512 with the drawing inside the 80 % safe zone, 180
+  `apple-touch-icon`) and the iOS meta tags in `index.html`. **No service
+  worker on purpose**: a cached copy would show stale data as current.
 - **Inicio is the home page; En curso exists only during a run**
   (2026-11-24). `/` is `pages/Inicio.tsx`: banner of the open run (links to
   `/en-curso`), system status (monitor, broker, ESP32, Mega, WiFi, config —

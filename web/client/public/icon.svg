@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="fondo" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1b2433"/>
+      <stop offset="1" stop-color="#0d1016"/>
+    </linearGradient>
+    <linearGradient id="linea" gradientUnits="userSpaceOnUse" x1="150" y1="0" x2="362" y2="0">
+      <stop offset="0" stop-color="#8fb4ff"/>
+      <stop offset="0.5" stop-color="#6b9bff"/>
+      <stop offset="1" stop-color="#8fb4ff"/>
+    </linearGradient>
+    <linearGradient id="bobina" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f3c969"/>
+      <stop offset="1" stop-color="#d99a2b"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#fondo)"/>
+  <g>
+    <!-- lineas de campo entre las bobinas -->
+    <g fill="none" stroke="url(#linea)" stroke-linecap="round">
+      <path d="M150 256 C 205 92, 307 92, 362 256" stroke-width="16" opacity="0.55"/>
+      <path d="M150 256 C 205 420, 307 420, 362 256" stroke-width="16" opacity="0.55"/>
+      <path d="M150 256 C 205 168, 307 168, 362 256" stroke-width="20"/>
+      <path d="M150 256 C 205 344, 307 344, 362 256" stroke-width="20"/>
+      <path d="M150 256 H 362" stroke-width="22"/>
+    </g>
+    <!-- las dos bobinas, vistas de canto -->
+    <rect x="112" y="118" width="40" height="276" rx="20" fill="url(#bobina)"/>
+    <rect x="360" y="118" width="40" height="276" rx="20" fill="url(#bobina)"/>
+  </g>
+</svg>

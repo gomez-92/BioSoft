@@ -4,6 +4,20 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SEMBAF — Monitor remoto</title>
+    <!-- Acceso directo en el celular: el manifiesto lo vuelve "app" (pantalla
+         completa, sin barra del navegador). Sin service worker a proposito: el
+         monitor muestra datos en vivo y una copia guardada mostraria datos
+         viejos como si fueran actuales. -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
+    <!-- iPhone: Safari no toma el icono del manifiesto. -->
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="SEMBAF" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+    <meta name="theme-color" content="#0d1016" />
   </head>
   <body>
     <div id="root"></div>
