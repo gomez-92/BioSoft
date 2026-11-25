@@ -75,7 +75,7 @@ function nuevoId(): string {
  * respuesta" ES el resultado --, solo si no se pudo publicar.
  */
 export async function pingPlaca(): Promise<PlacaStatus> {
-  if (!publicar) throw new Error('el monitor no esta conectado al broker');
+  if (!publicar) throw new Error('el monitor no está conectado al broker');
   const id = nuevoId();
   const enviadoEn = Date.now();
   const seq = ++ultimoSeq;

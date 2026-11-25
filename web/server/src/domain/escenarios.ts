@@ -48,7 +48,7 @@ const esNum = (v: unknown): v is number => typeof v === 'number' && Number.isFin
 
 function leerSenal(fuente: Fuente, valor: unknown): Senal {
   const s = valor as Record<string, unknown> | null;
-  if (!s || typeof s !== 'object') throw new EscenarioInvalido(`${fuente}: falta la senal`);
+  if (!s || typeof s !== 'object') throw new EscenarioInvalido(`${fuente}: falta la señal`);
   const pts = s.points;
   if (!Array.isArray(pts) || pts.length > MAX_PUNTOS) {
     throw new EscenarioInvalido(`${fuente}: los puntos tienen que ser una lista de hasta ${MAX_PUNTOS}`);
@@ -63,7 +63,7 @@ function leerSenal(fuente: Fuente, valor: unknown): Senal {
       throw new EscenarioInvalido(`${fuente}: el segundo ${t} tiene que ser entero, de 0 a ${MAX_SEGUNDO}`);
     }
     if (i > 0 && t < points[i - 1][0]) throw new EscenarioInvalido(`${fuente}: los segundos tienen que ir en orden`);
-    if (Math.abs(l) > MAX_NIVEL) throw new EscenarioInvalido(`${fuente}: el nivel ${l} esta fuera de -10..10`);
+    if (Math.abs(l) > MAX_NIVEL) throw new EscenarioInvalido(`${fuente}: el nivel ${l} está fuera de -10..10`);
     points.push([t, Math.round(l * 100) / 100]);
   });
   const num = (k: string, min?: number, max?: number): number => {
@@ -90,7 +90,7 @@ function leerReferencia(valor: unknown): Referencia | null {
   const tn = rango(r.tempNormal), tc = rango(r.tempCritical);
   if (!esNum(r.intensity) || !esNum(r.frequency) || !esNum(r.tolerance) || !esNum(r.durationS) || !tn || !tc
       || (r.mode !== 'x' && r.mode !== 'null')) {
-    throw new EscenarioInvalido('la corrida de referencia esta incompleta');
+    throw new EscenarioInvalido('la corrida de referencia está incompleta');
   }
   return { intensity: r.intensity, frequency: r.frequency, tolerance: r.tolerance, tempNormal: tn,
            tempCritical: tc, durationS: r.durationS, mode: r.mode };
@@ -102,17 +102,17 @@ export function leerEscenario(cuerpo: unknown): EscenarioEntrada {
   const name = typeof b.name === 'string' ? b.name.trim() : '';
   if (name.length < 1 || name.length > 60) throw new EscenarioInvalido('el nombre tiene que tener de 1 a 60 caracteres');
   const description = typeof b.description === 'string' ? b.description.trim() : '';
-  if (description.length > 400) throw new EscenarioInvalido('la descripcion no puede pasar de 400 caracteres');
+  if (description.length > 400) throw new EscenarioInvalido('la descripción no puede pasar de 400 caracteres');
   const fuentes = (b.sources ?? {}) as Record<string, unknown>;
   const sources: Partial<Record<Fuente, FuenteEscenario>> = {};
   for (const f of FUENTES) {
     const v = fuentes[f] as Record<string, unknown> | undefined;
     if (v === undefined) continue;
-    if (typeof v?.enabled !== 'boolean') throw new EscenarioInvalido(`${f}: falta si esta vigilada (enabled)`);
+    if (typeof v?.enabled !== 'boolean') throw new EscenarioInvalido(`${f}: falta si está vigilada (enabled)`);
     sources[f] = { enabled: v.enabled, scenario: leerSenal(f, v.scenario) };
   }
   if (Object.keys(fuentes).some((k) => !FUENTES.includes(k as Fuente))) {
-    throw new EscenarioInvalido('las unicas fuentes son CEM1 y TEMP1');
+    throw new EscenarioInvalido('las únicas fuentes son CEM1 y TEMP1');
   }
   if (Object.keys(sources).length === 0) throw new EscenarioInvalido('el escenario no simula ninguna fuente');
   if (Object.keys(sources).length > 1) {
@@ -222,7 +222,7 @@ export async function sembrarEscenarios(): Promise<void> {
   for (const p of nuevos) {
     if (await Scenario.exists({ factoryKey: p.key })) continue;
     const ocupado = await Scenario.exists({ name: p.name });
-    await Scenario.create({ ...docDeFabrica(p), ...(ocupado ? { name: `${p.name} (fabrica)` } : {}) });
+    await Scenario.create({ ...docDeFabrica(p), ...(ocupado ? { name: `${p.name} (fábrica)` } : {}) });
   }
   nuevos.forEach((p) => sembrados.add(p.key));
   await Setting.updateOne({ key: SEMBRADO }, { $set: { value: { keys: [...sembrados] } } }, { upsert: true });
@@ -238,7 +238,7 @@ export async function restaurarFabrica(usuario: string): Promise<void> {
   for (const p of ESCENARIOS_FABRICA.profiles) {
     const actual = await Scenario.findOne({ factoryKey: p.key }).select('_id').lean();
     const ocupado = await Scenario.findOne({ name: p.name, factoryKey: { $ne: p.key } }).select('_id').lean();
-    const doc = { ...docDeFabrica(p), updatedBy: usuario, ...(ocupado ? { name: `${p.name} (fabrica)` } : {}) };
+    const doc = { ...docDeFabrica(p), updatedBy: usuario, ...(ocupado ? { name: `${p.name} (fábrica)` } : {}) };
     if (actual) await Scenario.updateOne({ _id: actual._id }, { $set: doc });
     else await Scenario.create(doc);
   }

@@ -34,13 +34,13 @@ const NOMBRE_ESTADO: Record<string, string> = {
   enviando: 'Enviando',
   parcial: 'Enviando',
   aceptada: 'Grabada en la placa',
-  invalida: 'Rechazada: configuracion invalida',
+  invalida: 'Rechazada: configuración inválida',
   ocupada: 'Rechazada: hay un experimento en curso',
   incompleta: 'Interrumpida: faltaron bloques',
   error: 'Error en la placa',
-  no_entregada: 'La placa no respondio',
-  revertida: 'Revertida: la placa no llego al broker y volvio a la anterior',
-  red_conservada: 'Aplicada, pero la placa conservo la red en uso',
+  no_entregada: 'La placa no respondió',
+  revertida: 'Revertida: la placa no llegó al broker y volvió a la anterior',
+  red_conservada: 'Aplicada, pero la placa conservó la red en uso',
 };
 
 // Que decir del ultimo envio, en el banner de la pagina y en la cabecera del
@@ -57,7 +57,7 @@ export function estadoEnvio(pedido: Pedido | undefined, vigenteId: string | null
     return {
       kind: 'progress',
       text: `Enviando a la placa... bloque ${pedido.sentChunks ?? 0} de ${pedido.chunks ?? '?'}`,
-      detail: 'Cada bloque espera la confirmacion de la placa antes del siguiente.',
+      detail: 'Cada bloque espera la confirmación de la placa antes del siguiente.',
     };
   }
   // Se aplico; solo la red en uso que se quito sigue, porque las otras no
@@ -66,7 +66,7 @@ export function estadoEnvio(pedido: Pedido | undefined, vigenteId: string | null
     return {
       kind: 'ok',
       text: NOMBRE_ESTADO.red_conservada,
-      detail: [pedido.message, `Enviada ${hora}. El resto de la configuracion ya corre en la placa.`].filter(Boolean).join('. '),
+      detail: [pedido.message, `Enviada ${hora}. El resto de la configuración ya corre en la placa.`].filter(Boolean).join('. '),
     };
   }
   if (pedido.state === 'aceptada') {
@@ -74,19 +74,19 @@ export function estadoEnvio(pedido: Pedido | undefined, vigenteId: string | null
       return {
         kind: 'ok',
         text: `Vigente en la placa (${pedido.newConfigId})`,
-        detail: `Enviada ${hora}. La placa reinicio y ya corre con esta configuracion.`,
+        detail: `Enviada ${hora}. La placa reinició y ya corre con esta configuración.`,
       };
     }
     return {
       kind: 'ok',
-      text: `La placa confirmo la recepcion: configuracion grabada en la SD${pedido.newConfigId ? ` (${pedido.newConfigId})` : ''}`,
-      detail: `Enviada ${hora}. La placa se reinicia sola para aplicarla en cuanto su pantalla este en Principal sin experimento (si esta en Resultado o Configuracion, al volver a Principal); hasta entonces sigue con la anterior.`,
+      text: `La placa confirmó la recepción: configuración grabada en la SD${pedido.newConfigId ? ` (${pedido.newConfigId})` : ''}`,
+      detail: `Enviada ${hora}. La placa se reinicia sola para aplicarla en cuanto su pantalla esté en Principal sin experimento (si está en Resultado o Configuración, al volver a Principal); hasta entonces sigue con la anterior.`,
     };
   }
   return {
     kind: 'error',
     text: NOMBRE_ESTADO[pedido.state] ?? pedido.state,
-    detail: [pedido.message, `Enviada ${hora}. La placa sigue con su configuracion anterior.`].filter(Boolean).join('. '),
+    detail: [pedido.message, `Enviada ${hora}. La placa sigue con su configuración anterior.`].filter(Boolean).join('. '),
   };
 }
 
@@ -229,18 +229,18 @@ export function Configuracion({ placa }: { placa?: PlacaStatus | null } = {}) {
   }
 
   async function borrarEscenario(id: string, nombre: string) {
-    if (!window.confirm(`¿Borrar el escenario "${nombre}"? Si es de fabrica, se puede recuperar con ` +
-      '"Restaurar los de fabrica".')) return;
+    if (!window.confirm(`¿Borrar el escenario "${nombre}"? Si es de fábrica, se puede recuperar con ` +
+      '"Restaurar los de fábrica".')) return;
     const r = await operarEscenario('DELETE', `/api/scenarios/${encodeURIComponent(id)}`);
     if (r.ok) avisarAlGenerador(true, `"${nombre}" borrado.`, null);
     else avisarAlGenerador(false, r.data.error ?? `No se pudo borrar (error ${r.status}).`);
   }
 
   async function restaurarEscenarios() {
-    if (!window.confirm('Los escenarios de fabrica vuelven a sus valores originales y se recrean los que ' +
+    if (!window.confirm('Los escenarios de fábrica vuelven a sus valores originales y se recrean los que ' +
       'se hayan borrado. Los escenarios propios no se tocan.\n\n¿Restaurar?')) return;
     const r = await operarEscenario('POST', '/api/scenarios/restore');
-    if (r.ok) avisarAlGenerador(true, 'Escenarios de fabrica restaurados.');
+    if (r.ok) avisarAlGenerador(true, 'Escenarios de fábrica restaurados.');
     else avisarAlGenerador(false, r.data.error ?? `No se pudo restaurar (error ${r.status}).`);
   }
 
@@ -269,9 +269,9 @@ export function Configuracion({ placa }: { placa?: PlacaStatus | null } = {}) {
   async function enviar(config: unknown) {
     setError(null);
     const ok = window.confirm(
-      'La configuracion se graba en la tarjeta SD de la placa y la placa SE REINICIA SOLA para ' +
-      'aplicarla en cuanto su pantalla este en Principal y sin experimento (si alguien esta en ' +
-      'Resultado o Configuracion, al volver a Principal). No hay confirmacion en la pantalla de la ' +
+      'La configuración se graba en la tarjeta SD de la placa y la placa SE REINICIA SOLA para ' +
+      'aplicarla en cuanto su pantalla esté en Principal y sin experimento (si alguien está en ' +
+      'Resultado o Configuración, al volver a Principal). No hay confirmación en la pantalla de la ' +
       'placa.\n\n¿Enviar?',
     );
     if (!ok) return;
@@ -308,10 +308,10 @@ export function Configuracion({ placa }: { placa?: PlacaStatus | null } = {}) {
         <div className="franja-dato">
           <span className="franja-rotulo">En la placa</span>
           {!vigente?.configId ? (
-            <span className="tenue-celda">todavia no informo su configuracion</span>
+            <span className="tenue-celda">todavía no informó su configuración</span>
           ) : (
             <span title={vigente.reportedAt ? `Informada ${new Date(vigente.reportedAt).toLocaleString('es-AR')}` : undefined}>
-              <strong>{vigente.configId === 'default' ? 'Valores de fabrica' : vigente.configId}</strong>
+              <strong>{vigente.configId === 'default' ? 'Valores de fábrica' : vigente.configId}</strong>
               <span className="tenue-celda"> · {motivoConfig(vigente.configId, vigente.loadStatus).texto}</span>
             </span>
           )}
@@ -328,7 +328,7 @@ export function Configuracion({ placa }: { placa?: PlacaStatus | null } = {}) {
         <div className="franja-acciones">
           {pedidos.length > 0 && (
             <details className="desplegable">
-              <summary>Envios ({pedidos.length})</summary>
+              <summary>Envíos ({pedidos.length})</summary>
               <div className="desplegable-panel">
                 <ul className="lista-pedidos">
                   {pedidos.map((p) => (
@@ -348,16 +348,16 @@ export function Configuracion({ placa }: { placa?: PlacaStatus | null } = {}) {
             </details>
           )}
           <details className="desplegable">
-            <summary>Como se aplica</summary>
+            <summary>Cómo se aplica</summary>
             <div className="desplegable-panel">
-              {estado?.detail && <p><strong>Ultimo envio:</strong> {estado.detail}</p>}
+              {estado?.detail && <p><strong>Último envío:</strong> {estado.detail}</p>}
               <p>
-                Lo que se envie desde aca se graba en la tarjeta SD y la placa se reinicia sola para
-                aplicarlo en cuanto su pantalla este en Principal y sin experimento; si esta en Resultado o
-                Configuracion, espera a que vuelvan a Principal (y mientras tanto oculta REPETIR, que correria
-                con la configuracion anterior). Se rechaza si hay un experimento en curso. La configuracion
+                Lo que se envíe desde acá se graba en la tarjeta SD y la placa se reinicia sola para
+                aplicarlo en cuanto su pantalla esté en Principal y sin experimento; si está en Resultado o
+                Configuración, espera a que vuelvan a Principal (y mientras tanto oculta REPETIR, que correria
+                con la configuración anterior). Se rechaza si hay un experimento en curso. La configuración
                 anterior queda respaldada en la tarjeta como config.prev.json. WiFi y broker no se editan desde
-                aca y se conservan.
+                acá y se conservan.
               </p>
             </div>
           </details>
@@ -369,7 +369,7 @@ export function Configuracion({ placa }: { placa?: PlacaStatus | null } = {}) {
         <iframe
           ref={marco}
           src={srcGenerador.current}
-          title="Generador de configuracion"
+          title="Generador de configuración"
           className="generador"
           scrolling="no"
           style={alturaGenerador ? { height: alturaGenerador } : undefined}

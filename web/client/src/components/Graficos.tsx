@@ -222,7 +222,7 @@ function bandas(rangos: Rangos, color: string, decimales: number) {
       {rangos.critico && (
         <ReferenceLine y={rangos.critico[1]} stroke={CRITICO} strokeDasharray="4 4" strokeWidth={1}
           ifOverflow="extendDomain"
-          label={{ value: `critico ${numero(rangos.critico[1], decimales)}`, fill: CRITICO, fontSize: 10, position: 'insideTopRight' }} />
+          label={{ value: `crítico ${numero(rangos.critico[1], decimales)}`, fill: CRITICO, fontSize: 10, position: 'insideTopRight' }} />
       )}
       {rangos.critico && (
         <ReferenceLine y={rangos.critico[0]} stroke={CRITICO} strokeDasharray="4 4" strokeWidth={1}
@@ -276,7 +276,7 @@ export function GraficoCampo({ puntos, bucket, contexto, alertas, desde, fin, al
   return (
     <figure className="figura">
       <figcaption>
-        Campo magnetico <span className="unidad">mT</span>
+        Campo magnético <span className="unidad">mT</span>
         
       </figcaption>
       <div className="grafico-area" ref={globo.area} onMouseLeave={() => globo.setActiva(null)}>

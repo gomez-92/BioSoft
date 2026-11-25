@@ -130,8 +130,8 @@ authRouter.post('/auth/forgot', asincrono(async (req, res) => {
     mensaje: correoDisponible()
       ? 'Si la cuenta existe y tiene un correo cargado, te llega un enlace para fijar una contraseña nueva. ' +
         'Si no te llega, pedile a un administrador del monitor que te genere uno.'
-      : 'Este monitor no tiene configurado el envio de correos: pedile a un administrador que te genere ' +
-        'un enlace para fijar una contraseña nueva desde la pagina Usuarios.',
+      : 'Este monitor no tiene configurado el envío de correos: pedile a un administrador que te genere ' +
+        'un enlace para fijar una contraseña nueva desde la página Usuarios.',
   };
   if (!quien) { res.status(400).json({ error: 'falta el usuario o el correo' }); return; }
 
@@ -168,7 +168,7 @@ authRouter.post('/auth/reset', asincrono(async (req, res) => {
   const username = await usarTokenDeClave(token, password);
   if (!username) {
     anotarFallo(clave);
-    res.status(400).json({ error: 'el enlace no es valido o ya vencio: pedi uno nuevo' });
+    res.status(400).json({ error: 'el enlace no es válido o ya venció: pedí uno nuevo' });
     return;
   }
   res.json({ ok: true, username });

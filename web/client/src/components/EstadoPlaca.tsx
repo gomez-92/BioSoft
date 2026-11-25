@@ -18,16 +18,16 @@ function detalle(placa: PlacaStatus): string {
   if (placa.network) {
     const senal = calidadSenal(placa.rssi);
     lineas.push(`Red WiFi: ${placa.network}`);
-    if (senal) lineas.push(`Senal: ${placa.rssi} dBm (${senal.texto})`);
+    if (senal) lineas.push(`Señal: ${placa.rssi} dBm (${senal.texto})`);
   }
   if (placa.mega !== null) lineas.push(`Placa de control (Mega): ${placa.mega ? 'conectada' : 'NO conectada'}`);
   if (placa.configId) {
-    lineas.push(`Configuracion: ${placa.configId === 'default' ? 'valores de fabrica' : placa.configId}`);
+    lineas.push(`Configuración: ${placa.configId === 'default' ? 'valores de fábrica' : placa.configId}`);
     lineas.push(`  ${motivoConfig(placa.configId, placa.configStatus).texto}`);
   }
   if (placa.uptimeSeconds !== null) lineas.push(`Encendida hace ${duracion(placa.uptimeSeconds)}`);
-  if (placa.ultimaRespuesta) lineas.push(`Ultima respuesta: ${horaCorta(placa.ultimaRespuesta)}`);
-  if (placa.ultimoPing) lineas.push(`Ultimo ping: ${horaCorta(placa.ultimoPing)}`);
+  if (placa.ultimaRespuesta) lineas.push(`Última respuesta: ${horaCorta(placa.ultimaRespuesta)}`);
+  if (placa.ultimoPing) lineas.push(`Último ping: ${horaCorta(placa.ultimoPing)}`);
   return lineas.join('\n');
 }
 
@@ -59,7 +59,7 @@ export function EstadoPlaca({ placa, brokerOk }: { placa: PlacaStatus | null; br
     // ve si hay WiFi o no.
     if (actual.network) {
       const senal = calidadSenal(actual.rssi);
-      texto += ` · ${actual.network}${senal ? ` (senal ${senal.texto}, ${actual.rssi} dBm)` : ''}`;
+      texto += ` · ${actual.network}${senal ? ` (señal ${senal.texto}, ${actual.rssi} dBm)` : ''}`;
       if (senal?.debil) clase = 'punto-aviso';
     }
     // Una configuracion ignorada (o sin tarjeta) tambien se avisa aca: la
@@ -76,7 +76,7 @@ export function EstadoPlaca({ placa, brokerOk }: { placa: PlacaStatus | null; br
   return (
     <span className="estado-placa">
       <span className="conexion" title={actual ? detalle(actual)
-        : 'Todavia no se le pregunto a la placa si esta ahi. "Probar" le manda un ping.'}>
+        : 'Todavía no se le preguntó a la placa si está ahí. "Probar" le manda un ping.'}>
         <span className={`punto ${clase}`} />
         <b>Placa</b>{esperando ? 'probando...' : texto}
       </span>
@@ -85,7 +85,7 @@ export function EstadoPlaca({ placa, brokerOk }: { placa: PlacaStatus | null; br
         className="boton-ping"
         onClick={() => void ping()}
         disabled={esperando || !brokerOk}
-        title={brokerOk ? 'Preguntarle a la placa si esta ahi (ping)' : 'Sin broker no se puede llegar a la placa'}
+        title={brokerOk ? 'Preguntarle a la placa si está ahí (ping)' : 'Sin broker no se puede llegar a la placa'}
       >
         Probar
       </button>

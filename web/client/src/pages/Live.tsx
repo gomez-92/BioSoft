@@ -66,7 +66,7 @@ export function Live({ estado, onVerCorrida }: {
             <div className="en-curso-principal">
               <section className="grilla-mediciones">
                 <Medicion
-                  titulo="Campo magnetico"
+                  titulo="Campo magnético"
                   valor={numero(measures?.magneticField, 3)}
                   crudo={measures?.magneticField}
                   rangos={rangosCampo(targets, multiplicadorDe(config))}
@@ -97,14 +97,14 @@ export function Live({ estado, onVerCorrida }: {
               </section>
 
               <section className="panel">
-                <h3>Evolucion <span className="h3-nota">banda verde: rango normal · lineas rojas: limite critico</span></h3>
-                <Suspense fallback={<p className="empty">Cargando graficos...</p>}>
+                <h3>Evolución <span className="h3-nota">banda verde: rango normal · líneas rojas: límite crítico</span></h3>
+                <Suspense fallback={<p className="empty">Cargando gráficos...</p>}>
                   <GraficosEnVivo runId={run.id} startedAt={run.startedAt} targets={targets} config={config}
                     measures={measures} coils={coils} alerts={alerts} habilitadas={habilitadas} ahora={ahora} />
                 </Suspense>
                 <p className="tenue">
-                  Cada punto es una alerta, en el grafico de su magnitud: pasa por encima (o tocalo) para ver
-                  el detalle. Un anillo marca la que corto el experimento.
+                  Cada punto es una alerta, en el gráfico de su magnitud: pasa por encima (o tocalo) para ver
+                  el detalle. Un anillo marca la que cortó el experimento.
                 </p>
               </section>
             </div>
@@ -131,15 +131,15 @@ export function Live({ estado, onVerCorrida }: {
 function Avisos({ estado, ahora }: { estado: LiveState; ahora: number }) {
   const avisos: string[] = [];
   if (!estado.conectado) {
-    avisos.push('Sin conexion con el servidor. Los valores son los ultimos recibidos.');
+    avisos.push('Sin conexión con el servidor. Los valores son los últimos recibidos.');
   } else if (!estado.brokerOk) {
-    avisos.push('El servidor perdio la conexion con el broker: no esta llegando telemetria.');
+    avisos.push('El servidor perdió la conexión con el broker: no está llegando telemetría.');
   }
   // El enlace serie entre la ESP32 y el Mega: desde afuera es la diferencia
   // entre "el experimento va bien" y "hace rato que no sabemos nada de la
   // placa que lo controla".
   if (estado.status?.megaOk === false) {
-    avisos.push('La pantalla perdio el enlace con la placa de control (Mega).');
+    avisos.push('La pantalla perdió el enlace con la placa de control (Mega).');
   }
   // Un experimento declarado que corre con protecciones apagadas o datos
   // simulados: quien mira desde afuera tiene que saberlo antes de leer los
@@ -172,7 +172,7 @@ function SinExperimento({ estado, onVerCorrida }: {
       {resultado ? (
         <div className={`resultado resultado-${resultado.reason}`}>
           <p className="tenue">
-            Ultima corrida{numeroCorrida(resultado.runNumber) ? ` ${numeroCorrida(resultado.runNumber)}` : ''}
+            Última corrida{numeroCorrida(resultado.runNumber) ? ` ${numeroCorrida(resultado.runNumber)}` : ''}
             {resultado.ts ? `, terminada ${new Date(resultado.ts).toLocaleString('es-AR')}` : ''}
           </p>
           {resultado.runType && <div className="encabezado-run centrado"><TipoCorrida runType={resultado.runType} /></div>}
@@ -187,7 +187,7 @@ function SinExperimento({ estado, onVerCorrida }: {
           {resultado.runId && (
             <button type="button" className="boton"
               onClick={() => onVerCorrida(resultado.runId!)}>
-              Ver el detalle y los graficos de esta corrida
+              Ver el detalle y los gráficos de esta corrida
             </button>
           )}
         </div>
@@ -301,8 +301,8 @@ function Bobinas({ coils, habilitadas, ahora }: {
       {ocultas > 0 && (
         <p className="tenue">
           {ocultas === 1
-            ? 'Una bobina registrada en la placa esta deshabilitada en la configuracion y no se muestra.'
-            : `${ocultas} bobinas registradas en la placa estan deshabilitadas en la configuracion y no se muestran.`}
+            ? 'Una bobina registrada en la placa está deshabilitada en la configuración y no se muestra.'
+            : `${ocultas} bobinas registradas en la placa están deshabilitadas en la configuración y no se muestran.`}
         </p>
       )}
       <p className="tenue">{antiguedad(coils.ts, ahora)}</p>
@@ -318,10 +318,10 @@ function Objetivos({ targets }: { targets: LiveState['targets'] }) {
       <dl className="datos">
         <Dato termino="Intensidad" valor={targets.cem !== undefined ? `${numero(targets.cem, 2)} mT` : '--'} />
         <Dato termino="Frecuencia" valor={targets.freq !== undefined ? `${numero(targets.freq, 0)} Hz` : '--'} />
-        <Dato termino="Duracion" valor={duracionPedida(targets.dur)} />
+        <Dato termino="Duración" valor={duracionPedida(targets.dur)} />
         <Dato termino="Tolerancia" valor={targets.tol !== undefined ? `±${numero(targets.tol, 0)} %` : '--'} />
         <Dato termino="Temp. normal" valor={`${numero(targets.tnmin, 0)}–${numero(targets.tnmax, 0)} °C`} />
-        <Dato termino="Temp. critica" valor={`${numero(targets.tcmin, 0)}–${numero(targets.tcmax, 0)} °C`} />
+        <Dato termino="Temp. crítica" valor={`${numero(targets.tcmin, 0)}–${numero(targets.tcmax, 0)} °C`} />
       </dl>
     </section>
   );

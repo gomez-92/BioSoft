@@ -25,7 +25,7 @@ export function ListaAlertas({ alertas, targets, config, inicio, vacia }: {
               onClick={() => setAbierta(abierta === id ? null : id)}>
               <span className="alerta-fuente" title={nombreFuente(alerta.source)}>{alerta.source}</span>
               <span className="alerta-tipo">{nombreTipoAlerta(alerta.type)}</span>
-              {alerta.count >= alerta.limit && <span className="chip chip-critical chip-chico">corto</span>}
+              {alerta.count >= alerta.limit && <span className="chip chip-critical chip-chico">cortó</span>}
               <span className="alerta-cuenta">{alerta.count}/{alerta.limit}</span>
               <time className="tenue">{horaCorta(alerta.ts)}</time>
               <span className="alerta-flecha" aria-hidden>{abierta === id ? '▴' : '▾'}</span>

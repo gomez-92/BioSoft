@@ -77,7 +77,7 @@ export function onBoardLog(
 
 /** Publica hacia la placa (QoS 1, sin retain). */
 export async function publishToBoard(topic: string, payload: string): Promise<void> {
-  if (!client || !connected) throw new Error('sin conexion con el broker');
+  if (!client || !connected) throw new Error('sin conexión con el broker');
   await client.publishAsync(topic, payload, { qos: 1, retain: false });
 }
 

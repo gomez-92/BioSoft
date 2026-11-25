@@ -81,7 +81,7 @@ export async function openRun(targets: ParsedTargets, at: Date): Promise<ObjectI
         return currentRunId;
       }
     }
-    await orphanRun(currentRunId, 'llego un targets nuevo sin result previo');
+    await orphanRun(currentRunId, 'llegó un targets nuevo sin result previo');
   }
 
   const run = await Run.create({

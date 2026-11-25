@@ -103,7 +103,7 @@ export function Historial() {
     });
     const data = await respuesta.json().catch(() => ({}));
     if (!respuesta.ok) { setError(data.error ?? 'no se pudo borrar'); return; }
-    if (data.skippedRunning) setError('La corrida en curso no se borro: se puede borrar cuando termine.');
+    if (data.skippedRunning) setError('La corrida en curso no se borró: se puede borrar cuando termine.');
     setSeleccion(new Set());
     cargar();
   }
@@ -122,7 +122,7 @@ export function Historial() {
       {/* Los filtros van en una fila arriba de la tabla. */}
       <section className="filtros">
         <input type="search" className="buscar-numero" placeholder="Corrida #" value={numero}
-          inputMode="numeric" aria-label="Buscar por numero de corrida"
+          inputMode="numeric" aria-label="Buscar por número de corrida"
           onChange={(e) => { setNumero(e.target.value); setPagina(1); }} />
         <select value={motivo} onChange={(e) => { setMotivo(e.target.value); setPagina(1); }}>
           <option value="">Todos los motivos</option>
@@ -142,7 +142,7 @@ export function Historial() {
             <input type="checkbox"
               checked={borrables.length > 0 && borrables.every((run) => seleccion.has(run.id))}
               onChange={(e) => setSeleccion(e.target.checked ? new Set(borrables.map((run) => run.id)) : new Set())} />
-            Seleccionar pagina
+            Seleccionar página
           </label>
         )}
         {esAdmin && seleccion.size > 0 && (
@@ -178,7 +178,7 @@ export function Historial() {
           <li className="fila-titulos" aria-hidden="true">
             <span className="col-check" />
             <span>N°</span><span>Inicio</span><span>Tipo</span><span>Modo</span><span>Resultado</span>
-            <span className="col-num">Duracion</span><span className="col-num">Mediciones</span>
+            <span className="col-num">Duración</span><span className="col-num">Mediciones</span>
             <span className="col-num">Alertas</span>
           </li>
           {items.map((run) => (
@@ -243,7 +243,7 @@ function Fila({ run, seleccionable, seleccionada, onAlternar }: {
             : <span className="tenue-celda">--</span>}
         </span>
         <span><Motivo reason={run.reason} state={run.state} /></span>
-        <span className="col-num" data-rotulo="Duracion">{duracion(segundos)}</span>
+        <span className="col-num" data-rotulo="Duración">{duracion(segundos)}</span>
         <span className="col-num" data-rotulo="Mediciones">{run.measureCount}</span>
         <span className={`col-num ${run.alertCount > 0 ? 'fila-alertas' : 'tenue-celda'}`} data-rotulo="Alertas">
           {run.alertCount > 0 ? `${run.alertCount} ${run.alertCount === 1 ? 'alerta' : 'alertas'}` : 'ninguna'}

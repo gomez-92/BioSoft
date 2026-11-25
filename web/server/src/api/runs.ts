@@ -100,7 +100,7 @@ runsRouter.get('/runs', asincrono(async (req, res) => {
 /** Cabecera completa de una corrida: objetivos y resultado. */
 runsRouter.get('/runs/:id', asincrono(async (req, res) => {
   const id = objectId(req.params.id);
-  if (!id) { res.status(400).json({ error: 'id invalido' }); return; }
+  if (!id) { res.status(400).json({ error: 'id inválido' }); return; }
 
   const run = await Run.findById(id).lean();
   if (!run) { res.status(404).json({ error: 'corrida no encontrada' }); return; }
@@ -137,7 +137,7 @@ function resolverBucket(req: { query: Record<string, unknown> }, desde: Date, ha
  */
 runsRouter.get('/runs/:id/measures', asincrono(async (req, res) => {
   const id = objectId(req.params.id);
-  if (!id) { res.status(400).json({ error: 'id invalido' }); return; }
+  if (!id) { res.status(400).json({ error: 'id inválido' }); return; }
   const rango = await ventana(id);
   if (!rango) { res.status(404).json({ error: 'corrida no encontrada' }); return; }
 
@@ -179,7 +179,7 @@ runsRouter.get('/runs/:id/measures', asincrono(async (req, res) => {
 /** Corriente y duty por bobina, agregados igual que las mediciones. */
 runsRouter.get('/runs/:id/coils', asincrono(async (req, res) => {
   const id = objectId(req.params.id);
-  if (!id) { res.status(400).json({ error: 'id invalido' }); return; }
+  if (!id) { res.status(400).json({ error: 'id inválido' }); return; }
   const rango = await ventana(id);
   if (!rango) { res.status(404).json({ error: 'corrida no encontrada' }); return; }
 
@@ -235,7 +235,7 @@ runsRouter.get('/runs/:id/coils', asincrono(async (req, res) => {
 /** Progreso y salud a lo largo de la corrida, sin agregar: son pocos. */
 runsRouter.get('/runs/:id/statuses', asincrono(async (req, res) => {
   const id = objectId(req.params.id);
-  if (!id) { res.status(400).json({ error: 'id invalido' }); return; }
+  if (!id) { res.status(400).json({ error: 'id inválido' }); return; }
 
   const puntos = await StatusSample.find({ 'meta.runId': id }).sort({ ts: 1 }).lean();
   res.json({
@@ -250,7 +250,7 @@ runsRouter.get('/runs/:id/statuses', asincrono(async (req, res) => {
 /** Todas las alertas de la corrida, en orden cronologico. */
 runsRouter.get('/runs/:id/alerts', asincrono(async (req, res) => {
   const id = objectId(req.params.id);
-  if (!id) { res.status(400).json({ error: 'id invalido' }); return; }
+  if (!id) { res.status(400).json({ error: 'id inválido' }); return; }
 
   const alertas = await Alert.find({ runId: id }).sort({ ts: 1 }).lean();
   // Cada alerta lleva la ultima medicion de su fuente antes de levantarse
@@ -270,7 +270,7 @@ runsRouter.get('/runs/:id/alerts', asincrono(async (req, res) => {
  */
 runsRouter.get('/runs/:id/export.csv', asincrono(async (req, res) => {
   const id = objectId(req.params.id);
-  if (!id) { res.status(400).json({ error: 'id invalido' }); return; }
+  if (!id) { res.status(400).json({ error: 'id inválido' }); return; }
   const run = await Run.findById(id).lean();
   if (!run) { res.status(404).json({ error: 'corrida no encontrada' }); return; }
 
@@ -330,12 +330,12 @@ async function borrarCorridas(ids: mongoose.Types.ObjectId[]): Promise<{ borrada
 
 runsRouter.delete('/runs/:id', requireAdmin, asincrono(async (req, res) => {
   const id = objectId(req.params.id);
-  if (!id) { res.status(400).json({ error: 'id invalido' }); return; }
+  if (!id) { res.status(400).json({ error: 'id inválido' }); return; }
   if (!(await Run.exists({ _id: id }))) { res.status(404).json({ error: 'corrida no encontrada' }); return; }
 
   const { borradas, enCurso } = await borrarCorridas([id]);
   if (borradas === 0 && enCurso) {
-    res.status(409).json({ error: 'la corrida esta en curso: se puede borrar cuando termine' });
+    res.status(409).json({ error: 'la corrida está en curso: se puede borrar cuando termine' });
     return;
   }
   console.log(`[corridas] ${req.user?.username} borro la corrida ${id.toString()}`);
@@ -347,7 +347,7 @@ runsRouter.post('/runs/delete', requireAdmin, asincrono(async (req, res) => {
   const crudos: unknown[] = Array.isArray(req.body?.ids) ? req.body.ids : [];
   const ids = crudos.map((v) => (typeof v === 'string' ? objectId(v) : null));
   if (ids.length === 0 || ids.length > MAX_PAGINA || ids.some((id) => id === null)) {
-    res.status(400).json({ error: `ids invalidos (entre 1 y ${MAX_PAGINA})` });
+    res.status(400).json({ error: `ids inválidos (entre 1 y ${MAX_PAGINA})` });
     return;
   }
   const { borradas, enCurso } = await borrarCorridas(ids as mongoose.Types.ObjectId[]);

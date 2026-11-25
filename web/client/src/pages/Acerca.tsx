@@ -67,16 +67,14 @@ const ACERCA = {
   equipo: [
     { rol: 'Director', nombre: 'Esp. Bioing. Alejandro Faust' },
     { rol: 'Codirector', nombre: 'Bioing. Silvio Lauguero' },
-    { rol: 'Laboratorio', nombre: LACEMAB + ', Facultad de Ingeniería, UNER' },
-    { rol: 'Proyecto', nombre: 'Efectos de los campos electromagnéticos de baja frecuencia en la memoria y el aprendizaje' },
+    { rol: 'Proyecto', nombre: 'Automatización de un Sistema de Exposición de Radiación Electromagnética de Baja Frecuencia' },
   ] as Array<{ rol: string; nombre: string }>,
   facultad: {
     nombre: 'Facultad de Ingeniería',
     universidad: 'Universidad Nacional de Entre Ríos',
     lugar: 'Oro Verde, Entre Ríos, Argentina',
     carrera: 'Bioingeniería',
-    texto: 'Desarrollado en el LACEMAB de la Facultad de Ingeniería de la Universidad Nacional ' +
-      'de Entre Ríos (Oro Verde, Entre Ríos).',
+    texto: '',
     url: 'https://ingenieria.uner.edu.ar/',
   },
 };

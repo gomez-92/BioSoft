@@ -67,7 +67,7 @@ export function Usuarios() {
           <div className="tabla-scroll">
             <table className="tabla tabla-usuarios">
               <thead>
-                <tr><th>Usuario</th><th>Correo</th><th>Rol</th><th>Ultimo ingreso</th><th /></tr>
+                <tr><th>Usuario</th><th>Correo</th><th>Rol</th><th>Último ingreso</th><th /></tr>
               </thead>
               <tbody>
                 {usuarios.map((u) => (
@@ -85,8 +85,8 @@ export function Usuarios() {
             </table>
           </div>
           <p className="tenue">
-            Administrador: envia configuracion a la placa, borra corridas y gestiona usuarios. Solo lectura: ve todo lo
-            demas. Siempre queda al menos un administrador.
+            Administrador: envia configuración a la placa, borra corridas y gestiona usuarios. Solo lectura: ve todo lo
+            demás. Siempre queda al menos un administrador.
           </p>
         </section>
 
@@ -113,13 +113,13 @@ function FilaUsuario({ usuario, esYo, onRol, onCorreo, onEnlace, onBorrar }: {
       </td>
       <td>
         <button type="button" className="enlace-texto" onClick={() => {
-          const nuevo = window.prompt(`Correo de ${usuario.username} (vacio para quitarlo):`, usuario.email ?? '');
+          const nuevo = window.prompt(`Correo de ${usuario.username} (vacío para quitarlo):`, usuario.email ?? '');
           if (nuevo !== null) onCorreo(nuevo.trim());
         }}>{usuario.email ?? 'agregar'}</button>
       </td>
       <td>
         <select value={usuario.role} disabled={esYo} onChange={(e) => onRol(e.target.value as Rol)}
-          title={esYo ? 'No podes cambiarte el rol a vos mismo' : undefined}>
+          title={esYo ? 'No podés cambiarte el rol a vos mismo' : undefined}>
           <option value="admin">Administrador</option>
           <option value="viewer">Solo lectura</option>
         </select>
@@ -168,7 +168,7 @@ function NuevoUsuario({ correo, onCreado }: {
       <label htmlFor="nu-usuario">Usuario</label>
       <input id="nu-usuario" value={username} onChange={(e) => setUsername(e.target.value)}
         autoCapitalize="none" required pattern="[A-Za-z0-9._\-]{3,32}"
-        title="De 3 a 32 caracteres: letras, numeros, punto, guion y guion bajo" />
+        title="De 3 a 32 caracteres: letras, números, punto, guion y guion bajo" />
       <label htmlFor="nu-correo">Correo (opcional)</label>
       <input id="nu-correo" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
       <label htmlFor="nu-rol">Rol</label>
@@ -180,7 +180,7 @@ function NuevoUsuario({ correo, onCreado }: {
       <input id="nu-clave" type="password" autoComplete="new-password" minLength={8}
         value={password} onChange={(e) => setPassword(e.target.value)} />
       <p className="tenue">
-        Sin contraseña se genera un enlace de invitacion (72 h) para que la persona elija la suya
+        Sin contraseña se genera un enlace de invitación (72 h) para que la persona elija la suya
         {correo ? ', y si tiene correo se le manda.' : '. Este servidor no tiene correo configurado: el enlace hay que pasarlo a mano.'}
       </p>
       {error && <p className="login-error">{error}</p>}
@@ -197,8 +197,8 @@ function EnlaceGenerado({ enlace, onCerrar }: { enlace: Enlace; onCerrar: () => 
     <section className="panel enlace-generado" role="status">
       <h3>Enlace para {enlace.para}</h3>
       <p>
-        {enlace.enviada ? 'Se mando por correo. ' : ''}
-        Sirve una sola vez, hasta el {fecha(enlace.vence)}. Se muestra solo ahora: copialo y pasaselo.
+        {enlace.enviada ? 'Se mandó por correo. ' : ''}
+        Sirve una sola vez, hasta el {fecha(enlace.vence)}. Se muestra solo ahora: copialo y pasáselo.
       </p>
       <div className="enlace-fila">
         <input readOnly value={enlace.url} onFocus={(e) => e.target.select()} />

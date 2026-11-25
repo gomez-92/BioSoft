@@ -55,7 +55,7 @@ export function avanceFinal(
 export function antiguedad(iso: string | undefined, ahora: number): string {
   if (!iso) return '';
   const segundos = Math.max(0, Math.round((ahora - new Date(iso).getTime()) / 1000));
-  if (segundos < 5) return 'recien';
+  if (segundos < 5) return 'recién';
   return `hace ${duracion(segundos)}`;
 }
 
@@ -72,7 +72,7 @@ export function horaCorta(iso: string): string {
 }
 
 const NOMBRE_ESTADO: Record<string, string> = {
-  normal: 'Normal', warning: 'Advertencia', critical: 'Critico',
+  normal: 'Normal', warning: 'Advertencia', critical: 'Crítico',
 };
 
 export function nombreSalud(health: string | undefined): string {
@@ -80,7 +80,7 @@ export function nombreSalud(health: string | undefined): string {
 }
 
 const NOMBRE_TIPO: Record<string, string> = {
-  critical: 'critica', streak: 'racha', frequency: 'frecuencia',
+  critical: 'crítica', streak: 'racha', frequency: 'frecuencia',
   // Sensor que dejo de dar lecturas (tarjeta 25): corta igual que un
   // limite critico.
   silence: 'sin lecturas',
@@ -99,14 +99,14 @@ export function nombreTipoAlerta(type: string): string {
 }
 
 const NOMBRE_MOTIVO: Record<string, string> = {
-  completed: 'Completado', critical: 'Cortado por alerta critica', stopped: 'Detenido',
+  completed: 'Completado', critical: 'Cortado por alerta crítica', stopped: 'Detenido',
   // La placa lo pone cuando el Mega corto sin informar el motivo (se quedo
   // sin memoria para armar result_data): la corrida termino, el porque no.
   unknown: 'Terminado sin motivo informado',
   // La placa lo pone cuando el Mega volvio a Ready sin mandar el resultado
   // (se reinicio a mitad de corrida o el resultado se perdio): la corrida se
   // cierra igual en vez de quedar abierta "esperando datos".
-  lost: 'Interrumpido: se perdio la placa de control',
+  lost: 'Interrumpido: se perdió la placa de control',
 };
 
 export function nombreMotivo(reason: string): string {
@@ -144,7 +144,7 @@ const RELAJACIONES: Array<[number, string]> = [
   [1 << 1, 'TEMP1 sin vigilar'],
   [1 << 2, 'CEM1 sin vigilar'],
   [1 << 3, 'Sensores simulados o escenario'],
-  [1 << 4, 'TEMP1 sin termometro'],
+  [1 << 4, 'TEMP1 sin termómetro'],
   [1 << 5, 'Control de intensidad apagado'],
   [1 << 6, 'Sin exigir la placa de control'],
 ];
@@ -212,20 +212,20 @@ export function motivoConfig(
 ): { texto: string; aviso: boolean } {
   switch (loadStatus) {
     case 'nosd':
-      return { texto: 'la placa no tiene tarjeta SD (o no la pudo leer): corre con los valores de fabrica, y no se le puede enviar configuracion hasta ponerla y reiniciar', aviso: true };
+      return { texto: 'la placa no tiene tarjeta SD (o no la pudo leer): corre con los valores de fábrica, y no se le puede enviar configuración hasta ponerla y reiniciar', aviso: true };
     case 'nofile':
-      return { texto: 'la tarjeta no tiene /biosoft/config.json: corre con los valores de fabrica', aviso: false };
+      return { texto: 'la tarjeta no tiene /biosoft/config.json: corre con los valores de fábrica', aviso: false };
     case 'unreadable':
-      return { texto: 'config.json esta en la tarjeta pero no se pudo leer (¿pasa de 8 KB?): se ignoro y corre con los valores de fabrica', aviso: true };
+      return { texto: 'config.json está en la tarjeta pero no se pudo leer (¿pasa de 8 KB?): se ignoró y corre con los valores de fábrica', aviso: true };
     case 'invalid':
-      return { texto: 'config.json esta en la tarjeta pero tiene JSON invalido: se descarto entero y corre con los valores de fabrica', aviso: true };
+      return { texto: 'config.json está en la tarjeta pero tiene JSON inválido: se descartó entero y corre con los valores de fábrica', aviso: true };
     case 'experiment':
-      return { texto: 'config.json declara un experimento con un sensor simulado o el Detector apagado (un experimento corre solo con sensores reales y Detector): se descarto entero y corre con los valores de fabrica', aviso: true };
+      return { texto: 'config.json declara un experimento con un sensor simulado o el Detector apagado (un experimento corre solo con sensores reales y Detector): se descartó entero y corre con los valores de fábrica', aviso: true };
     case 'schema':
-      return { texto: 'config.json esta en la tarjeta pero su schemaVersion no es la que entiende el firmware: se descarto entero y corre con los valores de fabrica', aviso: true };
+      return { texto: 'config.json está en la tarjeta pero su schemaVersion no es la que entiende el firmware: se descartó entero y corre con los valores de fábrica', aviso: true };
   }
   if (configId === 'default') {
-    return { texto: 'corre con los valores de fabrica (sin tarjeta, sin archivo o con un archivo descartado; esta placa no informa cual)', aviso: false };
+    return { texto: 'corre con los valores de fábrica (sin tarjeta, sin archivo o con un archivo descartado; esta placa no informa cuál)', aviso: false };
   }
   return { texto: 'cargada desde config.json de la tarjeta', aviso: false };
 }
@@ -237,6 +237,6 @@ export function motivoConfig(
  */
 export function calidadSenal(rssi: number | null | undefined): { texto: string; debil: boolean } | null {
   if (rssi === null || rssi === undefined || !Number.isFinite(rssi) || rssi >= 0) return null;
-  const texto = rssi >= -55 ? 'excelente' : rssi >= -67 ? 'buena' : rssi >= -75 ? 'regular' : rssi >= -82 ? 'debil' : 'muy debil';
+  const texto = rssi >= -55 ? 'excelente' : rssi >= -67 ? 'buena' : rssi >= -75 ? 'regular' : rssi >= -82 ? 'débil' : 'muy débil';
   return { texto, debil: rssi < -82 };
 }

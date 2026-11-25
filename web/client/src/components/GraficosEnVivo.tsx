@@ -138,14 +138,14 @@ export default function GraficosEnVivo({ runId, startedAt, targets, config, meas
   const bobinas = filtrarBobinas([...presentes].sort().map((n) => ({ n })), habilitadas).map((b) => b.n);
 
   if (puntos.length === 0 && puntosBobinas.length === 0) {
-    return <p className="empty">Todavia no hay mediciones de esta corrida para graficar.</p>;
+    return <p className="empty">Todavía no hay mediciones de esta corrida para graficar.</p>;
   }
 
   const ejeDesde = desde ?? inicio;
 
   return (
     <>
-      <div className="ventana-selector" role="group" aria-label="Ventana de tiempo de los graficos">
+      <div className="ventana-selector" role="group" aria-label="Ventana de tiempo de los gráficos">
         <span className="tenue-celda">Mostrar</span>
         {VENTANAS.map((v) => (
           <button key={v.nombre} type="button" className={ventana === v.minutos ? 'activa' : ''}

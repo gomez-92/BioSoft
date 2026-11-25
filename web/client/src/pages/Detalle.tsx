@@ -127,13 +127,13 @@ export function DetalleCorrida() {
             condiciones, y eso tiene que leerse antes que los graficos. */}
         {detalle.runType === 'normal' && relajacionesConAviso(detalle.targets?.relaxations).length > 0 && (
           <p className="aviso">
-            Declarada como experimento, pero corrio con: {relajacionesConAviso(detalle.targets?.relaxations).join(', ')}.
+            Declarada como experimento, pero corrió con: {relajacionesConAviso(detalle.targets?.relaxations).join(', ')}.
           </p>
         )}
         {!detalle.result && detalle.state === 'orphan' && (
           <p className="aviso">
-            Esta corrida nunca recibio su mensaje de cierre: el monitor no sabe como termino.
-            Las mediciones que si llegaron son reales.
+            Esta corrida nunca recibió su mensaje de cierre: el monitor no sabe cómo terminó.
+            Las mediciones que sí llegaron son reales.
           </p>
         )}
       </section>
@@ -166,9 +166,9 @@ export function DetalleCorrida() {
           )}
           {alertas.length > 0 && (
             <p className="tenue">
-              Cada alerta es un punto en el grafico de su magnitud (CEM1 en el campo, TEMP1 en la temperatura), a la
-              altura de la ultima medicion antes de levantarse; pasa por encima para ver el detalle. Un anillo marca la
-              que corto el experimento.
+              Cada alerta es un punto en el gráfico de su magnitud (CEM1 en el campo, TEMP1 en la temperatura), a la
+              altura de la última medición antes de levantarse; pasa por encima para ver el detalle. Un anillo marca la
+              que cortó el experimento.
             </p>
           )}
         </section>
@@ -185,7 +185,7 @@ export function DetalleCorrida() {
 
       {esAdmin && eventos.length === 0 && Date.now() - fin > 7 * 24 * 3600_000 && (
         <p className="tenue panel">
-          Sin eventos de la placa: la bitacora guarda una semana y esta corrida es anterior.
+          Sin eventos de la placa: la bitácora guarda una semana y esta corrida es anterior.
         </p>
       )}
 
@@ -193,11 +193,11 @@ export function DetalleCorrida() {
         <section className="panel">
           <h3>Eventos de la placa ({eventos.length})</h3>
           <p className="tenue">
-            De la bitacora, entre un minuto antes del inicio y un minuto despues del fin: reinicios, enlaces caidos,
-            broker. Explican huecos en los graficos o un cierre sin motivo.
+            De la bitácora, entre un minuto antes del inicio y un minuto después del fin: reinicios, enlaces caídos,
+            broker. Explican huecos en los gráficos o un cierre sin motivo.
           </p>
           <ListaEventos eventos={eventos} conFecha={false} conCorrida={false} />
-          <p className="tenue"><Link to={`/bitacora?corrida=${detalle.id}`}>Ver en la bitacora</Link> (solo los de
+          <p className="tenue"><Link to={`/bitacora?corrida=${detalle.id}`}>Ver en la bitácora</Link> (solo los de
             esta corrida, sin el minuto de margen).</p>
         </section>
       )}
@@ -229,7 +229,7 @@ function BotonBorrar({ id, enCurso }: { id: string; enCurso: boolean }) {
   return (
     <>
       <button type="button" className="boton boton-peligro" onClick={borrar} disabled={enCurso}
-        title={enCurso ? 'La corrida esta en curso: se puede borrar cuando termine' : undefined}>
+        title={enCurso ? 'La corrida está en curso: se puede borrar cuando termine' : undefined}>
         Borrar corrida
       </button>
       {error && <p className="login-error">{error}</p>}
@@ -304,11 +304,11 @@ function ConfiguracionDeLaCorrida({ configId }: { configId: string }) {
   return (
     <section className="panel">
       <details onToggle={abrir}>
-        <summary>Configuracion completa ({configId})</summary>
+        <summary>Configuración completa ({configId})</summary>
         {estado === 'cargando' && <p className="empty">Cargando...</p>}
         {estado === 'sin-datos' && (
           <p className="empty">
-            El monitor no tiene guardada esta configuracion: la placa nunca la informo mientras estaba
+            El monitor no tiene guardada esta configuración: la placa nunca la informó mientras estaba
             conectado.
           </p>
         )}
@@ -331,30 +331,30 @@ function Objetivos({ targets, resultado }: { targets: Targets | null; resultado:
           <D t="Campo medio medido" v={`${numero(resultado.meanMagneticField, 3)} mT`} />
         )}
         {targets?.freq !== undefined && <D t="Frecuencia" v={`${numero(targets.freq, 0)} Hz`} />}
-        {targets?.dur !== undefined && <D t="Duracion pedida" v={duracionPedida(targets.dur)} />}
+        {targets?.dur !== undefined && <D t="Duración pedida" v={duracionPedida(targets.dur)} />}
         {targets?.tol !== undefined && <D t="Tolerancia" v={`±${numero(targets.tol, 0)} %`} />}
         {targets?.tnmin !== undefined && (
           <D t="Temp. normal" v={`${numero(targets.tnmin, 0)}–${numero(targets.tnmax, 0)} °C`} />
         )}
         {targets?.tcmin !== undefined && (
-          <D t="Temp. critica" v={`${numero(targets.tcmin, 0)}–${numero(targets.tcmax, 0)} °C`} />
+          <D t="Temp. crítica" v={`${numero(targets.tcmin, 0)}–${numero(targets.tcmax, 0)} °C`} />
         )}
         {avanceFinal(resultado, targets?.dur).porcentaje !== undefined && (
           <D t="Avance" v={`${avanceFinal(resultado, targets?.dur).porcentaje} %`} />
         )}
         {/* Con que configuracion de la tarjeta SD corrio: el id lo calcula
             la placa ("default" = valores de fabrica, sin tarjeta). */}
-        {targets?.configId && <D t="Configuracion" v={targets.configId} />}
+        {targets?.configId && <D t="Configuración" v={targets.configId} />}
         {targets?.relaxations !== undefined && (
           <D t="Relajaciones" v={relajacionesDe(targets.relaxations).join(', ') || 'ninguna'} />
         )}
         {/* El paro fisico y el Detener en pantalla llegan los dos como
             "stopped": sin esto no hay forma de distinguirlos. */}
         {resultado?.emergency !== undefined && (
-          <D t="Detencion" v={resultado.emergency ? 'Paro de emergencia' : 'Boton en pantalla'} />
+          <D t="Detención" v={resultado.emergency ? 'Paro de emergencia' : 'Botón en pantalla'} />
         )}
         {resultado?.source && (
-          <D t="Corto por" v={`${resultado.source} (${nombreTipoAlerta(resultado.type ?? '')} ${resultado.count}/${resultado.limit})`} />
+          <D t="Cortó por" v={`${resultado.source} (${nombreTipoAlerta(resultado.type ?? '')} ${resultado.count}/${resultado.limit})`} />
         )}
       </dl>
     </section>

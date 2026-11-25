@@ -72,7 +72,7 @@ export function verificarProduccion(): void {
     problemas.push('falta JWT_SECRET (generar con: openssl rand -hex 48)');
   }
   if (process.env.JWT_SECRET && process.env.JWT_SECRET.length < 32) {
-    problemas.push('JWT_SECRET es demasiado corto (minimo 32 caracteres)');
+    problemas.push('JWT_SECRET es demasiado corto (mínimo 32 caracteres)');
   }
   // Un broker sin TLS en produccion manda las credenciales del broker y la
   // telemetria en texto plano por internet.

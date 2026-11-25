@@ -18,7 +18,7 @@ export function Login({ onEntrar }: { onEntrar: (perfil: Perfil) => void }) {
     try {
       onEntrar(await login(usuario, clave));
     } catch (causa) {
-      setError(causa instanceof Error ? causa.message : 'no se pudo iniciar sesion');
+      setError(causa instanceof Error ? causa.message : 'no se pudo iniciar sesión');
       // La contraseña se limpia, el usuario no: quien se equivoco al tipear la
       // clave no tiene por que escribir las dos cosas de nuevo.
       setClave('');
@@ -34,7 +34,7 @@ export function Login({ onEntrar }: { onEntrar: (perfil: Perfil) => void }) {
     try {
       setAviso(await pedirRecuperacion(usuario));
     } catch (causa) {
-      setError(causa instanceof Error ? causa.message : 'no se pudo pedir la recuperacion');
+      setError(causa instanceof Error ? causa.message : 'no se pudo pedir la recuperación');
     } finally {
       setEnviando(false);
     }

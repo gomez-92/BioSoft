@@ -22,7 +22,7 @@ describe('catalogo de la bitacora', () => {
   });
 
   it('un codigo desconocido se muestra crudo', () => {
-    expect(nombreCodigo('mega_reinicio')).toBe('El Mega se reinicio');
+    expect(nombreCodigo('mega_reinicio')).toBe('El Mega se reinició');
     expect(nombreCodigo('codigo_nuevo')).toBe('codigo_nuevo');
   });
 

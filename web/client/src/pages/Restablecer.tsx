@@ -35,7 +35,7 @@ export function Restablecer({ token, onListo }: { token: string; onListo: () => 
         {listo !== null ? (
           <>
             <p className="login-aviso" role="status">
-              Listo{listo ? `, ${listo}` : ''}: la contraseña quedo guardada. Las sesiones que hubiera
+              Listo{listo ? `, ${listo}` : ''}: la contraseña quedó guardada. Las sesiones que hubiera
               abiertas con la anterior se cerraron.
             </p>
             <button type="button" className="boton boton-primario" onClick={onListo}>Ir a ingresar</button>

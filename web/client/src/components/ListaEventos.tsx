@@ -26,7 +26,7 @@ export function ListaEventos({ eventos, conFecha = true, conCorrida = true }: {
               <span className="evento-nombre" title={evento.code}>{nombreCodigo(evento.code)}</span>
               {conCorrida && evento.run && (
                 <Link to={`/corrida/${evento.run.id}`} className="chip chip-chico chip-corrida"
-                  title="Paso durante esta corrida: abrir su detalle">
+                  title="Pasó durante esta corrida: abrir su detalle">
                   Corrida {nombreCorrida(evento.run)}{evento.run.state === 'running' ? ' (en curso)' : ''}
                 </Link>
               )}
@@ -35,7 +35,7 @@ export function ListaEventos({ eventos, conFecha = true, conCorrida = true }: {
             {evento.message && <p className="evento-texto">{evento.message}</p>}
             {evento.dropped > 0 && (
               <p className="evento-perdidos">
-                Antes de este, la placa descarto {evento.dropped} evento{evento.dropped === 1 ? '' : 's'} por tener
+                Antes de este, la placa descartó {evento.dropped} evento{evento.dropped === 1 ? '' : 's'} por tener
                 el buffer lleno (estuvo mucho tiempo sin broker).
               </p>
             )}

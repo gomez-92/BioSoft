@@ -26,7 +26,7 @@ configRouter.get('/config/current', requireAdmin, asincrono(async (_req, res) =>
 /** Una configuracion por id: la del detalle de una corrida (tarjeta 23). */
 configRouter.get('/config/snapshots/:id', asincrono(async (req, res) => {
   const snapshot = await ConfigSnapshot.findOne({ configId: req.params.id }).lean();
-  if (!snapshot) { res.status(404).json({ error: 'configuracion no encontrada' }); return; }
+  if (!snapshot) { res.status(404).json({ error: 'configuración no encontrada' }); return; }
   res.json({
     configId: snapshot.configId,
     reportedAt: snapshot.lastReportedAt ?? null,

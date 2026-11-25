@@ -67,7 +67,7 @@ export async function login(username: string, password: string): Promise<Perfil>
 
   if (!respuesta.ok) {
     const data = await respuesta.json().catch(() => ({}));
-    throw new Error(data.error ?? 'no se pudo iniciar sesion');
+    throw new Error(data.error ?? 'no se pudo iniciar sesión');
   }
 
   const data = await respuesta.json();

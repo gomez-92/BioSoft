@@ -77,14 +77,14 @@ export function problemaDeCredenciales(config: Record<string, unknown>): string 
   const texto = (v: unknown) => typeof v === 'string';
   if (config.wifi !== undefined) {
     if (!Array.isArray(config.wifi)) return 'wifi tiene que ser una lista de redes';
-    if (config.wifi.length > MAX_REDES) return `no entran mas de ${MAX_REDES} redes WiFi`;
+    if (config.wifi.length > MAX_REDES) return `no entran más de ${MAX_REDES} redes WiFi`;
     for (const red of config.wifi as Array<Record<string, unknown>>) {
       if (!red || typeof red !== 'object' || !texto(red.ssid) || !(red.ssid as string).trim()) {
         return 'hay una red WiFi sin nombre (ssid)';
       }
       if ((red.ssid as string).length > TOPE.ssid) return `el nombre de red "${red.ssid}" pasa de ${TOPE.ssid} caracteres`;
       if (red.password !== undefined && (!texto(red.password) || (red.password as string).length > TOPE.clave)) {
-        return `la contrasena de "${red.ssid}" tiene que ser texto de hasta ${TOPE.clave} caracteres`;
+        return `la contraseña de "${red.ssid}" tiene que ser texto de hasta ${TOPE.clave} caracteres`;
       }
     }
   }

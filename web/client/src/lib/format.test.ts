@@ -143,8 +143,8 @@ describe('senal WiFi de la placa', () => {
     expect(calidadSenal(-50)).toEqual({ texto: 'excelente', debil: false });
     expect(calidadSenal(-62)).toEqual({ texto: 'buena', debil: false });
     expect(calidadSenal(-70)).toEqual({ texto: 'regular', debil: false });
-    expect(calidadSenal(-80)).toEqual({ texto: 'debil', debil: false });
-    expect(calidadSenal(-88)).toEqual({ texto: 'muy debil', debil: true });
+    expect(calidadSenal(-80)).toEqual({ texto: 'débil', debil: false });
+    expect(calidadSenal(-88)).toEqual({ texto: 'muy débil', debil: true });
   });
   it('sin dato (o un 0, que el ESP32 da sin conexion) no inventa nada', () => {
     expect(calidadSenal(null)).toBeNull();

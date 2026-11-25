@@ -13,7 +13,7 @@ import type { AlertItem, Targets } from './types.js';
 // globo del grafico, asi los dos dicen lo mismo.
 
 const FUENTES: Record<string, { nombre: string; unidad: string; decimales: number }> = {
-  CEM1: { nombre: 'Campo magnetico', unidad: 'mT', decimales: 3 },
+  CEM1: { nombre: 'Campo magnético', unidad: 'mT', decimales: 3 },
   TEMP1: { nombre: 'Temperatura', unidad: '°C', decimales: 1 },
 };
 
@@ -42,13 +42,13 @@ function queSignifica(tipo: string, n: number | undefined): string {
   const cuantas = n !== undefined ? `${n} ` : '';
   switch (tipo) {
     case 'critical':
-      return `${cuantas}lectura${n === 1 ? '' : 's'} seguida${n === 1 ? '' : 's'} fuera del rango CRITICO.`;
+      return `${cuantas}lectura${n === 1 ? '' : 's'} seguida${n === 1 ? '' : 's'} fuera del rango CRÍTICO.`;
     case 'streak':
-      return `${cuantas}lecturas seguidas fuera del rango normal (sin llegar a criticas).`;
+      return `${cuantas}lecturas seguidas fuera del rango normal (sin llegar a críticas).`;
     case 'frequency':
       return `${cuantas}lecturas fuera del rango normal dentro de la ventana de muestras, no necesariamente seguidas.`;
     case 'silence':
-      return 'La fuente dejo de entregar lecturas validas (sensor desconectado o fallando).';
+      return 'La fuente dejó de entregar lecturas válidas (sensor desconectado o fallando).';
     default:
       return '';
   }
@@ -76,16 +76,16 @@ export function detalleAlerta(alerta: AlertItem, contexto: {
   if (significado) lineas.push(significado);
 
   lineas.push(corto
-    ? `Alerta ${alerta.count} de ${alerta.limit}: alcanzo el limite y CORTO el experimento.`
+    ? `Alerta ${alerta.count} de ${alerta.limit}: alcanzó el límite y CORTÓ el experimento.`
     : `Alerta ${alerta.count} de ${alerta.limit} de este tipo: al llegar a ${alerta.limit} se corta el experimento.`);
 
   if (fuente && alerta.value !== undefined) {
     const cuando = alerta.valueAt
       ? Math.max(0, Math.round((new Date(alerta.ts).getTime() - new Date(alerta.valueAt).getTime()) / 1000))
       : undefined;
-    lineas.push(`Ultima medicion publicada antes de la alerta: ${numero(alerta.value, fuente.decimales)} ${fuente.unidad}` +
+    lineas.push(`Última medición publicada antes de la alerta: ${numero(alerta.value, fuente.decimales)} ${fuente.unidad}` +
       (cuando !== undefined ? ` (${cuando < 2 ? 'en el momento' : `${duracion(cuando)} antes`})` : '') +
-      '. El Mega muestrea mas seguido de lo que la placa publica: el valor exacto del disparo puede ser otro.');
+      '. El Mega muestrea más seguido de lo que la placa publica: el valor exacto del disparo puede ser otro.');
   }
 
   let rangos: Rangos | null = null;
@@ -93,7 +93,7 @@ export function detalleAlerta(alerta: AlertItem, contexto: {
   if (alerta.source === 'TEMP1') rangos = rangosTemperatura(contexto.targets);
   if (fuente && rangos && (rangos.normal || rangos.critico)) {
     lineas.push(`Rango normal: ${rango(rangos.normal, fuente.decimales, fuente.unidad)} · ` +
-      `critico: ${rango(rangos.critico, fuente.decimales, fuente.unidad)}.`);
+      `crítico: ${rango(rangos.critico, fuente.decimales, fuente.unidad)}.`);
   }
 
   const inicio = contexto.inicio !== undefined ? new Date(contexto.inicio).getTime() : undefined;

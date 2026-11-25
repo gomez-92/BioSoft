@@ -82,7 +82,7 @@ describe('alertas', () => {
     expect(d.corto).toBe(true);
     const texto = d.lineas.join('\n');
     expect(texto).toContain('5 lecturas seguidas');
-    expect(texto).toContain('CORTO');
+    expect(texto).toContain('CORTÓ');
     expect(texto).toContain('41.2 °C');
     expect(texto).toContain('30.0 a 40.0 °C');
     expect(texto).toContain('5m 00s del inicio');

@@ -18,8 +18,8 @@ export function zonaDe(valor: number | undefined, rangos: Rangos): Zona | null {
 
 export const TEXTO_ZONA: Record<Zona, string> = {
   normal: 'Dentro del rango normal',
-  advertencia: 'Fuera del normal, todavia no critico',
-  critico: 'En zona critica',
+  advertencia: 'Fuera del normal, todavía no crítico',
+  critico: 'En zona crítica',
 };
 
 /**

@@ -55,7 +55,7 @@ export function Bitacora({ enVivo }: { enVivo: EventoPlaca[] }) {
     if (respuesta.status === 404) {
       throw new Error(numeroValido ? `No hay ninguna corrida #${numeroValido}.` : 'Esa corrida no existe (puede haberse borrado).');
     }
-    if (!respuesta.ok) throw new Error('No se pudo cargar la bitacora.');
+    if (!respuesta.ok) throw new Error('No se pudo cargar la bitácora.');
     return respuesta.json() as Promise<{ items: EventoPlaca[]; hasMore: boolean; run?: EventoPlaca['run'] }>;
   }, [niveles, codigo, alcance, corrida, numeroValido]);
 
@@ -120,7 +120,7 @@ export function Bitacora({ enVivo }: { enVivo: EventoPlaca[] }) {
     <>
       <section className="filtros">
         <input type="search" className="buscar-numero" placeholder="Corrida #" value={numero}
-          inputMode="numeric" aria-label="Buscar los eventos de una corrida por su numero"
+          inputMode="numeric" aria-label="Buscar los eventos de una corrida por su número"
           onChange={(e) => setNumero(e.target.value)} />
         <select value={niveles} onChange={(e) => setNiveles(e.target.value)} aria-label="Nivel">
           {FILTROS_NIVEL.map((f) => <option key={f.valor} value={f.valor}>{f.nombre}</option>)}
@@ -153,7 +153,7 @@ export function Bitacora({ enVivo }: { enVivo: EventoPlaca[] }) {
       </section>
 
       {error && <p className="aviso panel-aviso">{error}</p>}
-      <p className="tenue">Los eventos se guardan una semana; despues se borran solos.</p>
+      <p className="tenue">Los eventos se guardan una semana; después se borran solos.</p>
 
       <section className="panel panel-lleno">
         {cargando && eventos.length === 0 ? (
@@ -161,17 +161,17 @@ export function Bitacora({ enVivo }: { enVivo: EventoPlaca[] }) {
         ) : eventos.length === 0 ? (
           <p className="empty">
             {corrida || numeroValido
-              ? 'La placa no registro eventos durante esta corrida (o ya pasaron mas de 7 dias).'
+              ? 'La placa no registró eventos durante esta corrida (o ya pasaron más de 7 días).'
               : niveles || codigo || alcance
               ? 'No hay eventos que coincidan.'
-              : 'La placa todavia no registro eventos. Aparecen aca cuando arranca, cuando se cae un enlace o se reinicia el Mega.'}
+              : 'La placa todavía no registró eventos. Aparecen acá cuando arranca, cuando se cae un enlace o se reinicia el Mega.'}
           </p>
         ) : (
           <ListaEventos eventos={eventos} />
         )}
         {hayMas && (
           <nav className="paginado">
-            <button type="button" disabled={cargando} onClick={cargarMas}>Cargar mas</button>
+            <button type="button" disabled={cargando} onClick={cargarMas}>Cargar más</button>
           </nav>
         )}
       </section>

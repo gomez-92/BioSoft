@@ -221,7 +221,7 @@ export function incoherenciaDeExperimento(data: Record<string, unknown>): string
   for (const fuente of fuentes) {
     const real = typeof fuente.name === 'string' ? SENSOR_REAL[fuente.name] : undefined;
     if (real && fuente.sensor !== undefined && fuente.sensor !== real) {
-      return `un experimento (runType normal) corre solo con sensores reales: ${String(fuente.name)} esta en ` +
+      return `un experimento (runType normal) corre solo con sensores reales: ${String(fuente.name)} está en ` +
         `"${String(fuente.sensor)}" y tiene que ser "${real}"; para simular, declarar la corrida como test`;
     }
   }
@@ -237,11 +237,11 @@ export function incoherenciaDeExperimento(data: Record<string, unknown>): string
 export async function enviarConfiguracion(
   configuracion: unknown, usuario: string,
 ): Promise<{ requestId: string; bloques: number }> {
-  if (!publicar) throw new PedidoInvalido('el monitor no esta conectado al broker');
-  if (enCurso) throw new PedidoInvalido('ya hay un envio en curso');
+  if (!publicar) throw new PedidoInvalido('el monitor no está conectado al broker');
+  if (enCurso) throw new PedidoInvalido('ya hay un envío en curso');
 
   const data = objeto(configuracion);
-  if (!data) throw new PedidoInvalido('la configuracion tiene que ser un objeto JSON');
+  if (!data) throw new PedidoInvalido('la configuración tiene que ser un objeto JSON');
   if (data.schemaVersion !== 1) throw new PedidoInvalido('schemaVersion tiene que ser 1');
   const incoherencia = incoherenciaDeExperimento(data);
   if (incoherencia) throw new PedidoInvalido(incoherencia);
@@ -263,7 +263,7 @@ export async function enviarConfiguracion(
   // que graba (minificado) puede sumar las contrasenas que ya tenia.
   const bytes = Buffer.byteLength(texto, 'utf8');
   if (bytes > 7000) {
-    throw new PedidoInvalido(`la configuracion pesa ${bytes} bytes; el tope es 7000`);
+    throw new PedidoInvalido(`la configuración pesa ${bytes} bytes; el tope es 7000`);
   }
 
   const bloques = chunkText(texto);
@@ -304,7 +304,7 @@ async function mandarBloques(requestId: string, bloques: string[]): Promise<void
 
     if (!respuesta) {
       await actualizar(requestId, {
-        state: 'no_entregada', message: `la placa no confirmo el bloque ${i + 1} de ${total}`,
+        state: 'no_entregada', message: `la placa no confirmó el bloque ${i + 1} de ${total}`,
       });
       return;
     }
@@ -318,7 +318,7 @@ async function mandarBloques(requestId: string, bloques: string[]): Promise<void
     await actualizar(requestId, { state: 'parcial', sentChunks: i + 1 });
   }
   // El ultimo bloque deberia haber cerrado el pedido con su estado final.
-  await actualizar(requestId, { state: 'no_entregada', message: 'la placa no informo el resultado' });
+  await actualizar(requestId, { state: 'no_entregada', message: 'la placa no informó el resultado' });
 }
 
 async function recibirEstado(payload: unknown): Promise<void> {

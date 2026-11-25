@@ -15,7 +15,7 @@ describe('estadoEnvio', () => {
   it('aceptada y todavia no vigente: confirmada, pendiente de reinicio', () => {
     const e = estadoEnvio(base, '00000000')!;
     expect(e.kind).toBe('ok');
-    expect(e.text).toContain('confirmo');
+    expect(e.text).toContain('confirmó');
     expect(e.detail).toContain('se reinicia sola');
   });
 
@@ -32,7 +32,7 @@ describe('estadoEnvio', () => {
   it('un rechazo es error y aclara que la placa sigue con la anterior', () => {
     const e = estadoEnvio({ ...base, state: 'no_entregada', message: 'la placa no confirmo el bloque 1 de 5' }, null)!;
     expect(e.kind).toBe('error');
-    expect(e.text).toBe('La placa no respondio');
+    expect(e.text).toBe('La placa no respondió');
     expect(e.detail).toContain('anterior');
   });
 });

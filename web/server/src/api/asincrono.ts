@@ -28,7 +28,7 @@ export function requiereBase(_req: Request, res: Response, next: NextFunction): 
   if (mongoose.connection.readyState === 1) { next(); return; }
   res.status(503).json({
     error: 'base de datos no disponible',
-    detalle: 'el servidor no esta conectado a MongoDB; ver /api/ping',
+    detalle: 'el servidor no está conectado a MongoDB; ver /api/ping',
   });
 }
 

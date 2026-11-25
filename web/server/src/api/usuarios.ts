@@ -33,7 +33,7 @@ class Invalido extends Error {}
 function leerUsuario(valor: unknown): string {
   const username = typeof valor === 'string' ? valor.trim().toLowerCase() : '';
   if (!PATRON_USUARIO.test(username)) {
-    throw new Invalido('usuario: de 3 a 32 caracteres, solo letras, numeros, punto, guion y guion bajo');
+    throw new Invalido('usuario: de 3 a 32 caracteres, solo letras, números, punto, guion y guion bajo');
   }
   return username;
 }
@@ -41,12 +41,12 @@ function leerUsuario(valor: unknown): string {
 function leerCorreo(valor: unknown): string | null {
   if (valor === undefined || valor === null || valor === '') return null;
   const email = typeof valor === 'string' ? valor.trim().toLowerCase() : '';
-  if (!PATRON_CORREO.test(email)) throw new Invalido('el correo no tiene un formato valido');
+  if (!PATRON_CORREO.test(email)) throw new Invalido('el correo no tiene un formato válido');
   return email;
 }
 
 function leerRol(valor: unknown): Rol {
-  if (!ROLES.includes(valor as Rol)) throw new Invalido('rol invalido (admin o viewer)');
+  if (!ROLES.includes(valor as Rol)) throw new Invalido('rol inválido (admin o viewer)');
   return valor as Rol;
 }
 
@@ -121,7 +121,7 @@ usuariosRouter.post('/', asincrono(async (req, res) => {
 
 usuariosRouter.patch('/:id', asincrono(async (req, res) => {
   const { id } = req.params;
-  if (!mongoose.isValidObjectId(id)) { res.status(400).json({ error: 'id invalido' }); return; }
+  if (!mongoose.isValidObjectId(id)) { res.status(400).json({ error: 'id inválido' }); return; }
   const user = await User.findById(id);
   if (!user) { res.status(404).json({ error: 'usuario no encontrado' }); return; }
 
@@ -131,7 +131,7 @@ usuariosRouter.patch('/:id', asincrono(async (req, res) => {
       const role = leerRol(req.body.role);
       if (role !== 'admin' && user.role === 'admin') {
         if (id === req.user?.sub) {
-          res.status(409).json({ error: 'no podes quitarte el rol de administrador a vos mismo' });
+          res.status(409).json({ error: 'no podés quitarte el rol de administrador a vos mismo' });
           return;
         }
         if (await otrosAdmins(id) === 0) {
@@ -157,7 +157,7 @@ usuariosRouter.patch('/:id', asincrono(async (req, res) => {
 /** Enlace para que el usuario fije una contraseña nueva (2 h). */
 usuariosRouter.post('/:id/reset-link', asincrono(async (req, res) => {
   const { id } = req.params;
-  if (!mongoose.isValidObjectId(id)) { res.status(400).json({ error: 'id invalido' }); return; }
+  if (!mongoose.isValidObjectId(id)) { res.status(400).json({ error: 'id inválido' }); return; }
   const user = await User.findById(id).lean();
   if (!user) { res.status(404).json({ error: 'usuario no encontrado' }); return; }
 
@@ -173,9 +173,9 @@ usuariosRouter.post('/:id/reset-link', asincrono(async (req, res) => {
 
 usuariosRouter.delete('/:id', asincrono(async (req, res) => {
   const { id } = req.params;
-  if (!mongoose.isValidObjectId(id)) { res.status(400).json({ error: 'id invalido' }); return; }
+  if (!mongoose.isValidObjectId(id)) { res.status(400).json({ error: 'id inválido' }); return; }
   if (id === req.user?.sub) {
-    res.status(409).json({ error: 'no podes borrar tu propia cuenta' });
+    res.status(409).json({ error: 'no podés borrar tu propia cuenta' });
     return;
   }
   const user = await User.findById(id).lean();

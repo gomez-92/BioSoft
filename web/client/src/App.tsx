@@ -108,10 +108,10 @@ function Contenido({ sesion, onSalir }: { sesion: Perfil; onSalir: () => void })
 
   return (
     <div className={`app${menuAbierto ? ' menu-abierto' : ''}`}>
-      <aside className="lateral" id="menu-lateral" aria-label="Menu">
+      <aside className="lateral" id="menu-lateral" aria-label="Menú">
         <div className="lateral-cabeza">
           <Marca deviceId={estado.deviceId} />
-          <button type="button" className="boton-icono lateral-cerrar" aria-label="Cerrar el menu"
+          <button type="button" className="boton-icono lateral-cerrar" aria-label="Cerrar el menú"
             onClick={() => setMenuAbierto(false)}>
             <Icono nombre="cerrar" tamaño={20} />
           </button>
@@ -125,9 +125,9 @@ function Contenido({ sesion, onSalir }: { sesion: Perfil; onSalir: () => void })
               bitacora es diagnostico del sistema: las dos, solo admin. */}
           {esAdmin && <>
             <p className="lateral-grupo">Placa</p>
-            <NavLink to="/configuracion"><Icono nombre="config" />Configuracion</NavLink>
-            <NavLink to="/bitacora"><Icono nombre="bitacora" />Bitacora</NavLink>
-            <p className="lateral-grupo">Administracion</p>
+            <NavLink to="/configuracion"><Icono nombre="config" />Configuración</NavLink>
+            <NavLink to="/bitacora"><Icono nombre="bitacora" />Bitácora</NavLink>
+            <p className="lateral-grupo">Administración</p>
             <NavLink to="/usuarios"><Icono nombre="usuarios" />Usuarios</NavLink>
           </>}
           <p className="lateral-grupo">Proyecto</p>
@@ -157,7 +157,7 @@ function Contenido({ sesion, onSalir }: { sesion: Perfil; onSalir: () => void })
         {/* Solo en el celular: boton del menu y la marca. En pantallas anchas
             la marca esta en el lateral. */}
         <header className="barra-superior">
-          <button type="button" className="boton-icono" aria-label="Abrir el menu"
+          <button type="button" className="boton-icono" aria-label="Abrir el menú"
             aria-expanded={menuAbierto} aria-controls="menu-lateral" onClick={() => setMenuAbierto(true)}>
             <Icono nombre="menu" tamaño={22} />
           </button>
@@ -170,11 +170,11 @@ function Contenido({ sesion, onSalir }: { sesion: Perfil; onSalir: () => void })
           <div className="barra-estado">
             <div className="conexiones">
               <span className="conexion" title={
-                !estado.conectado ? 'Este navegador perdio la conexion con el servidor del monitor.'
-                  : estado.brokerOk ? 'El servidor del monitor esta conectado al broker y recibe la telemetria.'
-                    : 'El servidor del monitor no llega al broker: no entra telemetria.'}>
+                !estado.conectado ? 'Este navegador perdió la conexión con el servidor del monitor.'
+                  : estado.brokerOk ? 'El servidor del monitor está conectado al broker y recibe la telemetría.'
+                    : 'El servidor del monitor no llega al broker: no entra telemetría.'}>
                 <span className={`punto ${estado.conectado && estado.brokerOk ? 'punto-ok' : 'punto-caido'}`} />
-                <b>Monitor</b>{estado.conectado ? (estado.brokerOk ? 'en linea' : 'sin broker') : 'sin servidor'}
+                <b>Monitor</b>{estado.conectado ? (estado.brokerOk ? 'en línea' : 'sin broker') : 'sin servidor'}
               </span>
               {estado.conectado && <EstadoPlaca placa={estado.placa} brokerOk={estado.brokerOk} />}
             </div>
@@ -187,16 +187,16 @@ function Contenido({ sesion, onSalir }: { sesion: Perfil; onSalir: () => void })
           <Route path="/corrida/:id" element={<DetalleCorrida />} />
           <Route path="/bitacora" element={sesion.role === 'admin'
             ? <Bitacora enVivo={estado.eventos} />
-            : <p className="empty panel">Solo los administradores ven la bitacora de la placa.</p>} />
+            : <p className="empty panel">Solo los administradores ven la bitácora de la placa.</p>} />
           <Route path="/configuracion" element={sesion.role === 'admin'
             ? <Configuracion placa={estado.placa} />
-            : <p className="empty panel">Solo los administradores ven y cambian la configuracion de la placa.</p>} />
+            : <p className="empty panel">Solo los administradores ven y cambian la configuración de la placa.</p>} />
           <Route path="/usuarios" element={sesion.role === 'admin'
             ? <Usuarios />
             : <p className="empty panel">Solo los administradores gestionan usuarios.</p>} />
           <Route path="/cuenta" element={<Cuenta />} />
           <Route path="/acerca" element={<Acerca />} />
-          <Route path="*" element={<p className="empty panel">Esa pagina no existe. <Link to="/">Ir al inicio</Link></p>} />
+          <Route path="*" element={<p className="empty panel">Esa página no existe. <Link to="/">Ir al inicio</Link></p>} />
         </Routes>
       </Suspense>
         </main>
@@ -222,7 +222,7 @@ function Marca({ deviceId }: { deviceId?: string | null }) {
 
 // Automatico / claro / oscuro. Es una preferencia de este navegador.
 const OPCIONES_TEMA: Array<{ valor: Preferencia; icono: string; nombre: string }> = [
-  { valor: 'auto', icono: 'auto', nombre: 'Automatico (como el sistema)' },
+  { valor: 'auto', icono: 'auto', nombre: 'Automático (como el sistema)' },
   { valor: 'claro', icono: 'sol', nombre: 'Claro' },
   { valor: 'oscuro', icono: 'luna', nombre: 'Oscuro' },
 ];

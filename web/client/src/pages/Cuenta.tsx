@@ -41,8 +41,8 @@ export function Cuenta() {
         </dl>
         <p className="tenue">
           {sesion?.role === 'admin'
-            ? 'Podes enviar configuracion a la placa, borrar corridas y gestionar usuarios.'
-            : 'Podes ver todo el monitor. Enviar configuracion, borrar corridas y gestionar usuarios queda para los administradores.'}
+            ? 'Podés enviar configuración a la placa, borrar corridas y gestionar usuarios.'
+            : 'Podés ver todo el monitor. Enviar configuración, borrar corridas y gestionar usuarios queda para los administradores.'}
         </p>
       </section>
 
@@ -57,7 +57,7 @@ export function Cuenta() {
         <label htmlFor="repetida">Repetila</label>
         <input id="repetida" type="password" autoComplete="new-password" minLength={8}
           value={repetida} onChange={(e) => setRepetida(e.target.value)} required />
-        <p className="tenue">Se cierran las demas sesiones abiertas con esta cuenta (otros navegadores, el celular).</p>
+        <p className="tenue">Se cierran las demás sesiones abiertas con esta cuenta (otros navegadores, el celular).</p>
         {error && <p className="login-error">{error}</p>}
         {ok && <p className="login-aviso" role="status">Contraseña cambiada.</p>}
         <div><button type="submit" className="boton boton-primario" disabled={enviando}>
