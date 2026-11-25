@@ -862,3 +862,35 @@ a.chip-corrida:hover { text-decoration: underline; }
 .acerca-enlaces { list-style: none; padding: 0; margin: 12px 0 0; display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 0.88rem; }
 .acerca-equipo { margin-top: 12px; }
 .acerca-equipo-fila { display: contents; }
+
+/* ---- Inicio ---- */
+.inicio-corrida .cabecera-run-titulo { align-items: center; }
+.inicio-ver { margin-left: auto; }
+.estado-lista { display: flex; flex-direction: column; gap: 12px; }
+.estado-fila { display: flex; gap: 10px; align-items: flex-start; }
+.estado-fila .punto { margin-top: 6px; flex: none; }
+.estado-titulo { margin: 0; color: var(--muted); font-size: 0.85rem; }
+.estado-valor { color: var(--text); font-weight: 600; margin-left: 4px; overflow-wrap: anywhere; }
+.estado-detalle { margin: 2px 0 0; font-size: 0.8rem; }
+.punto-desconocido { background: var(--muted); }
+.ultima-corrida { text-align: left; }
+.kpis { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 12px; }
+@container (min-width: 620px) { .kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.kpi { background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 12px; min-width: 0; }
+.kpi-valor { margin: 0; font-size: 1.6rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.kpi-rotulo { margin: 2px 0 0; color: var(--muted); font-size: 0.8rem; }
+.kpi-detalle { margin: 4px 0 0; font-size: 0.75rem; }
+.kpis-chicos .kpi-valor { font-size: 1.25rem; }
+.kpi-aviso { border-color: var(--warn); }
+.kpi-aviso .kpi-valor { color: var(--warn); }
+.barras { list-style: none; margin: 0 0 10px; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.barras li { display: grid; grid-template-columns: minmax(0, 11em) minmax(0, 1fr) 3ch; gap: 10px; align-items: center; font-size: 0.85rem; }
+.barras-nombre { overflow-wrap: anywhere; }
+.barras-pista { height: 8px; background: var(--panel-2); border-radius: 999px; overflow: hidden; }
+.barras-relleno { display: block; height: 100%; border-radius: 999px; min-width: 2px; }
+.barras-n { text-align: right; font-variant-numeric: tabular-nums; }
+.barra-ok { background: var(--ok); }
+.barra-neutra { background: var(--muted); }
+.barra-mal { background: var(--down); }
+.barra-aviso { background: var(--warn); }
+.lateral-nav a.lateral-en-curso .latido { width: 8px; height: 8px; margin-left: auto; }

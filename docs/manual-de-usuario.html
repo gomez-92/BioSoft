@@ -1409,13 +1409,14 @@ table.pins tbody td{padding:7px 12px 7px 0}
    (WiFi)              telemetría               (navegador)
 
   ┌────────┐   cifrado  ┌──────────┐            ┌──────────────┐
-  │ ESP32  │───────────▶│  Broker  │───────────▶│   En curso   │
-  └────────┘            └──────────┘   guarda   │   Historial  │
-                              │        y envía  │   Detalle    │
-                              ▼                 │   Bitácora   │
-                        ┌──────────┐            └──────────────┘
-                        │   Base   │  histórico de experimentos
-                        └──────────┘  y bitácora (una semana)
+  │ ESP32  │───────────▶│  Broker  │───────────▶│   Inicio     │
+  └────────┘            └──────────┘   guarda   │   En curso   │
+                              │        y envía  │   Historial  │
+                              ▼                 │   Detalle    │
+                        ┌──────────┐            │   Bitácora   │
+                        │   Base   │            └──────────────┘
+                        └──────────┘  histórico de experimentos
+                                      y bitácora (una semana)
 </pre>
 
     <p>El acceso requiere usuario y contraseña. La dirección y las credenciales
@@ -1446,7 +1447,45 @@ table.pins tbody td{padding:7px 12px 7px 0}
         oscuro. Se recuerda en cada navegador.</li>
     </ul>
 
+    <h3>Pantalla «Inicio»</h3>
+
+    <p>Es la que se abre al entrar. Reúne el estado del sistema de un
+      vistazo:</p>
+
+    <ul>
+      <li><strong>Corrida abierta</strong>: si hay un experimento o una prueba
+        en marcha, arriba de todo aparece su número, el estado general, el
+        modo, el avance y el botón <strong>Ver en curso</strong>.</li>
+      <li><strong>Estado del sistema</strong>: el servidor del monitor, el
+        broker, la interfaz del equipo (encendida hace cuánto, última
+        respuesta), la placa de control, la red WiFi con su señal y la
+        configuración con la que corre. Cada línea lleva un punto verde, rojo
+        o gris (sin datos).</li>
+      <li><strong>Última corrida</strong>: cómo terminó la más reciente, con
+        enlace a su detalle.</li>
+      <li><strong>Experimentos</strong>: cuántos hay en total y en los últimos
+        30 días, las horas de exposición acumuladas, cuántos fueron del grupo
+        tratado (campo X) y cuántos del grupo control (campo nulo), y cuántas
+        pruebas hay aparte.</li>
+      <li><strong>Cómo terminaron</strong> y <strong>alertas más
+        frecuentes</strong>: completados, detenidos, cortados por alerta o sin
+        cierre, y qué alertas se repiten. Es la forma rápida de ver si el
+        equipo es confiable.</li>
+      <li><strong>Salud del equipo</strong> (solo administradores): reinicios
+        de la placa de control, caídas del enlace o del broker y otros
+        problemas registrados en la Bitácora durante la última semana.</li>
+    </ul>
+
+    <p>Las pruebas nunca entran en los números de experimentos, las horas
+      ni las alertas: son datos de banco. Una corrida sin marca de tipo
+      (firmware anterior a la marca) sí cuenta como experimento, porque pudo
+      haber tenido animales.</p>
+
     <h3>Pantalla «En curso»</h3>
+
+    <p>Aparece en el menú solo mientras hay una corrida abierta, con un punto
+      que late del color del estado general. Al terminar la corrida, la
+      página vuelve sola a Inicio, que muestra cómo terminó.</p>
 
     <p>Es la que responde la única pregunta que importa desde lejos: si el
       experimento marcha bien. Muestra el número de corrida junto al título

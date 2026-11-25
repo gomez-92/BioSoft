@@ -190,6 +190,12 @@ npm run dev           # backend :4000, front :5173
 npm test              # the three suites
 ```
 
+**On this Windows machine run vitest from an upper-case `C:\`** (PowerShell,
+`Set-Location 'C:\...\web\server'; npx vitest run`). With the cwd as `c:\`
+or `/c/` every file fails before running a test ("failed to find the current
+suite" / "reading 'config'") because Vite loads `vitest` twice; the code is
+not at fault.
+
 Its Mongo-backed tests **skip themselves with a message** when the compose
 stack isn't up, rather than failing as if the code were broken. Each test file
 uses **its own database** (`biosoft_test_<name>`): vitest runs files in
@@ -1989,6 +1995,20 @@ Other things worth knowing before touching it:
   window bottom without adding a scrollbar). The generator needs
   `[hidden]{display:none !important}`: its `display:flex` blocks otherwise
   ignore `hidden`.
+- **Inicio is the home page; En curso exists only during a run**
+  (2026-11-24). `/` is `pages/Inicio.tsx`: banner of the open run (links to
+  `/en-curso`), system status (monitor, broker, ESP32, Mega, WiFi, config —
+  from the ping), last run, and stats from **`GET /api/stats`**
+  (`domain/estadisticas.ts`, any session; the `equipo` block — bitacora
+  counts of the last 7 days — only for admins, role read from the DB).
+  Experiments = `normal` + `unknown` like the Historial tab; tests are counted
+  apart and never enter hours, endings or alerts. The aggregation is the pure
+  `resumirCorridas()` (`test/estadisticas.test.ts`, no Mongo). Stats are
+  refetched when a run opens or closes, not polled. The En curso nav entry
+  renders only with `estado.run`; `Live` without a run redirects to `/`,
+  but **only after the first snapshot** (`LiveState.snapshotRecibido`) —
+  before it `run: null` means "unknown yet", and redirecting would throw out
+  whoever reloads mid-run.
 - **Layout: sidebar, not tabs** (2026-11-23). ≥1000 px a fixed 240 px
   sidebar (groups Experimentos / Placa / Administracion / Proyecto, user +
   theme + Salir at its foot); below that a sticky top bar with a ☰ that

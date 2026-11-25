@@ -1,5 +1,5 @@
 import { Suspense, lazy, useEffect, useState } from 'react';
-import { BrowserRouter, Link, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import { BrowserRouter, Link, NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import { authFetch, clearToken, getToken, onSesionPerdida } from './lib/auth.js';
 import { useLive } from './lib/useLive.js';
 import type { Perfil } from './lib/types.js';
@@ -9,6 +9,7 @@ import { Icono } from './components/Icono.js';
 import { useTema, type Preferencia } from './lib/tema.js';
 import { Historial } from './pages/Historial.js';
 import { Live } from './pages/Live.js';
+import { Inicio } from './pages/Inicio.js';
 import { Login } from './pages/Login.js';
 import { Restablecer } from './pages/Restablecer.js';
 import { BotonArriba } from './components/BotonArriba.js';
@@ -84,7 +85,6 @@ function Contenido({ sesion, onSalir }: { sesion: Perfil; onSalir: () => void })
   // El socket vive en el nivel de la app, no de la pantalla En curso: asi
   // navegar al historial y volver no reconecta ni vuelve a pedir el snapshot.
   const estado = useLive();
-  const navigate = useNavigate();
   const ubicacion = useLocation();
   const esAdmin = sesion.role === 'admin';
   // Menu lateral: fijo en pantallas anchas, cajon que se abre con el boton
@@ -118,8 +118,16 @@ function Contenido({ sesion, onSalir }: { sesion: Perfil; onSalir: () => void })
         </div>
 
         <nav className="lateral-nav" aria-label="Secciones">
+          <NavLink to="/" end><Icono nombre="inicio" />Inicio</NavLink>
           <p className="lateral-grupo">Experimentos</p>
-          <NavLink to="/" end><Icono nombre="vivo" />En curso</NavLink>
+          {/* En curso existe solo mientras hay una corrida abierta: sin ella
+              no hay nada que mirar y la pagina manda a Inicio. */}
+          {estado.run && (
+            <NavLink to="/en-curso" className="lateral-en-curso">
+              <Icono nombre="vivo" />En curso
+              <span className={`latido latido-${estado.status?.health ?? 'normal'}`} aria-label="corrida abierta" />
+            </NavLink>
+          )}
           <NavLink to="/historial"><Icono nombre="historial" />Historial</NavLink>
           {/* Configuracion muestra redes WiFi y broker de la placa, y la
               bitacora es diagnostico del sistema: las dos, solo admin. */}
@@ -182,7 +190,8 @@ function Contenido({ sesion, onSalir }: { sesion: Perfil; onSalir: () => void })
 
       <Suspense fallback={<p className="empty panel">Cargando...</p>}>
         <Routes>
-          <Route path="/" element={<Live estado={estado} onVerCorrida={(id) => navigate(`/corrida/${id}`)} />} />
+          <Route path="/" element={<Inicio estado={estado} />} />
+          <Route path="/en-curso" element={<Live estado={estado} />} />
           <Route path="/historial" element={<Historial />} />
           <Route path="/corrida/:id" element={<DetalleCorrida />} />
           <Route path="/bitacora" element={sesion.role === 'admin'

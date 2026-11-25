@@ -1,6 +1,7 @@
 import { Suspense, lazy, useEffect, useState } from 'react';
+import { Navigate } from 'react-router-dom';
 import {
-  antiguedad, avanceFinal, duracion, duracionPedida, esCampoNulo, esViejo, horaCorta, nombreModo, nombreMotivo,
+  antiguedad, duracion, duracionPedida, esCampoNulo, esViejo, horaCorta, nombreModo,
   nombreSalud, numero, numeroCorrida, relajacionesConAviso,
 } from '../lib/format.js';
 import { bobinasHabilitadas, filtrarBobinas, sinCorriente } from '../lib/bobinas.js';
@@ -17,10 +18,11 @@ const GraficosEnVivo = lazy(() => import('../components/GraficosEnVivo.js'));
 
 // Pantalla En curso. La que se mira desde afuera del laboratorio, casi siempre
 // desde un celular, para contestar una sola pregunta: el experimento, ¿va bien?
+// Solo existe con una corrida abierta: sin ella manda a Inicio, que muestra
+// como termino la ultima (al terminar la corrida que se esta mirando, el
+// salto lleva justo a ese resultado).
 
-export function Live({ estado, onVerCorrida }: {
-  estado: LiveState; onVerCorrida: (id: string) => void;
-}) {
+export function Live({ estado }: { estado: LiveState }) {
   // Un reloj propio para poder envejecer los datos en pantalla. Sin esto, un
   // valor de hace diez minutos se ve igual de fresco que uno de recien.
   const [ahora, setAhora] = useState(() => Date.now());
@@ -36,11 +38,15 @@ export function Live({ estado, onVerCorrida }: {
   const config = useConfigDeCorrida(targets?.configId);
   const habilitadas = bobinasHabilitadas(config);
 
+  // Antes del primer snapshot `run: null` no dice nada: redirigir ahi
+  // sacaria de En curso a quien recarga la pagina en medio de una corrida.
+  if (!enCurso) {
+    return estado.snapshotRecibido ? <Navigate to="/" replace /> : <p className="empty panel">Cargando...</p>;
+  }
+
   return (
     <>
       <Avisos estado={estado} ahora={ahora} />
-
-      {!enCurso && <SinExperimento estado={estado} onVerCorrida={onVerCorrida} />}
 
       {enCurso && (
         <>
@@ -128,7 +134,7 @@ export function Live({ estado, onVerCorrida }: {
 // Los avisos van arriba de todo porque cambian el significado de TODO lo que
 // esta debajo: con el enlace caido, los numeros siguen ahi pero ya no
 // describen lo que esta pasando.
-function Avisos({ estado, ahora }: { estado: LiveState; ahora: number }) {
+export function Avisos({ estado, ahora }: { estado: LiveState; ahora: number }) {
   const avisos: string[] = [];
   if (!estado.conectado) {
     avisos.push('Sin conexión con el servidor. Los valores son los últimos recibidos.');
@@ -160,45 +166,7 @@ function Avisos({ estado, ahora }: { estado: LiveState; ahora: number }) {
   );
 }
 
-function SinExperimento({ estado, onVerCorrida }: {
-  estado: LiveState; onVerCorrida: (id: string) => void;
-}) {
-  const resultado = estado.ultimoResultado;
-  // Los objetivos siguen en el estado tras el cierre: de ahi sale la duracion.
-  const final = avanceFinal(resultado, estado.targets?.dur);
-  return (
-    <section className="panel vacio">
-      <h2>Sin experimento en curso</h2>
-      {resultado ? (
-        <div className={`resultado resultado-${resultado.reason}`}>
-          <p className="tenue">
-            Última corrida{numeroCorrida(resultado.runNumber) ? ` ${numeroCorrida(resultado.runNumber)}` : ''}
-            {resultado.ts ? `, terminada ${new Date(resultado.ts).toLocaleString('es-AR')}` : ''}
-          </p>
-          {resultado.runType && <div className="encabezado-run centrado"><TipoCorrida runType={resultado.runType} /></div>}
-          <p className="resultado-motivo">{nombreMotivo(resultado.reason)}</p>
-          {resultado.description && <p className="resultado-detalle">{resultado.description}</p>}
-          <p className="resultado-datos">
-            {final.porcentaje !== undefined && `${final.porcentaje}% completado`}
-            {final.segundos !== undefined && ` · ${duracion(final.segundos)}`}
-            {resultado.meanMagneticField !== undefined
-              && ` · campo medio ${numero(resultado.meanMagneticField, 3)} mT`}
-          </p>
-          {resultado.runId && (
-            <button type="button" className="boton"
-              onClick={() => onVerCorrida(resultado.runId!)}>
-              Ver el detalle y los gráficos de esta corrida
-            </button>
-          )}
-        </div>
-      ) : (
-        <p className="empty">Cuando arranque uno, esta pantalla se actualiza sola.</p>
-      )}
-    </section>
-  );
-}
-
-function Salud({ health }: { health?: string }) {
+export function Salud({ health }: { health?: string }) {
   const clase = health ?? 'desconocido';
   return <span className={`chip chip-${clase}`}>{nombreSalud(health)}</span>;
 }
@@ -212,7 +180,7 @@ function Modo({ mode }: { mode?: string }) {
   return <span className={`chip chip-modo ${esNulo ? 'chip-nulo' : ''}`}>{nombreModo(mode)}</span>;
 }
 
-function Progreso({ status, startedAt }: { status: LiveState['status']; startedAt: string }) {
+export function Progreso({ status, startedAt }: { status: LiveState['status']; startedAt: string }) {
   const porcentaje = Math.min(100, Math.max(0, status?.progress ?? 0));
   return (
     <div className="progreso">

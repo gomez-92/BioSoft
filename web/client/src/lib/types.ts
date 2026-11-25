@@ -84,3 +84,22 @@ export interface PlacaStatus {
   /** Intensidad de la senal WiFi, en dBm. */
   rssi?: number | null;
 }
+
+/** GET /api/stats (server/src/domain/estadisticas.ts). */
+export interface Estadisticas {
+  generadoEn: string;
+  ventanaDias: number;
+  experimentos: {
+    total: number;
+    recientes: number;
+    tratado: number;
+    control: number;
+    sinMarca: number;
+    horasExposicion: number;
+    desenlaces: { completed: number; stopped: number; critical: number; lost: number; otro: number; sinCierre: number };
+    ultimoInicio: string | null;
+  };
+  pruebas: { total: number; recientes: number };
+  alertas: Array<{ source: string; type: string; cantidad: number }>;
+  equipo?: { dias: number; eventos: Record<string, number>; ultimoArranque: string | null };
+}

@@ -17,6 +17,8 @@ import type { EventoPlaca } from './bitacora.js';
 
 export interface LiveState {
   conectado: boolean;
+  /** Ya llego el primer snapshot: recien ahi `run: null` quiere decir "no hay corrida" y no "todavia no se". */
+  snapshotRecibido: boolean;
   brokerOk: boolean;
   deviceId: string | null;
   run: { id: string; number: number | null; startedAt: string; state: string; runType: RunType } | null;
@@ -33,7 +35,7 @@ export interface LiveState {
 }
 
 const VACIO: LiveState = {
-  conectado: false, brokerOk: false, deviceId: null, run: null, targets: null,
+  conectado: false, snapshotRecibido: false, brokerOk: false, deviceId: null, run: null, targets: null,
   measures: null, coils: null, status: null, alerts: [], ultimoResultado: null, placa: null,
   eventos: [],
 };
@@ -77,6 +79,7 @@ export function useLive(): LiveState {
     socket.on('snapshot', (snap: Snapshot) => {
       setState((s) => ({
         ...s,
+        snapshotRecibido: true,
         deviceId: snap.deviceId,
         brokerOk: snap.link.broker,
         run: snap.run

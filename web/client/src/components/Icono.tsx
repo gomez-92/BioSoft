@@ -2,6 +2,7 @@
 // libreria. Heredan el color del texto (currentColor).
 const TRAZOS: Record<string, string> = {
   // pulso de un monitor
+  inicio: 'M3 11l9-7 9 7M5 9.5V20h5v-6h4v6h5V9.5',
   vivo: 'M3 12h4l2-6 4 12 2-6h6',
   // reloj con flecha de "volver"
   historial: 'M3 12a9 9 0 1 0 3-6.7M3 4v5h5M12 7v5l3 2',

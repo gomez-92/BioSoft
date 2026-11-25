@@ -19,6 +19,7 @@ import { seedInitialUser } from './auth/seed.js';
 import { cargarSesiones } from './auth/sesiones.js';
 import { usuariosRouter } from './api/usuarios.js';
 import { escenariosRouter } from './api/escenarios.js';
+import { estadisticasRouter } from './api/estadisticas.js';
 import { sembrarEscenarios } from './domain/escenarios.js';
 import { connectMongo } from './db/mongo.js';
 import { initRunTracker, normalizarDuraciones, sweepStaleRuns } from './domain/runtracker.js';
@@ -77,6 +78,7 @@ app.use('/api', requireAuth, requiereBase, runsRouter);
 app.use('/api', requireAuth, requiereBase, configRouter);
 app.use('/api', requireAuth, requiereBase, escenariosRouter);
 app.use('/api', requireAuth, requiereBase, bitacoraRouter);
+app.use('/api', requireAuth, requiereBase, estadisticasRouter);
 app.use('/api/users', requireAuth, requiereBase, requireAdmin, usuariosRouter);
 
 // El front va DESPUES de las rutas de la API: su comodin atrapa todo lo que
