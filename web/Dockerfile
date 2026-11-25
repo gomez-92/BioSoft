@@ -34,6 +34,8 @@ COPY --from=build /app/package.json /app/package-lock.json ./
 COPY --from=build /app/server/package.json server/
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/server/dist ./server/dist
+# El manual de usuario: lo sirve la API (solo con sesion), no el front.
+COPY --from=build /app/server/manual ./server/manual
 COPY --from=build /app/client/dist ./client/dist
 
 # No correr como root.

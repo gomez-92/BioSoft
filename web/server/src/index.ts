@@ -20,6 +20,7 @@ import { cargarSesiones } from './auth/sesiones.js';
 import { usuariosRouter } from './api/usuarios.js';
 import { escenariosRouter } from './api/escenarios.js';
 import { estadisticasRouter } from './api/estadisticas.js';
+import { manualRouter } from './api/manual.js';
 import { sembrarEscenarios } from './domain/escenarios.js';
 import { connectMongo } from './db/mongo.js';
 import { initRunTracker, normalizarDuraciones, sweepStaleRuns } from './domain/runtracker.js';
@@ -71,6 +72,8 @@ app.use('/api', requiereBase, authRouter);
 app.use('/api', requireAuth, healthRouter);
 // El ping no toca la base: tiene que contestar aunque Mongo este caido.
 app.use('/api', requireAuth, boardRouter);
+// El manual tampoco: son dos archivos, no hay base de por medio.
+app.use('/api', requireAuth, manualRouter);
 app.use('/api', requireAuth, requiereBase, liveRouter);
 // Los caminos de escritura (mandar configuracion, borrar corridas) exigen
 // ademas el rol admin; cada router lo pide en las rutas que corresponde.

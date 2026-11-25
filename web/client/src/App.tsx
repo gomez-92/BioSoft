@@ -26,6 +26,8 @@ const Configuracion = lazy(() =>
   import('./pages/Configuracion.js').then((m) => ({ default: m.Configuracion })));
 const Usuarios = lazy(() => import('./pages/Usuarios.js').then((m) => ({ default: m.Usuarios })));
 const Cuenta = lazy(() => import('./pages/Cuenta.js').then((m) => ({ default: m.Cuenta })));
+// El manual: un marco con la copia de docs/, aparte como el resto.
+const Manual = lazy(() => import('./pages/Manual.js').then((m) => ({ default: m.Manual })));
 const Bitacora = lazy(() => import('./pages/Bitacora.js').then((m) => ({ default: m.Bitacora })));
 
 export function App() {
@@ -139,6 +141,7 @@ function Contenido({ sesion, onSalir }: { sesion: Perfil; onSalir: () => void })
             <NavLink to="/usuarios"><Icono nombre="usuarios" />Usuarios</NavLink>
           </>}
           <p className="lateral-grupo">Proyecto</p>
+          <NavLink to="/manual"><Icono nombre="manual" />Manual de usuario</NavLink>
           <NavLink to="/acerca"><Icono nombre="info" />Acerca de</NavLink>
         </nav>
 
@@ -204,6 +207,7 @@ function Contenido({ sesion, onSalir }: { sesion: Perfil; onSalir: () => void })
             ? <Usuarios />
             : <p className="empty panel">Solo los administradores gestionan usuarios.</p>} />
           <Route path="/cuenta" element={<Cuenta />} />
+          <Route path="/manual" element={<Manual />} />
           <Route path="/acerca" element={<Acerca />} />
           <Route path="*" element={<p className="empty panel">Esa página no existe. <Link to="/">Ir al inicio</Link></p>} />
         </Routes>

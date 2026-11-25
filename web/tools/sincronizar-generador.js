@@ -19,6 +19,19 @@ fs.mkdirSync(path.dirname(destino), { recursive: true });
 fs.copyFileSync(origen, destino);
 console.log(`Generador copiado a ${path.relative(process.cwd(), destino)}`);
 
+// El manual de usuario (docs/manual-de-usuario.html y su PDF) se lee desde la
+// pagina Manual del monitor: misma razon de la copia y mismo control
+// (server/test/manual.test.ts). Va al SERVIDOR y no a client/public/, porque
+// es solo para quien tiene cuenta: lo de public/ se sirve sin sesion, y
+// server/src/api/manual.ts lo entrega detras de requireAuth.
+const docs = path.join(__dirname, '..', '..', 'docs');
+const destinoDocs = path.join(__dirname, '..', 'server', 'manual');
+fs.mkdirSync(destinoDocs, { recursive: true });
+for (const archivo of ['manual-de-usuario.html', 'manual-de-usuario.pdf']) {
+  fs.copyFileSync(path.join(docs, archivo), path.join(destinoDocs, archivo));
+  console.log(`Manual copiado a ${path.relative(process.cwd(), path.join(destinoDocs, archivo))}`);
+}
+
 // Los escenarios de fabrica (tools/escenarios.json) van al servidor, que los
 // siembra en la biblioteca la primera vez. Como modulo .ts y no como .json:
 // asi entra al build de tsc sin import attributes. Mismo control que el

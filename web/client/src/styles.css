@@ -538,6 +538,27 @@ body.sin-scroll { overflow: hidden; }
 .panel-generador { padding: 0; overflow: hidden; margin-top: 12px; }
 .generador { width: 100%; min-height: 600px; border: 0; display: block; }
 
+/* Manual de usuario: la copia de docs/ en un marco que crece al alto del
+   contenido (lo mide la pagina, ver Manual.tsx). Oculto hasta cargar, para
+   que no destelle claro antes de recibir el tema del monitor. */
+.manual-barra { display: flex; align-items: center; justify-content: space-between; gap: 12px 20px; flex-wrap: wrap; }
+.manual-titulo { margin: 0; font-size: 1.25rem; }
+.manual-barra .subtitle { margin: 2px 0 0; }
+.manual-acciones { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.manual-acciones .boton { margin-top: 0; display: inline-flex; align-items: center; gap: 6px; }
+.manual-secciones {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 0.82rem;
+  max-width: 100%;
+}
+.panel-manual { padding: 0; overflow: hidden; margin-top: 12px; }
+.manual { width: 100%; min-height: 600px; border: 0; display: block; }
+.manual-cargando { visibility: hidden; }
+
 .config-franja {
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 10px 14px; margin-top: 12px;
   font-size: 0.85rem;
@@ -894,3 +915,4 @@ a.chip-corrida:hover { text-decoration: underline; }
 .barra-mal { background: var(--down); }
 .barra-aviso { background: var(--warn); }
 .lateral-nav a.lateral-en-curso .latido { width: 8px; height: 8px; margin-left: auto; }
+.manual-espera { padding: 24px 18px; }

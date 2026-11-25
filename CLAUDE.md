@@ -270,6 +270,11 @@ the author's machine, and Claude Code logs older than ~30 days are already
 gone. It skips its own output folder when scanning the repo but **not** the
 rest of `BioSoft/`: those thesis inventories were real work on 2026-08-21/24.
 
+**The monitor serves a copy of the manual** (HTML + PDF in
+`web/server/manual/`, page `/manual`): after regenerating the PDF run
+`npm run sync:generador` in `web/` — `server/test/manual.test.ts` fails
+while the copies differ.
+
 **The `.docx` is a one-way export, not a synchronized copy.** Re-running the
 script overwrites it. If the manual is ever edited in Word, that file becomes
 the authority and the changes have to come back to the HTML by hand — the same
@@ -2001,6 +2006,21 @@ Other things worth knowing before touching it:
   maskable 512 with the drawing inside the 80 % safe zone, 180
   `apple-touch-icon`) and the iOS meta tags in `index.html`. **No service
   worker on purpose**: a cached copy would show stale data as current.
+- **Manual de usuario page** (`pages/Manual.tsx`, `/manual`, sidebar group
+  Proyecto, 2026-11-25). **Only for users with an account** (user decision):
+  the copy lives in `web/server/manual/`, never in `client/public/` (anything
+  there is served to anyone), and `api/manual.ts` hands it out behind
+  `requireAuth` (`/api/manual`, `/api/manual.pdf`; the Dockerfile copies the
+  folder into the final image). Since an `src`/`href` would not carry the
+  token, the page fetches the HTML with `authFetch` and shows it in an
+  iframe via `srcdoc` (same origin as the page), and Descargar PDF / Abrir
+  aparte come from local blobs. Same one-scroll rule as the generator, but
+  the page does the measuring (iframe window's `ResizeObserver` on `body`),
+  so the manual posts nothing. The page adds `html.embebido` (manual CSS: no
+  `100vh`, no sticky TOC, single column) and `data-theme` (the manual
+  honours it over `prefers-color-scheme`); its `#sN` links scroll the parent
+  page, and the "Ir a una seccion" select is read from the manual's own
+  `nav.toc`, so no section list is duplicated.
 - **Inicio is the home page; En curso exists only during a run**
   (2026-11-24). `/` is `pages/Inicio.tsx`: banner of the open run (links to
   `/en-curso`), system status (monitor, broker, ESP32, Mega, WiFi, config —

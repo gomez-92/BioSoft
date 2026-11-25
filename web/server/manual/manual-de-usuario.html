@@ -1,0 +1,2300 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BioSoft — Manual de usuario</title>
+<style>
+/* ===========================================================================
+   Manual de usuario BioSoft — hoja de estilo unica, sin dependencias.
+   Pensada para dos destinos a la vez: lectura en pantalla y PDF impreso.
+   Todo lo que cambia entre uno y otro esta en el bloque @media print del
+   final; el resto es comun.
+   =========================================================================== */
+
+:root{
+  --ink:#191c20;
+  --ink-soft:#3d454e;
+  --muted:#6b7480;
+  --rule:#dfe4ea;
+  --rule-soft:#eef1f4;
+  --paper:#ffffff;
+  --canvas:#f4f2ee;
+  --accent:#0d5c63;
+  --accent-soft:#e6f0f0;
+  --warn:#8a5300;
+  --warn-soft:#fdf3e0;
+  --warn-rule:#e0a54a;
+  --stop:#9c2b20;
+  --stop-soft:#fbebe8;
+  --stop-rule:#d07469;
+  --sans: "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace;
+}
+
+/* Oscuro: lo decide el sistema, salvo que la pagina que embebe el manual
+   (el monitor web) fije el tema con data-theme en <html>. */
+@media screen and (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ink:#e8eaed; --ink-soft:#c3c9d1; --muted:#98a1ac;
+    --rule:#333b44; --rule-soft:#262c33;
+    --paper:#171a1e; --canvas:#101215;
+    --accent:#5fb8c0; --accent-soft:#14282b;
+    --warn:#e8b464; --warn-soft:#2b2216; --warn-rule:#7a5a22;
+    --stop:#f0928a; --stop-soft:#2c1917; --stop-rule:#7d3b33;
+  }
+}
+@media screen{
+  :root[data-theme="dark"]{
+    --ink:#e8eaed; --ink-soft:#c3c9d1; --muted:#98a1ac;
+    --rule:#333b44; --rule-soft:#262c33;
+    --paper:#171a1e; --canvas:#101215;
+    --accent:#5fb8c0; --accent-soft:#14282b;
+    --warn:#e8b464; --warn-soft:#2b2216; --warn-rule:#7a5a22;
+    --stop:#f0928a; --stop-soft:#2c1917; --stop-rule:#7d3b33;
+  }
+}
+
+/* Embebido en el monitor web (pagina Manual): el marco crece al alto del
+   contenido y la pagina del monitor es la unica que scrollea, asi que nada
+   puede medirse en vh ni quedar sticky; el indice lo da el monitor. */
+html.embebido .sheet{min-height:0;max-width:none;grid-template-columns:minmax(0,1fr);box-shadow:none}
+html.embebido nav.toc{display:none}
+html.embebido article{margin:0 auto}
+
+*{box-sizing:border-box}
+
+body{
+  margin:0;
+  background:var(--canvas);
+  color:var(--ink);
+  font-family:var(--sans);
+  font-size:17px;
+  line-height:1.65;
+  -webkit-font-smoothing:antialiased;
+}
+
+.sheet{
+  max-width:1180px;
+  margin:0 auto;
+  background:var(--paper);
+  min-height:100vh;
+  display:grid;
+  grid-template-columns:250px minmax(0,1fr);
+  gap:0;
+  box-shadow:0 0 0 1px var(--rule-soft);
+}
+@media screen and (max-width:960px){
+  .sheet{grid-template-columns:minmax(0,1fr)}
+  nav.toc{display:none}
+}
+
+/* ---------- portada ---------- */
+.cover{
+  grid-column:1/-1;
+  padding:78px 60px 48px;
+  border-bottom:1px solid var(--rule);
+  background:var(--accent-soft);
+}
+.cover .eyebrow{
+  font-family:var(--sans);
+  font-size:12px;
+  letter-spacing:.16em;
+  text-transform:uppercase;
+  color:var(--accent);
+  font-weight:700;
+  margin:0 0 14px;
+}
+.cover h1{
+  font-family:var(--sans);
+  font-size:50px;
+  line-height:1.05;
+  letter-spacing:-.02em;
+  margin:0 0 6px;
+  font-weight:700;
+}
+.cover .sub{
+  font-size:21px;
+  color:var(--ink-soft);
+  margin:0 0 26px;
+  max-width:34em;
+}
+.cover .meta{
+  font-family:var(--sans);
+  font-size:13px;
+  color:var(--muted);
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px 26px;
+  border-top:1px solid var(--rule);
+  padding-top:18px;
+}
+.cover .meta b{color:var(--ink-soft);font-weight:600}
+
+/* ---------- indice lateral ---------- */
+nav.toc{
+  border-right:1px solid var(--rule);
+  padding:34px 22px 60px 32px;
+  font-family:var(--sans);
+  font-size:13.5px;
+  align-self:start;
+  position:sticky;
+  top:0;
+  max-height:100vh;
+  overflow:auto;
+}
+nav.toc h2{
+  font-size:11px;
+  letter-spacing:.14em;
+  text-transform:uppercase;
+  color:var(--muted);
+  margin:0 0 14px;
+  font-weight:700;
+}
+nav.toc ol{list-style:none;margin:0;padding:0;counter-reset:toc}
+nav.toc li{margin:0 0 3px}
+nav.toc a{
+  display:flex;
+  gap:9px;
+  text-decoration:none;
+  color:var(--ink-soft);
+  padding:4px 8px 4px 0;
+  border-radius:4px;
+  line-height:1.35;
+}
+nav.toc a:hover{color:var(--accent)}
+nav.toc a .n{color:var(--muted);font-variant-numeric:tabular-nums;min-width:1.4em}
+nav.toc a.flag{color:var(--stop);font-weight:600}
+
+/* ---------- cuerpo ---------- */
+article{
+  padding:42px 60px 90px;
+  max-width:46em;
+}
+article > p:first-of-type{font-size:18px}
+
+h2{
+  font-family:var(--sans);
+  font-size:15px;
+  letter-spacing:.1em;
+  text-transform:uppercase;
+  color:var(--accent);
+  font-weight:700;
+  margin:52px 0 4px;
+  padding-top:22px;
+  border-top:2px solid var(--rule);
+}
+h2:first-of-type{margin-top:8px;border-top:0;padding-top:0}
+h2 + .h2title{
+  font-family:var(--sans);
+  font-size:31px;
+  line-height:1.18;
+  letter-spacing:-.015em;
+  font-weight:700;
+  margin:0 0 22px;
+}
+h3{
+  font-family:var(--sans);
+  font-size:19px;
+  font-weight:650;
+  margin:34px 0 8px;
+  letter-spacing:-.01em;
+}
+
+p{margin:0 0 16px}
+strong{font-weight:700}
+em{font-style:italic}
+
+ul,ol{margin:0 0 16px;padding-left:22px}
+li{margin:0 0 7px}
+li::marker{color:var(--muted)}
+
+code{
+  font-family:var(--mono);
+  font-size:.86em;
+  background:var(--rule-soft);
+  padding:1px 5px;
+  border-radius:3px;
+}
+
+a{color:var(--accent)}
+
+/* ---------- diagramas ---------- */
+/* Diagramas de cableado en texto monoespaciado: sobreviven identicos al
+   HTML, al PDF y a la exportacion a Word, que es lo que un SVG no haria. */
+pre.diagram{
+  font-family:var(--mono);
+  font-size:12.5px;
+  line-height:1.38;
+  background:var(--rule-soft);
+  border:1px solid var(--rule);
+  border-radius:5px;
+  padding:16px 18px;
+  margin:0 0 22px;
+  overflow-x:auto;
+  white-space:pre;
+}
+figure{margin:0 0 24px}
+figcaption{
+  font-family:var(--sans);
+  font-size:13px;
+  color:var(--muted);
+  margin-top:-12px;
+}
+
+/* ---------- tablas ---------- */
+.tablewrap{overflow-x:auto;margin:0 0 22px}
+table{
+  width:100%;
+  border-collapse:collapse;
+  font-family:var(--sans);
+  font-size:14.5px;
+  line-height:1.5;
+}
+thead th{
+  text-align:left;
+  font-size:11.5px;
+  letter-spacing:.09em;
+  text-transform:uppercase;
+  color:var(--muted);
+  font-weight:700;
+  padding:0 14px 8px 0;
+  border-bottom:1.5px solid var(--ink-soft);
+}
+tbody td{
+  padding:10px 14px 10px 0;
+  border-bottom:1px solid var(--rule-soft);
+  vertical-align:top;
+}
+tbody tr:last-child td{border-bottom:1px solid var(--rule)}
+tbody td:first-child{font-weight:600;color:var(--ink);width:30%}
+table.wide tbody td:first-child{width:24%}
+/* Tablas de pines: la primera columna es el numero de pin, angosta y
+   monoespaciada, para poder leerla de corrido contra la placa. */
+table.pins{font-size:13.5px}
+table.pins tbody td:first-child{width:11%;font-family:var(--mono);font-weight:600}
+table.pins tbody td{padding:7px 12px 7px 0}
+
+/* ---------- llamadas ---------- */
+.callout{
+  margin:0 0 24px;
+  padding:16px 20px;
+  border-left:4px solid var(--accent);
+  background:var(--accent-soft);
+  border-radius:0 5px 5px 0;
+  font-size:16px;
+}
+.callout > :last-child{margin-bottom:0}
+.callout .tag{
+  display:block;
+  font-family:var(--sans);
+  font-size:11px;
+  letter-spacing:.13em;
+  text-transform:uppercase;
+  font-weight:700;
+  color:var(--accent);
+  margin-bottom:6px;
+}
+.callout.warn{border-left-color:var(--warn-rule);background:var(--warn-soft)}
+.callout.warn .tag{color:var(--warn)}
+.callout.stop{border-left-color:var(--stop-rule);background:var(--stop-soft)}
+.callout.stop .tag{color:var(--stop)}
+
+/* Definicion destacada de un termino */
+.term{
+  margin:0 0 18px;
+  padding-left:16px;
+  border-left:2px solid var(--rule);
+}
+.term b{font-family:var(--sans);font-size:15px}
+
+/* ---------- impresion ---------- */
+@media print{
+  @page{ size:A4; margin:19mm 17mm 19mm; }
+
+  :root{
+    --ink:#000; --ink-soft:#1f2429; --muted:#5a626b;
+    --rule:#b9c0c7; --rule-soft:#dfe3e7;
+    --paper:#fff; --canvas:#fff;
+    --accent:#0b4a50; --accent-soft:#eef4f4;
+    --warn:#6d4100; --warn-soft:#fbf4e6; --warn-rule:#b58434;
+    --stop:#7d2018; --stop-soft:#fbeeec; --stop-rule:#b06055;
+  }
+
+  body{background:#fff;font-size:10.5pt;line-height:1.5}
+  .sheet{display:block;max-width:none;box-shadow:none;min-height:0}
+  nav.toc{display:none}
+
+  /* La portada ocupa su propia hoja. */
+  .cover{
+    padding:0;
+    border:0;
+    background:#fff;
+    break-after:page;
+    display:flex;
+    flex-direction:column;
+    justify-content:center;
+    min-height:225mm;
+  }
+  .cover h1{font-size:40pt}
+  .cover .sub{font-size:14pt}
+  .cover .meta{font-size:9pt}
+
+  /* Indice impreso, propio de esta version. */
+  .print-toc{display:block !important;break-after:page}
+
+  article{padding:0;max-width:none}
+
+  /* Cada seccion arranca en hoja nueva: el manual se consulta salteado,
+     no se lee de corrido, y buscar una seccion tiene que ser abrir una
+     hoja y no rastrear el medio de una. */
+  h2{break-before:page;margin-top:0;padding-top:0;border-top:0;font-size:10pt}
+  h2:first-of-type{break-before:avoid}
+  h2 + .h2title{font-size:22pt}
+  h3{font-size:13pt;margin-top:20px}
+
+  h2,h3,.h2title{break-after:avoid}
+  table,.callout,.term,figure,pre.diagram{break-inside:avoid}
+  tr{break-inside:avoid}
+  p{orphans:3;widows:3}
+  pre.diagram{font-size:8.2pt;background:#f0f2f4;border-color:#c9cfd5}
+  table.pins{font-size:9pt}
+
+  a{color:inherit;text-decoration:none}
+  code{background:#f0f2f4}
+}
+
+.print-toc{display:none}
+.print-toc h3{margin-top:0}
+.print-toc ol{list-style:none;padding:0;font-family:var(--sans);font-size:11pt}
+.print-toc li{
+  display:flex;
+  gap:12px;
+  padding:7px 0;
+  border-bottom:1px solid var(--rule-soft);
+}
+.print-toc .n{color:var(--muted);min-width:2em;font-variant-numeric:tabular-nums}
+</style>
+</head>
+<body>
+
+<div class="sheet">
+
+  <header class="cover">
+    <p class="eyebrow">Manual de usuario</p>
+    <h1>BioSoft</h1>
+    <p class="sub">Sistema de exposición controlada a campos electromagnéticos
+      de frecuencia extremadamente baja para experimentación con animales de
+      laboratorio.</p>
+    <div class="meta">
+      <span><b>Destinatario</b> · operador y personal técnico del equipo</span>
+      <span><b>Versión</b> · 2, septiembre de 2026</span>
+      <span><b>Estado</b> · equipo en desarrollo</span>
+      <span><b>Fuente</b> · docs/manual-de-usuario.html</span>
+    </div>
+  </header>
+
+  <nav class="toc">
+    <h2>Contenido</h2>
+    <ol>
+      <li><a href="#s1"><span class="n">1</span> Objeto del equipo</a></li>
+      <li><a href="#s2"><span class="n">2</span> Arquitectura del sistema</a></li>
+      <li><a href="#s3"><span class="n">3</span> Cableado del sistema</a></li>
+      <li><a href="#s4"><span class="n">4</span> Verificación del cableado</a></li>
+      <li><a href="#s5"><span class="n">5</span> Preparación previa</a></li>
+      <li><a href="#s6"><span class="n">6</span> Encendido y pantallas</a></li>
+      <li><a href="#s7"><span class="n">7</span> Configuración</a></li>
+      <li><a href="#s8"><span class="n">8</span> Inicio del experimento</a></li>
+      <li><a href="#s9"><span class="n">9</span> Supervisión</a></li>
+      <li><a href="#s10"><span class="n">10</span> Finalización</a></li>
+      <li><a href="#s11"><span class="n">11</span> Parada de emergencia</a></li>
+      <li><a href="#s12"><span class="n">12</span> Monitoreo remoto</a></li>
+      <li><a href="#s13"><span class="n">13</span> El monitor web</a></li>
+      <li><a href="#s14"><span class="n">14</span> La tarjeta SD</a></li>
+      <li><a href="#s15" class="flag"><span class="n">15</span> Limitaciones vigentes</a></li>
+      <li><a href="#s16"><span class="n">16</span> Diagnóstico de fallas</a></li>
+      <li><a href="#s17"><span class="n">17</span> Buenas prácticas</a></li>
+    </ol>
+  </nav>
+
+  <article>
+
+    <section class="print-toc">
+      <h3>Contenido</h3>
+      <ol>
+        <li><span class="n">1</span> Objeto del equipo</li>
+        <li><span class="n">2</span> Arquitectura del sistema</li>
+        <li><span class="n">3</span> Cableado del sistema</li>
+        <li><span class="n">4</span> Verificación del cableado</li>
+        <li><span class="n">5</span> Preparación previa al encendido</li>
+        <li><span class="n">6</span> Encendido y pantallas</li>
+        <li><span class="n">7</span> Configuración de un experimento</li>
+        <li><span class="n">8</span> Inicio de un experimento</li>
+        <li><span class="n">9</span> Supervisión durante el experimento</li>
+        <li><span class="n">10</span> Finalización del experimento</li>
+        <li><span class="n">11</span> Parada de emergencia</li>
+        <li><span class="n">12</span> Monitoreo remoto</li>
+        <li><span class="n">13</span> El monitor web</li>
+        <li><span class="n">14</span> La tarjeta SD</li>
+        <li><span class="n">15</span> Limitaciones vigentes</li>
+        <li><span class="n">16</span> Diagnóstico de fallas</li>
+        <li><span class="n">17</span> Buenas prácticas</li>
+      </ol>
+    </section>
+
+    <p>El presente documento describe la operación del sistema BioSoft: su
+      arquitectura, el cableado de sus componentes, el procedimiento de
+      configuración y ejecución de una exposición, la interpretación de la
+      información que presenta la interfaz y las acciones recomendadas ante
+      condiciones anómalas.</p>
+
+    <p>Está dirigido a dos lectores. El <strong>operador</strong> encontrará en
+      las secciones 5 a 16 lo necesario para conducir un experimento sin
+      conocimientos de programación. El <strong>personal técnico</strong> que
+      deba abrir el gabinete, verificar una conexión o reemplazar un componente
+      encontrará en las secciones 3 y 4 la descripción completa del cableado,
+      con la asignación de cada pin y un procedimiento de comprobación. En
+      ambos casos resulta indispensable comprender qué magnitudes mide el
+      equipo y bajo qué criterios interrumpe la exposición, dado que de ello
+      depende la validez de los resultados experimentales.</p>
+
+    <div class="callout stop">
+      <span class="tag">Advertencia preliminar</span>
+      <p><strong>BioSoft se encuentra en desarrollo.</strong> La sección 15
+        enumera los aspectos que aún no están calibrados, montados o
+        accesibles desde la interfaz. Su lectura es obligatoria antes de
+        emplear el equipo con animales, puesto que condiciona qué diseños
+        experimentales son válidos en el estado actual.</p>
+    </div>
+
+    <h2 id="s1">Sección 1</h2>
+    <p class="h2title">Objeto del equipo</p>
+
+    <p>BioSoft expone una muestra de animales de laboratorio a un <strong>campo
+      electromagnético de frecuencia extremadamente baja (ELF)</strong> de
+      intensidad y frecuencia controladas, sostenido durante un tiempo
+      definido, mientras verifica de forma continua que las condiciones de la
+      exposición se mantengan dentro de los márgenes admitidos por el
+      protocolo experimental.</p>
+
+    <p>Sus funciones son tres, y conviene distinguirlas:</p>
+
+    <ol>
+      <li><strong>Generación</strong> del campo: una señal senoidal de la
+        frecuencia seleccionada, con la intensidad de consigna, aplicada sobre
+        hasta cuatro bobinas.</li>
+      <li><strong>Medición</strong> en tiempo real de la intensidad de campo,
+        la temperatura y la corriente.</li>
+      <li><strong>Interrupción</strong> de la exposición cuando corresponde:
+        por cumplimiento de la duración programada, por detección de una
+        condición peligrosa o por decisión del operador.</li>
+    </ol>
+
+    <p>La tercera función es la que justifica el sistema. La generación de un
+      campo es un problema resuelto; lo que un experimento con animales exige
+      es que <strong>la decisión de detener la exposición no dependa de la
+      presencia de una persona</strong>.</p>
+
+    <h3>Los dos grupos experimentales</h3>
+
+    <p>El diseño experimental requiere un grupo tratado y un grupo control. El
+      equipo lo resuelve mediante dos <strong>modos de experimento</strong>:</p>
+
+    <div class="term"><b>Campo X</b><br>
+      Las cuatro bobinas contribuyen en fase. Es la condición de
+      exposición.</div>
+
+    <div class="term"><b>Campo nulo</b><br>
+      Dos de las bobinas reciben la señal invertida 180°, de modo que los
+      campos se cancelan. Los animales del grupo control quedan sometidos al
+      mismo ruido, vibración y temperatura del equipo en funcionamiento, pero
+      <strong>sin campo neto</strong>.</div>
+
+    <p>El campo nulo es lo que hace comparable al grupo control. Un control
+      obtenido apagando el equipo mediría el efecto de permanecer en un
+      recinto distinto, no el efecto del campo.</p>
+
+    <h2 id="s2">Sección 2</h2>
+    <p class="h2title">Arquitectura del sistema</p>
+
+    <p>El sistema está compuesto por dos placas de propósito distinto, unidas
+      por un enlace serie, más los transductores, actuadores y la etapa de
+      potencia que excita las bobinas.</p>
+
+    <div class="tablewrap"><table>
+      <thead><tr><th>Componente</th><th>Función</th></tr></thead>
+      <tbody>
+        <tr><td>Interfaz hombre-máquina (HMI)</td><td>Placa ESP32 con pantalla táctil de 2,8". Presenta el estado, permite configurar el experimento y publica telemetría por WiFi.</td></tr>
+        <tr><td>Placa de control</td><td>Arduino Mega 2560. Excita las bobinas, lee los sensores y decide cuándo interrumpir la exposición.</td></tr>
+        <tr><td>Bobinas (hasta 4)</td><td>Generan el campo. Se agrupan en dos pares de fase: 1-3 (fija) y 2-4 (invertible).</td></tr>
+        <tr><td>Sensores</td><td>Un magnetómetro, un termómetro y hasta cuatro sensores de corriente.</td></tr>
+        <tr><td>Etapa de potencia</td><td>Acondiciona la señal senoidal, la invierte para el campo nulo, le aplica la amplitud y la entrega a las bobinas.</td></tr>
+        <tr><td>Interruptor general</td><td>Relé que corta la alimentación de toda la etapa de potencia.</td></tr>
+        <tr><td>Pulsador de emergencia</td><td>Corte físico inmediato del experimento en curso.</td></tr>
+        <tr><td>Tarjeta SD</td><td>Archivo de configuración del equipo (sección 14).</td></tr>
+      </tbody>
+    </table></div>
+
+    <p><strong>La autoridad sobre la seguridad reside en la placa de control,
+      no en la interfaz.</strong> Si la pantalla se bloquea o se desconecta,
+      la placa de control continúa vigilando y conserva la capacidad de
+      cortar. La interfaz refleja y retransmite el estado; no lo decide.</p>
+
+    <p>Esta separación tiene una consecuencia operativa: cuando el enlace
+      entre ambas placas se interrumpe, la interfaz vuelve a la pantalla de
+      inicio, pero un experimento en curso <em>no</em> se detiene por ese
+      motivo. La placa de control lo lleva a término, lo corta por sus propias
+      reglas o responde al pulsador de emergencia, todo ello sin necesidad de
+      la pantalla.</p>
+
+    <h2 id="s3">Sección 3</h2>
+    <p class="h2title">Cableado del sistema</p>
+
+    <p>Esta sección documenta cómo está conectado el sistema, pin por pin, tal
+      como lo configura el firmware vigente. Su propósito es que quien abra el
+      gabinete pueda identificar cada conexión, comprobarla contra esta
+      referencia y reponerla si fue desconectada. Los números de pin son los
+      serigrafiados en cada placa; las direcciones I2C son las que el firmware
+      espera encontrar en el bus.</p>
+
+    <div class="callout warn">
+      <span class="tag">Alcance</span>
+      <p>Se documenta aquí lo que las placas de control e interfaz
+        <strong>entregan y reciben</strong>: señales lógicas, buses y
+        transductores. La etapa de potencia (amplificación, inversor, filtrado
+        y alimentación de las bobinas) constituye una frontera cuyo diseño
+        eléctrico se describe en <code>docs/coil-excitation.md</code> y cuyo
+        montaje está pendiente (sección 15). Las bobinas están caracterizadas
+        en un trabajo previo cuyos datos no se incorporan en este manual.</p>
+    </div>
+
+    <h3>3.1 Vista general</h3>
+
+    <figure>
+<pre class="diagram">
+ ┌───────────────────────────┐   enlace serie 9600 8N1   ┌───────────────────────────────┐
+ │ HMI · ESP32 (JC2432W328C) │                           │ CONTROL · Arduino Mega 2560   │
+ │                           │ GPIO22 (TX2) ──► RX1 (19) │                               │
+ │ pantalla ST7789   (HSPI)  │ GPIO35 (RX2) ◄── TX1 (18) │ I2C  SDA 20 / SCL 21          │
+ │ táctil CST816S    (I2C)   │ GND ───────────── GND     │   ├─ MLX90393  0x0C  campo    │
+ │ ranura SD         (VSPI)  │                           │   ├─ ADS1115   0x48  corriente│
+ │ WiFi → MQTT (telemetría)  │                           │   └─ ADS1115   0x49  corriente│
+ └───────────────────────────┘                           │ OneWire pin 2 ─ DS18B20 TEMP1 │
+                                                         │ SPI 50/51/52 + CS 5 ─ AD9833  │
+                                                         │ A0 ─ magnetómetro simulado    │
+ ┌────────────────────────────────────────────────────┐  │ A1 ─ termómetro simulado      │
+ │ ETAPA DE POTENCIA (fuera del firmware)             │  │ PWM 44/45/46/6 ─► intensidad  │
+ │                                                    │◄─┤ EN  23/24/25/26 ─► habilitar  │
+ │ senoidal ─► directa ─────────────► bobinas 1 y 3   │◄─┤ 22 ─► selector de modo (mux)  │
+ │          └► inversor ─► mux ─────► bobinas 2 y 4   │◄─┤ 3  ─► relé general (act. alto)│
+ │ PWM ─► filtro RC ─► nivel DC ─► amplitud           │  │ 28 ◄─ pulsador de emergencia  │
+ └────────────────────────────────────────────────────┘  └───────────────────────────────┘
+</pre>
+      <figcaption>Figura 1. Diagrama de bloques del sistema con los pines
+        que utiliza cada interfaz.</figcaption>
+    </figure>
+
+    <h3>3.2 Placa de control: asignación de pines</h3>
+
+    <p>Tabla completa de los pines del Mega 2560 que el firmware configura.
+      «Sentido» se indica desde el punto de vista de la placa.</p>
+
+    <div class="tablewrap"><table class="pins">
+      <thead><tr><th>Pin</th><th>Función</th><th>Sentido</th><th>Observaciones</th></tr></thead>
+      <tbody>
+        <tr><td>2</td><td>Bus OneWire — termómetro DS18B20 (TEMP1)</td><td>bidireccional</td><td>Requiere resistencia de <em>pull-up</em> de 4,7 kΩ entre la línea de datos y +5 V. Solo se atiende el sensor cuyo código ROM coincide con el configurado (de fábrica, <code>28 3F E5 57 04 E1 3D ED</code>; ver 3.5).</td></tr>
+        <tr><td>3</td><td>Relé del interruptor general</td><td>salida</td><td><strong>Activo en alto</strong>: HIGH = relé cerrado = etapa de potencia habilitada. LOW, pin desconectado o placa sin alimentación = relé abierto. El driver del relé lleva <em>pull-down</em> en su entrada. Al arrancar queda en LOW (abierto).</td></tr>
+        <tr><td>5</td><td>FSYNC (chip select) del generador AD9833</td><td>salida</td><td>Junto con el bus SPI de hardware (pines 50-52).</td></tr>
+        <tr><td>6</td><td>PWM de intensidad — bobina 4 (BOB4)</td><td>salida</td><td>Timer4, 3906 Hz. Asignación provisoria: confirmar contra el ruteo de la placa.</td></tr>
+        <tr><td>18</td><td>TX1 — enlace serie hacia la HMI</td><td>salida</td><td>Va al GPIO35 (RX2) del ESP32. Ver 3.3.</td></tr>
+        <tr><td>19</td><td>RX1 — enlace serie desde la HMI</td><td>entrada</td><td>Viene del GPIO22 (TX2) del ESP32.</td></tr>
+        <tr><td>20</td><td>SDA — bus I2C</td><td>bidireccional</td><td>Magnetómetro MLX90393 y módulos ADS1115. <em>Pull-ups</em> provistos por los módulos.</td></tr>
+        <tr><td>21</td><td>SCL — bus I2C</td><td>salida</td><td>Ídem.</td></tr>
+        <tr><td>22</td><td>Selector de modo de experimento (mux de fase)</td><td>salida</td><td>HIGH = campo nulo, LOW = campo X. La polaridad está fijada en firmware como provisoria hasta confirmar el cableado del multiplexor.</td></tr>
+        <tr><td>23</td><td>Habilitación — bobina 1 (BOB1)</td><td>salida</td><td>Activo en alto: HIGH = bobina habilitada; LOW o desconectado = cortada. Entrada digital a la etapa de estado sólido, con <em>pull-down</em> del lado de la etapa.</td></tr>
+        <tr><td>24</td><td>Habilitación — bobina 2 (BOB2)</td><td>salida</td><td>Ídem.</td></tr>
+        <tr><td>25</td><td>Habilitación — bobina 3 (BOB3)</td><td>salida</td><td>Ídem. Canal declarado, no registrado por defecto.</td></tr>
+        <tr><td>26</td><td>Habilitación — bobina 4 (BOB4)</td><td>salida</td><td>Ídem. Canal declarado, no registrado por defecto.</td></tr>
+        <tr><td>28</td><td>Pulsador de emergencia</td><td>entrada</td><td><em>Pull-up</em> interno activado. Contacto normalmente cerrado: en reposo une el pin a GND y al presionarse lo abre. Antirrebote de 30 ms por software. En reposo el pin debe leer 0 V; si al arrancar se lee presionado (cable cortado o desconectado), el log lo advierte y la corriente no se mide.</td></tr>
+        <tr><td>44</td><td>PWM de intensidad — bobina 1 (BOB1)</td><td>salida</td><td>Timer5, 3906 Hz, 8 bits.</td></tr>
+        <tr><td>45</td><td>PWM de intensidad — bobina 2 (BOB2)</td><td>salida</td><td>Timer5, 3906 Hz.</td></tr>
+        <tr><td>46</td><td>PWM de intensidad — bobina 3 (BOB3)</td><td>salida</td><td>Timer5, 3906 Hz.</td></tr>
+        <tr><td>50</td><td>MISO — bus SPI</td><td>entrada</td><td>No utilizado por el AD9833 (solo escritura), pero forma parte del bus.</td></tr>
+        <tr><td>51</td><td>MOSI — bus SPI (SDATA del AD9833)</td><td>salida</td><td></td></tr>
+        <tr><td>52</td><td>SCK — bus SPI (SCLK del AD9833)</td><td>salida</td><td></td></tr>
+        <tr><td>A0</td><td>Magnetómetro simulado (tensión analógica)</td><td>entrada</td><td>0–5 V se mapean linealmente a 0–3 mT. Solo para banco; si queda sin conectar, la lectura es ruido.</td></tr>
+        <tr><td>A1</td><td>Termómetro simulado (tensión analógica)</td><td>entrada</td><td>0–5 V se mapean linealmente a 0–50 °C (10 °C por volt). Solo se lee con el sensor de TEMP1 en <em>sim</em> (sección 14); con un potenciómetro se recorren todas las zonas de los menús. Solo para banco.</td></tr>
+        <tr><td>USB</td><td>Consola de depuración</td><td>—</td><td>115200 baudios. Es la vía de diagnóstico de la sección 4.</td></tr>
+      </tbody>
+    </table></div>
+
+    <p>Los pines 2, 3 y 5 comparten el Timer3 y, por estar ocupados, dejan ese
+      temporizador fuera del uso como PWM. Los pines 4 y 13 (Timer0) y 9 y 10
+      (Timer2) están excluidos deliberadamente del PWM de intensidad: el
+      primero es la base de tiempo de <code>millis()</code> y de todas las
+      tareas periódicas del firmware; el segundo tiene una tabla de divisores
+      distinta. De ahí que los cuatro canales de intensidad se ubiquen en
+      Timer5 (44, 45, 46) y Timer4 (6).</p>
+
+    <h3>3.3 Enlace serie entre placas</h3>
+
+    <p>Las dos placas se comunican por un UART de hardware a
+      <strong>9600 baudios, 8N1</strong>, con un protocolo de tramas propio
+      (STX, longitud, JSON, CRC-8, ETX). La conexión es cruzada y requiere
+      masa común:</p>
+
+    <div class="tablewrap"><table>
+      <thead><tr><th>ESP32 (HMI)</th><th>Mega 2560 (control)</th></tr></thead>
+      <tbody>
+        <tr><td>GPIO22 — TX2</td><td>pin 19 — RX1</td></tr>
+        <tr><td>GPIO35 — RX2</td><td>pin 18 — TX1</td></tr>
+        <tr><td>GND</td><td>GND</td></tr>
+      </tbody>
+    </table></div>
+
+    <div class="callout warn">
+      <span class="tag">Niveles lógicos</span>
+      <p>El Mega 2560 trabaja a 5 V y el ESP32 a 3,3 V. La rama
+        <strong>TX1 (Mega) → GPIO35 (ESP32)</strong> entrega 5 V a una entrada
+        de 3,3 V y debe pasar por un adaptador de nivel o un divisor
+        resistivo. La rama inversa (3,3 V hacia una entrada del Mega) es
+        directa. El firmware no puede verificar la presencia de ese adaptador;
+        forma parte de la comprobación física de la sección 4.</p>
+    </div>
+
+    <p>La vitalidad del enlace se comprueba con un intercambio periódico
+      <em>ping/pong</em> cada 2 s. Mientras no haya respuesta, la interfaz
+      permanece en la pantalla de inicio.</p>
+
+    <h3>3.4 Bus I2C de la placa de control</h3>
+
+    <p>Tres dispositivos comparten el bus (SDA 20, SCL 21). Al arrancar, el
+      firmware recorre las 127 direcciones posibles y registra en la consola
+      cuáles responden, lo que permite distinguir un bus muerto (cableado o
+      alimentación) de un dispositivo en una dirección distinta de la
+      esperada.</p>
+
+    <div class="tablewrap"><table>
+      <thead><tr><th>Dirección</th><th>Dispositivo</th><th>Observaciones</th></tr></thead>
+      <tbody>
+        <tr><td>0x0C</td><td>MLX90393 — magnetómetro (CEM1)</td><td>Dirección por defecto del módulo (pines de dirección a masa). Es un dispositivo de 3,3 V: alimentar según lo que admita el módulo utilizado.</td></tr>
+        <tr><td>0x48</td><td>ADS1115 n.° 1 — corriente, canales SCT013-1 y SCT013-2</td><td>Pin ADDR a GND.</td></tr>
+        <tr><td>0x49</td><td>ADS1115 n.° 2 — corriente, canales SCT013-3 y SCT013-4</td><td>Pin ADDR a VDD. Declarado en firmware; <strong>no existe físicamente todavía</strong>.</td></tr>
+      </tbody>
+    </table></div>
+
+    <h3>3.5 Sensores</h3>
+
+    <p><strong>Magnetómetro (CEM1).</strong> Un único MLX90393 por I2C. Es el
+      sensor que cierra el lazo de intensidad, por lo que su posición respecto
+      de las bobinas forma parte de la calibración: si se desplaza, los
+      factores de corrección dejan de ser válidos. El firmware conserva un
+      segundo magnetómetro <em>simulado</em>, que lee una tensión en A0, y el
+      archivo de configuración decide cuál de los dos está activo. El
+      simulado no guarda relación física con el campo real y solo sirve para
+      ensayar el firmware en banco.</p>
+
+    <p><strong>Termómetro (TEMP1).</strong> Un DS18B20 sobre bus OneWire en el
+      pin 2, alimentado a 5 V, con <em>pull-up</em> de 4,7 kΩ en la línea de
+      datos. El firmware direcciona el sensor por su código ROM de 64 bits;
+      si se reemplaza la unidad física por otra, la dirección configurada no
+      coincidirá y la lectura será −127 °C, que el firmware descarta como
+      inválida sin indicar por qué. Reemplazar el sensor no requiere
+      reprogramar: la dirección del nuevo se carga en el archivo de
+      configuración (campo «Dirección del DS18B20» de TEMP1 en el generador).
+      Para conocerla, la placa de control lista al arrancar, en la consola,
+      cada DS18B20 presente en el bus (líneas <code>TEMP DS18B20 address=…</code>), ya en el
+      formato que acepta el archivo.</p>
+
+    <p>El firmware conserva además un termómetro <em>simulado</em>, que lee
+      una tensión en A1 (0–5 V equivale a 0–50 °C). Solo se usa si el archivo
+      de configuración elige <em>sim</em> como sensor de TEMP1, y sirve para
+      provocar alertas y cortes en banco con un potenciómetro.</p>
+
+    <p><strong>Corriente (SCT013-1 a 4).</strong> Transformadores de corriente
+      SCT-013 leídos por conversores ADS1115 en modo diferencial. Cada
+      ADS1115 ofrece <strong>solo dos pares diferenciales</strong>: el canal 0
+      corresponde a AIN0–AIN1 y el canal 1 a AIN2–AIN3. Por ello los cuatro
+      canales del gabinete requieren dos módulos. Solo SCT013-1 (módulo 0x48,
+      canal 0) está cableado y habilitado por defecto. La frecuencia de
+      muestreo y la ganancia son registros del módulo, comunes a sus dos
+      canales.</p>
+
+    <h3>3.6 Cadena de excitación de las bobinas</h3>
+
+    <p>La forma de onda y la amplitud viajan por caminos separados y se
+      combinan en la etapa de potencia:</p>
+
+    <figure>
+<pre class="diagram">
+                         ┌─► directa ─────────────────────► bobinas 1 y 3  (grupo fijo)
+ AD9833 ──► senoidal ────┤
+ (SPI, CS 5)             └─► inversor (op-amp) ──┐
+                                                 ├─ mux ──► bobinas 2 y 4  (invertible)
+                         (directa) ──────────────┘   ▲
+                                                     │
+                                       pin 22 ── selector de modo
+
+ pin 44/45/46/6 ──► PWM 3906 Hz ──► filtro RC ──► nivel DC ──► amplitud de la senoidal
+ pin 23/24/25/26 ──► habilitación individual de cada bobina
+ pin 3 ──► relé general ──► alimentación de toda la etapa (conector GND / VDD / enable)
+</pre>
+      <figcaption>Figura 2. Cadena de señal desde la placa de control hasta
+        las bobinas.</figcaption>
+    </figure>
+
+    <ul>
+      <li>El <strong>AD9833</strong> produce una única senoidal de bajo nivel
+        con componente continua, a la frecuencia del experimento. No es apta
+        para atacar una bobina directamente y requiere acondicionamiento
+        (centrado y ganancia).</li>
+      <li>La <strong>inversión de fase</strong> para el campo nulo es analógica
+        (op-amp inversor + multiplexor), no por software. Se descartó un
+        segundo generador con fase programada porque dos osciladores
+        independientes derivan entre sí y la cancelación se perdería a los
+        pocos minutos sin síntoma alguno (<code>docs/adr/001-inversion-de-fase.md</code>).</li>
+      <li>Los grupos de fase son <strong>alternados</strong> (1-3 y 2-4), no
+        contiguos. De este modo, con solo dos bobinas consecutivas montadas
+        (BOB1 y BOB2, el registro por defecto) ya es posible ejercitar ambos
+        modos.</li>
+      <li>El <strong>PWM</strong> a 3906 Hz, filtrado a un nivel de continua,
+        fija la amplitud de la senoidal. El firmware nunca trocea la senoidal
+        con el PWM: la bobina recibe una señal continua cuya amplitud es la
+        variable de control.</li>
+      <li>La <strong>habilitación</strong> por bobina y el <strong>relé
+        general</strong> son cortes independientes: el primero decide qué
+        bobinas participan, el segundo corta toda la etapa.</li>
+    </ul>
+
+    <h3>3.7 Interfaz HMI: placa ESP32 y periféricos</h3>
+
+    <p>La interfaz es una placa integrada de la familia «CYD» (2,8", 240×320).
+      <strong>Existen dos revisiones incompatibles</strong> y el firmware
+      debe compilarse para la que esté instalada:</p>
+
+    <div class="tablewrap"><table>
+      <thead><tr><th>Revisión</th><th>Identificación</th><th>Panel</th><th>Táctil</th></tr></thead>
+      <tbody>
+        <tr><td>ESP32-2432S028R</td><td>Un solo conector micro-USB</td><td>ILI9341</td><td>Resistivo XPT2046, por SPI propio (VSPI: CLK 25, MOSI 32, MISO 39, CS 33, IRQ 36)</td></tr>
+        <tr><td>JC2432W328C (Guition) — <strong>instalada</strong></td><td>micro-USB + USB-C; modelo impreso al dorso</td><td>ST7789 (requiere inversión de color)</td><td>Capacitivo CST816S, por I2C (SDA 33, SCL 32, RST 25, INT 21, dirección 0x15)</td></tr>
+      </tbody>
+    </table></div>
+
+    <p>Ambos táctiles ocupan los mismos GPIO, de modo que no es posible
+      distinguirlos por software. Con la configuración de la revisión R en una
+      placa C los colores aparecen invertidos y se registra un toque
+      permanente en una esquina. El cambio de placa exige modificar
+      conjuntamente <code>TOUCH_KIND</code> en <code>display.hpp</code> y
+      <code>TFT_INVERSION_ON</code> en <code>platformio.ini</code>.</p>
+
+    <div class="tablewrap"><table class="pins">
+      <thead><tr><th>GPIO</th><th>Función</th><th>Bus</th><th>Observaciones</th></tr></thead>
+      <tbody>
+        <tr><td>2</td><td>TFT — DC (datos/comando)</td><td>HSPI</td><td></td></tr>
+        <tr><td>12</td><td>TFT — MISO</td><td>HSPI</td><td></td></tr>
+        <tr><td>13</td><td>TFT — MOSI</td><td>HSPI</td><td></td></tr>
+        <tr><td>14</td><td>TFT — SCLK</td><td>HSPI</td><td>55 MHz.</td></tr>
+        <tr><td>15</td><td>TFT — CS</td><td>HSPI</td><td></td></tr>
+        <tr><td>21</td><td>Táctil — INT</td><td>—</td><td>No se utiliza (el táctil se lee por sondeo), pero el CST816S maneja la línea: no debe usarse para otra función.</td></tr>
+        <tr><td>27</td><td>TFT — retroiluminación</td><td>—</td><td>En la revisión R era el GPIO21 y el 27 quedaba libre para el enlace serie; en la C el 27 es la retroiluminación.</td></tr>
+        <tr><td>22</td><td>UART2 — TX (hacia RX1 del Mega)</td><td>UART2</td><td></td></tr>
+        <tr><td>35</td><td>UART2 — RX (desde TX1 del Mega)</td><td>UART2</td><td>GPIO solo de entrada. Entrada de 3,3 V: ver 3.3.</td></tr>
+        <tr><td>32</td><td>Táctil — SCL</td><td>I2C</td><td>CST816S en 0x15.</td></tr>
+        <tr><td>33</td><td>Táctil — SDA</td><td>I2C</td><td></td></tr>
+        <tr><td>25</td><td>Táctil — RST</td><td>—</td><td></td></tr>
+        <tr><td>5</td><td>Ranura SD — CS</td><td>VSPI</td><td></td></tr>
+        <tr><td>18</td><td>Ranura SD — SCLK</td><td>VSPI</td><td>La SD <strong>no</strong> comparte el bus de la pantalla.</td></tr>
+        <tr><td>19</td><td>Ranura SD — MISO</td><td>VSPI</td><td></td></tr>
+        <tr><td>23</td><td>Ranura SD — MOSI</td><td>VSPI</td><td></td></tr>
+        <tr><td>USB</td><td>Consola de depuración</td><td>—</td><td>115200 baudios.</td></tr>
+      </tbody>
+    </table></div>
+
+    <p>La conectividad remota (WiFi y MQTT sobre TLS) no requiere cableado:
+      las credenciales residen en <code>esp32/include/secrets.h</code>, un
+      archivo excluido del repositorio que debe crearse a partir de
+      <code>secrets.example.h</code> antes de compilar.</p>
+
+    <h3>3.8 Interruptor general y pulsador</h3>
+
+    <p>El interruptor general es un relé mecánico gobernado por el pin 3 de la
+      placa de control, con lógica activa en bajo. Del lado de la potencia se
+      presenta como un conector de tres contactos (GND, VDD, habilitación) que
+      corta la alimentación de toda la etapa. El relé incorpora una protección
+      por software que ignora cambios de estado separados por menos de 200 ms,
+      con el fin de no maltratar el contacto mecánico.</p>
+
+    <p>El pulsador de emergencia es un contacto normalmente cerrado entre el
+      pin 28 y GND, con <em>pull-up</em> interno: al presionarse el contacto se
+      abre y el pin sube. Un cable cortado o un borne flojo se lee igual que el
+      pulsador presionado, de modo que corta el experimento en curso. Se detecta
+      por flanco, con antirrebote de 30 ms de nivel estable, y solo tiene
+      efecto durante un experimento en curso (sección 11).</p>
+
+    <h2 id="s4">Sección 4</h2>
+    <p class="h2title">Verificación del cableado</p>
+
+    <p>Procedimiento para comprobar el estado de las conexiones cuando se abre
+      el gabinete, se sospecha de un contacto defectuoso o se reemplaza un
+      componente. Consta de una inspección sin tensión y de una verificación
+      con el equipo encendido, apoyada en la consola de depuración de cada
+      placa. Ambas placas emiten un registro por su puerto USB a 115200
+      baudios que puede leerse con cualquier monitor serie.</p>
+
+    <h3>4.1 Inspección sin tensión</h3>
+
+    <ol>
+      <li><strong>Masa común.</strong> Continuidad entre el GND del Mega, el GND
+        del ESP32 y el GND de la etapa de potencia.</li>
+      <li><strong>Enlace serie.</strong> Continuidad pin 18 (Mega) → adaptador
+        de nivel → GPIO35 (ESP32); y GPIO22 (ESP32) → pin 19 (Mega). Confirmar
+        que las líneas están cruzadas (TX con RX) y no en paralelo.</li>
+      <li><strong>Bus I2C.</strong> Continuidad de SDA (pin 20) y SCL (pin 21)
+        hasta cada módulo. Verificar el pin ADDR de cada ADS1115: a GND en el
+        módulo 0x48, a VDD en el 0x49.</li>
+      <li><strong>Termómetro.</strong> Línea de datos al pin 2, resistencia de
+        4,7 kΩ entre datos y +5 V, alimentación 5 V y GND.</li>
+      <li><strong>AD9833.</strong> SDATA al pin 51, SCLK al pin 52, FSYNC al
+        pin 5, alimentación y GND.</li>
+      <li><strong>Salidas hacia la etapa de potencia.</strong> PWM (44, 45, 46,
+        6), habilitaciones (23, 24, 25, 26), selector de modo (22) y relé (3),
+        cada una en su entrada correspondiente. Un PWM conectado a la
+        habilitación de otra bobina, o viceversa, no genera error alguno en el
+        firmware.</li>
+      <li><strong>Pulsador.</strong> Continuidad entre pin 28 y GND con el
+        pulsador en reposo, que desaparece al accionarlo (contacto normalmente
+        cerrado).</li>
+      <li><strong>Magnetómetro.</strong> Fijación mecánica en la posición
+        registrada en la calibración.</li>
+    </ol>
+
+    <h3>4.2 Verificación con el equipo encendido</h3>
+
+    <p>Con el monitor serie conectado al Mega, la secuencia de arranque
+      informa el estado de cada bus. Las dos placas escriben cada línea con el
+      mismo formato: segundos desde el arranque, el nivel (<code>E</code> error,
+      <code>W</code> advertencia, <code>I</code> información), el módulo y el
+      mensaje; por ejemplo <code>    12.345 I CORRIDA    inicio …</code>. Lo
+      que debe observarse:</p>
+
+    <div class="tablewrap"><table class="wide">
+      <thead><tr><th>Registro en consola</th><th>Significado</th><th>Si no aparece</th></tr></thead>
+      <tbody>
+        <tr><td><code>I2C dispositivo en 0x0C</code>, <code>0x48</code> (y <code>0x49</code> si existe)</td><td>El bus I2C está vivo y cada módulo responde en su dirección</td><td>«ningun dispositivo responde» indica cableado, alimentación o <em>pull-ups</em>; una dirección distinta indica el pin ADDR mal conectado</td></tr>
+        <tr><td><code>CAMPO MLX90393 listo en 0x0C</code></td><td>El magnetómetro inicializó</td><td>Revisar alimentación del módulo; el bus puede estar vivo y el sensor no</td></tr>
+        <tr><td>Lecturas de TEMP1 con valores plausibles</td><td>El DS18B20 responde y su código ROM coincide</td><td>Sin lecturas: revisar el <em>pull-up</em>; si el sensor fue reemplazado, cargar su código ROM en el archivo de configuración</td></tr>
+        <tr><td><code>CORRIENTE SCT013-1 listo en 0x48 canal=0</code></td><td>El ADS1115 contestó y el canal quedó habilitado</td><td>Un módulo que no responde (<code>sin ADS1115 en 0x48</code>) deja su canal deshabilitado sin bloquear el arranque; revisar dirección y alimentación</td></tr>
+        <tr><td><code>ENLACE conectado con la ESP32</code></td><td>El enlace serie funciona en ambos sentidos</td><td>Solo un sentido funciona si las líneas están al revés; ningún sentido funciona si falta la masa común o el adaptador de nivel</td></tr>
+      </tbody>
+    </table></div>
+
+    <p>Con el monitor conectado al ESP32, deben observarse la inicialización
+      del táctil (<code>PANTALLA tactil CST816S listo</code>), el montaje de la
+      tarjeta SD y el resultado de la lectura de
+      <code>/biosoft/config.json</code> (<code>CONFIG configuracion cargada …</code>). El mensaje
+      <code>SD sin tarjeta o no responde</code> no constituye un error si
+      no se insertó tarjeta.</p>
+
+    <p>Desde la pantalla, la comprobación mínima es que la interfaz abandone
+      la pantalla de inicio y muestre Principal: ello exige que el enlace
+      serie esté funcionando en ambos sentidos.</p>
+
+    <h3>4.3 Verificación de las salidas hacia las bobinas</h3>
+
+    <p>Con osciloscopio y un experimento en curso a baja intensidad:</p>
+
+    <ul>
+      <li>En la salida del AD9833, una senoidal de la frecuencia configurada,
+        de bajo nivel y con componente continua.</li>
+      <li>En cada pin PWM habilitado, una onda rectangular de 3906 Hz cuyo
+        ciclo de trabajo varía lentamente mientras el regulador lleva el campo
+        a la consigna. Un ciclo de trabajo fijo en 100 % indica que esa bobina
+        no alcanza la consigna (ver «recorte» en la sección 16).</li>
+      <li>En el pin 22, nivel LOW en modo campo X y HIGH en modo campo nulo. En
+        la etapa de potencia, la señal que llega a las bobinas 2 y 4 debe
+        estar en fase con la de 1 y 3 en campo X y en contrafase exacta en
+        campo nulo.</li>
+      <li>En el pin 3, nivel LOW mientras el experimento corre y HIGH en
+        reposo.</li>
+    </ul>
+
+    <div class="callout">
+      <span class="tag">Sobre el campo nulo</span>
+      <p>La cancelación debe verificarse con el magnetómetro, no inferirse del
+        nivel del pin 22: el selector de modo indica lo que el firmware pidió,
+        no lo que la etapa de potencia entregó. Mientras el inversor y el
+        multiplexor no estén montados (sección 15), el modo campo nulo no
+        cancela nada.</p>
+    </div>
+
+    <h3>4.4 Alimentación</h3>
+
+    <p>El Mega 2560 opera con lógica de 5 V y el ESP32 con 3,3 V; el
+      magnetómetro es un dispositivo de 3,3 V y los módulos ADS1115 y el
+      DS18B20 admiten 5 V. El dimensionamiento de la fuente de la etapa de
+      potencia depende de las bobinas reales y no se encuentra documentado en
+      este manual (ver <code>docs/coil-excitation.md</code>, §8).</p>
+
+    <h2 id="s5">Sección 5</h2>
+    <p class="h2title">Preparación previa al encendido</p>
+
+    <ol>
+      <li>Bobinas conectadas y montadas en su posición.</li>
+      <li>Magnetómetro en su posición <strong>registrada</strong>. Si fue
+        desplazado desde la última calibración, los valores de intensidad no
+        son confiables.</li>
+      <li>Termómetro en contacto con el elemento cuya temperatura se desea
+        vigilar.</li>
+      <li>Tarjeta SD insertada, si se emplearán parámetros propios.</li>
+      <li>Muestra ubicada.</li>
+      <li><strong>Modo de experimento correcto</strong> para la tanda que se
+        ejecutará. En el estado actual se define en el archivo de
+        configuración, no en la pantalla (sección 15).</li>
+    </ol>
+
+    <h2 id="s6">Sección 6</h2>
+    <p class="h2title">Encendido y pantallas</p>
+
+    <p>Al energizar el equipo se presenta la <strong>pantalla de
+      inicio</strong> durante algunos segundos: el logo de la facultad, el
+      nombre del equipo, <strong>SEMBAF</strong> (Sistema de Exposición
+      Magnética de Baja Frecuencia), y la leyenda <em>INICIANDO…</em>, mientras
+      la interfaz arranca y establece contacto con la placa de control. A
+      continuación pasa automáticamente a la pantalla
+      <strong>Principal</strong>.</p>
+
+    <div class="tablewrap"><table>
+      <thead><tr><th>Pantalla</th><th>Condición de aparición</th></tr></thead>
+      <tbody>
+        <tr><td>Inicio</td><td>Al encender, y ante la pérdida de contacto con la placa de control.</td></tr>
+        <tr><td>Principal</td><td>Estado de reposo. Muestra la configuración cargada.</td></tr>
+        <tr><td>Configuración</td><td>Al pulsar <em>Configuración</em>.</td></tr>
+        <tr><td>Espera</td><td>Mientras el equipo inicia o detiene un experimento.</td></tr>
+        <tr><td>En curso</td><td>Durante la exposición.</td></tr>
+        <tr><td>Resultado</td><td>Al finalizar un experimento, cualquiera sea el motivo, y también cuando el equipo se niega a iniciarlo (sección 8).</td></tr>
+      </tbody>
+    </table></div>
+
+    <p>No es posible navegar libremente entre pantallas: la que se muestra
+      <strong>refleja el estado real del equipo</strong>. Durante un
+      experimento la pantalla es «En curso» y solo puede abandonarse
+      deteniendo el experimento.</p>
+
+    <h3>Elementos comunes</h3>
+
+    <p>Principal, Configuración, En curso y Resultado tienen arriba un
+      <strong>encabezado</strong> azul oscuro con el nombre de la pantalla.
+      Salvo en Configuración, a la derecha muestra cuatro
+      <strong>indicadores de conexión</strong>:</p>
+
+    <div class="tablewrap"><table>
+      <thead><tr><th>Símbolo</th><th>Qué indica</th></tr></thead>
+      <tbody>
+        <tr><td>Conector USB</td><td>Enlace con la placa de control.</td></tr>
+        <tr><td>Tarjeta</td><td>Tarjeta SD de la interfaz.</td></tr>
+        <tr><td>Abanico WiFi</td><td>Conexión a la red WiFi.</td></tr>
+        <tr><td>Flecha hacia arriba</td><td>Conexión con el servidor de monitoreo remoto (broker).</td></tr>
+      </tbody>
+    </table></div>
+
+    <p>Un indicador en orden se ve en el color del texto del encabezado. Uno
+      en falla pasa a <strong>rojo dentro de un recuadro blanco</strong>. Los
+      indicadores reflejan el estado de ese momento, también en Resultado,
+      aunque el resto de esa pantalla esté congelado.</p>
+
+    <p>El <strong>modo de exposición</strong> se reconoce por la forma:
+      <strong>campo X</strong> va siempre relleno en violeta con el símbolo de
+      un rayo; <strong>campo nulo</strong> va en blanco con contorno gris y sin
+      símbolo. Relleno equivale a campo encendido; contorno, a sin campo.</p>
+
+    <h3>Pantalla Principal</h3>
+
+    <p>Presenta debajo del encabezado una banda con el <strong>modo</strong> de
+      exposición, seis tarjetas con los parámetros con los que se ejecutará el
+      próximo experimento y dos botones: <strong>CONFIGURAR</strong> e
+      <strong>INICIAR</strong>. Se recomienda revisarla antes de cada tanda:
+      constituye el resumen de lo que está a punto de ocurrir.</p>
+
+    <p>Si no hay enlace con la placa de control, INICIAR aparece en gris con
+      la leyenda <strong>SIN CONEXION</strong> y no responde; vuelve a
+      habilitarse solo cuando el enlace se recupera. La excepción es una
+      tarjeta SD que desactive la exigencia de esa placa
+      (<code>requireMega</code>, sección 14), pensada para el banco.</p>
+
+    <h2 id="s7">Sección 7</h2>
+    <p class="h2title">Configuración de un experimento</p>
+
+    <p>La pantalla <strong>Configuración</strong> ofrece siete campos
+      desplegables repartidos en dos pestañas: <strong>EXPOSICION</strong>
+      (modo, intensidad, frecuencia y duración) y <strong>LIMITES</strong>
+      (tolerancia de campo y los dos rangos de temperatura). Al tocar un
+      campo se abre la lista de opciones; si tiene más de cinco, la lista se
+      recorre deslizándola con el dedo.</p>
+
+    <p>Los cambios no se aplican hasta guardarlos, y la pantalla muestra lo
+      que difiere de lo guardado:</p>
+
+    <ul>
+      <li>el campo cambiado toma un <strong>borde ámbar</strong> y su nombre
+        pasa a ámbar oscuro;</li>
+      <li>la pestaña que tiene cambios muestra un <strong>punto
+        ámbar</strong>;</li>
+      <li>el encabezado muestra el aviso <strong>SIN GUARDAR</strong>;</li>
+      <li>el botón de salida pasa de <strong>VOLVER</strong> a
+        <strong>DESCARTAR</strong>.</li>
+    </ul>
+
+    <p><strong>GUARDAR</strong> solo se habilita cuando hay cambios: aplica la
+      configuración y regresa a Principal. DESCARTAR regresa a Principal sin
+      aplicar nada. Al volver a entrar, la pantalla abre siempre en la pestaña
+      EXPOSICION y sin cambios pendientes.</p>
+
+    <p>Los nombres de las opciones pueden venir de la tarjeta SD. Si alguno no
+      entra en el campo, se ve cortado con puntos suspensivos; la lista
+      desplegada lo muestra completo.</p>
+
+    <div class="tablewrap"><table>
+      <thead><tr><th>Parámetro</th><th>Definición</th></tr></thead>
+      <tbody>
+        <tr><td>Intensidad de campo</td><td>Consigna, en mT. El equipo regula en lazo cerrado para sostenerla.</td></tr>
+        <tr><td>Frecuencia</td><td>Frecuencia de la señal senoidal, en Hz.</td></tr>
+        <tr><td>Duración</td><td>Tiempo de exposición. Al cumplirse, el equipo corta por sí mismo.</td></tr>
+        <tr><td>Tolerancia de campo</td><td>Desviación admisible de la intensidad medida respecto de la consigna antes de considerarse anormal.</td></tr>
+        <tr><td>Rango de temperatura normal</td><td>Franja esperada. Salir de ella genera una alerta.</td></tr>
+        <tr><td>Rango de temperatura crítica</td><td>Franja límite. Salir de ella puede interrumpir el experimento.</td></tr>
+        <tr><td>Modo de exposición</td><td><strong>Campo X</strong> (condición de exposición) o <strong>campo nulo</strong> (grupo control). Ver más abajo.</td></tr>
+      </tbody>
+    </table></div>
+
+    <h3>El modo de exposición</h3>
+
+    <p>La lista ofrece exactamente dos entradas, campo X y campo nulo, y
+      <strong>no puede modificarse desde la tarjeta SD</strong>: son la
+      condición experimental, no un valor que el operador calibre. El valor
+      inicial es siempre <strong>campo X</strong>; un campo nulo accidental
+      sería indistinguible de un experimento normal. El modo se elige antes de
+      iniciar y <strong>no puede cambiarse con el experimento en curso</strong>.</p>
+
+    <p>En campo nulo el equipo <strong>excita las bobinas con la misma
+      corriente</strong> que usaría para la intensidad elegida, de modo que el
+      ruido, la vibración y el calor sean los mismos que en el grupo tratado,
+      pero la consigna del campo neto es <strong>cero</strong>. Como el campo
+      neto es cercano a cero, no hay una lectura contra la cual regular: el
+      equipo aplica el ciclo de trabajo medido previamente en el banco para esa
+      intensidad y esa frecuencia (el «mapa», sección 14) y no lo corrige
+      durante la exposición.</p>
+
+    <div class="callout warn">
+      <span class="tag">Campo nulo exige mapa</span>
+      <p>Si el mapa no tiene un punto para la intensidad y la frecuencia
+        elegidas, <strong>el equipo se niega a iniciar</strong> en campo nulo y
+        lo informa en la pantalla Resultado (sección 8). No improvisa un valor:
+        un control mal excitado invalidaría la comparación sin dar síntoma
+        alguno.</p>
+    </div>
+
+    <h3>Los dos rangos de temperatura</h3>
+
+    <p>Ambos rangos cumplen funciones distintas:</p>
+
+    <ul>
+      <li>Una lectura fuera del rango <strong>normal</strong> pero dentro del
+        <strong>crítico</strong> se registra como alerta y el experimento
+        continúa. Expresa una desviación respecto de lo esperado.</li>
+      <li>Una lectura fuera del rango <strong>crítico</strong> expresa una
+        condición peligrosa. Si persiste lo suficiente, el experimento se
+        interrumpe.</li>
+    </ul>
+
+    <div class="callout">
+      <span class="tag">Por qué no se corta de inmediato</span>
+      <p>Que una lectura crítica aislada no interrumpa el experimento es
+        deliberado: una única lectura anómala puede deberse a ruido eléctrico,
+        y abortar por ese motivo invalidaría experimentos válidos. El equipo
+        exige que la condición <strong>persista</strong> antes de cortar.</p>
+    </div>
+
+    <h3>La tolerancia de campo</h3>
+
+    <p>Además de definir cuándo la intensidad se considera anormal, de la
+      tolerancia se deriva el límite crítico de campo, aplicando un margen
+      fijo del 25 % sobre la franja elegida. Una tolerancia del 5 % define una
+      franja normal de ±5 % y una crítica de ±6,25 %.</p>
+
+    <p>En <strong>campo nulo</strong> la tolerancia sigue siendo un porcentaje
+      de la intensidad elegida, pero la franja se centra en <strong>cero</strong>
+      y no en la intensidad: con 1 mT y una tolerancia del 5 %, un campo
+      residual de hasta ±0,05 mT se considera normal.</p>
+
+    <h2 id="s8">Sección 8</h2>
+    <p class="h2title">Inicio de un experimento</p>
+
+    <p>Desde Principal, botón <strong>Iniciar</strong>.</p>
+
+    <p>La pantalla pasa a <strong>Espera</strong> («Iniciando…») mientras la
+      placa de control recibe los parámetros, arranca el generador, habilita
+      las bobinas y cierra el interruptor general. Cuando la placa de control
+      confirma que el experimento está en curso, la pantalla pasa
+      automáticamente a <strong>En curso</strong>.</p>
+
+    <p>Si la placa de control no confirma el arranque, la pantalla de Espera
+      abandona el intento a los pocos segundos y regresa a Principal.
+      <strong>El regreso a Principal significa que el experimento no
+      comenzó</strong>, no que comenzó y falló. Cuando la placa de control
+      <em>sí</em> recibió la orden pero se negó a ejecutarla, el motivo se
+      muestra en la pantalla Resultado (ver «Cuando el equipo se niega a
+      iniciar»).</p>
+
+    <h3>El número de corrida</h3>
+
+    <p>Cada experimento que comienza recibe un <strong>número de corrida</strong>
+      (<code>#1</code>, <code>#2</code>, …) que identifica esa corrida en todas
+      partes: en el monitor web (En curso, Historial, detalle y Bitácora) y en
+      los registros de consola de las dos placas. Es el dato que conviene
+      anotar en el cuaderno de laboratorio: con él se encuentra la corrida en
+      el historial y sus líneas en la consola.</p>
+
+    <ul>
+      <li><strong>Lo asigna el propio equipo</strong>, no el monitor, y lo
+        guarda en la memoria interna de la interfaz: sobrevive a apagar el
+        equipo y a actualizar el firmware, y no depende de la tarjeta SD.</li>
+      <li><strong>Un inicio rechazado no consume número.</strong> Si el equipo
+        se niega a iniciar (panel <em>NO INICIÓ</em>), el próximo experimento
+        recibe el mismo número, así no quedan saltos que hagan buscar una
+        corrida que nunca existió.</li>
+      <li><strong>Si la interfaz se reinicia durante un experimento</strong>,
+        al volver retoma el mismo número, que conserva la placa de control.
+        En el monitor la corrida sigue siendo una sola.</li>
+      <li>Los experimentos registrados antes de que existiera el número
+        figuran sin él («--»).</li>
+    </ul>
+
+    <p>En la consola, la interfaz escribe <code>I CORRIDA corrida #42 en
+      curso</code> al comenzar y la placa de control <code>I CORRIDA inicio
+      corrida=#42 …</code>; el resumen periódico y el resumen final también
+      llevan el número.</p>
+
+    <h3>Cómo se mide el campo</h3>
+
+    <p>El campo magnético no se lee como una instantánea: la señal de las
+      bobinas es alterna (de 1 a 100 Hz) y una sola lectura depende del punto
+      de la onda en que cae. El equipo toma grupos de 10 muestras repartidas
+      a lo largo de uno o varios períodos (a frecuencias altas el sensor no da
+      para 10 muestras en uno solo), calcula el <strong>valor eficaz
+      (RMS)</strong> de la componente a la frecuencia del experimento y
+      actualiza el valor mostrado <strong>cada 2 segundos</strong>
+      aproximadamente, promediando decenas de grupos. Repartir las muestras
+      así hace que las distorsiones de la señal (armónicos) casi no
+      influyan en el valor; el costo es que el valor tarda esos 2 segundos
+      en aparecer tras el inicio.</p>
+
+    <p>El campo magnético terrestre y cualquier objeto cercano producen una
+      componente <em>continua</em>, que este cálculo deja fuera por
+      construcción: <strong>no hay que medir ni descontar el ambiente antes de
+      empezar</strong>, y el inicio no demora por ese motivo. Lo que sí se
+      suma a la lectura es cualquier fuente <em>alterna</em> a la misma
+      frecuencia del experimento (por ejemplo, la red eléctrica si se trabaja a
+      50 o 60 Hz), por lo que conviene mantener el entorno del magnetómetro
+      libre de equipos encendidos.</p>
+
+    <h3>Cuando el equipo se niega a iniciar</h3>
+
+    <p>Hay situaciones en las que iniciar degradado sería peor que no iniciar.
+      El equipo las trata como un experimento <strong>terminado antes de
+      empezar</strong>: muestra la pantalla Resultado con el panel
+      <strong>NO INICIÓ</strong>, el motivo y el detalle, y el flujo continúa
+      con normalidad (el botón PRINCIPAL lleva a esa pantalla).</p>
+
+    <div class="tablewrap"><table class="wide">
+      <thead><tr><th>Titular</th><th>Causa</th><th>Qué hacer</th><th>¿Repetir?</th></tr></thead>
+      <tbody>
+        <tr><td>Sin punto en el mapa</td><td>Campo nulo con una intensidad y frecuencia que el mapa no tiene</td><td>Medir ese punto en banco y cargarlo en la tarjeta, o elegir otra combinación</td><td>No</td></tr>
+        <tr><td>Balance fuera de tope</td><td>El balance del punto supera el máximo permitido de la tarjeta</td><td>Revisar el punto del mapa y el tope</td><td>No</td></tr>
+      </tbody>
+    </table></div>
+
+    <p>En estos casos el botón <strong>Repetir</strong> no aparece: el problema
+      está en la configuración y repetir fallaría igual hasta cambiarla. Estos
+      rechazos
+      <strong>no se publican</strong> al monitor web: no hubo experimento, y
+      publicarlos crearía una corrida que nunca existió.</p>
+
+    <h3>La ventana de asentamiento</h3>
+
+    <p>Durante los primeros <strong>10 segundos</strong> el equipo mide y
+      presenta todas las magnitudes con normalidad, pero <strong>no genera
+      alertas ni interrumpe</strong> la exposición.</p>
+
+    <div class="callout">
+      <span class="tag">Justificación</span>
+      <p>En ese lapso el regulador está llevando el campo hasta la consigna, de
+        modo que el sistema se encuentra legítimamente fuera de rango. Sin esa
+        ventana, todo experimento se abortaría a sí mismo al comenzar.</p>
+    </div>
+
+    <h2 id="s9">Sección 9</h2>
+    <p class="h2title">Supervisión durante el experimento</p>
+
+    <p>La pantalla <strong>En curso</strong> está pensada para leerse a
+      distancia: el estado general se ve por el color del encabezado, y el
+      detalle, en dos pestañas. El progreso y el botón DETENER quedan siempre
+      a la vista, abajo.</p>
+
+    <h3>Indicador de salud</h3>
+
+    <p>El <strong>encabezado entero</strong> toma el color del estado del
+      experimento y lo dice con una palabra:</p>
+
+    <div class="tablewrap"><table>
+      <thead><tr><th>Estado</th><th>Color</th><th>Significado</th></tr></thead>
+      <tbody>
+        <tr><td>NORMAL</td><td>Verde</td><td>Sin alertas activas.</td></tr>
+        <tr><td>ADVERTENCIA</td><td>Ámbar</td><td>Existen alertas, ninguna de tipo crítico. Conviene revisar.</td></tr>
+        <tr><td>CRITICO</td><td>Rojo</td><td>Existe al menos una alerta crítica (o un sensor que dejó de medir). El experimento puede interrumpirse por sí solo.</td></tr>
+      </tbody>
+    </table></div>
+
+    <h3>Pestañas</h3>
+
+    <p>Al entrar se muestra <strong>MEDICIONES</strong>; la otra pestaña es
+      <strong>OBJETIVOS</strong>. Al lado de las pestañas, un recuadro indica el
+      modo de exposición (campo X o campo nulo) con el mismo criterio de
+      colores de la sección 6.</p>
+
+    <ul>
+      <li><strong>MEDICIONES</strong> — campo medido (mT) y temperatura (°C),
+        en números grandes, y debajo una fila por bobina con su ciclo de
+        trabajo (barra y porcentaje) y su corriente (A). Todos los valores
+        empiezan en cero y se actualizan a medida que llegan las lecturas: el
+        campo, cada 2 segundos aproximadamente (sección 8). La cantidad de
+        filas es la de bobinas habilitadas; si no hay ninguna informada se lee
+        <em>SIN BOBINAS CONECTADAS</em>.</li>
+      <li><strong>OBJETIVOS</strong> — los parámetros con los que comenzó el
+        experimento, como referencia frente a lo que se mide.</li>
+    </ul>
+
+    <p>Abajo, siempre visibles, el <strong>progreso</strong> (porcentaje y
+      barra) y el <strong>tiempo transcurrido</strong>.</p>
+
+    <h3>Interpretación de las alertas</h3>
+
+    <p>Cada medición (campo y temperatura) tiene su propio estado, que se lee
+      de dos maneras:</p>
+
+    <ul>
+      <li><strong>El color del valor</strong>: negro si esa medición no tiene
+        alertas, ámbar oscuro si tiene alertas no críticas y rojo oscuro si
+        tiene alguna crítica. Así se sabe <em>cuál</em> de las dos mediciones
+        lleva al encabezado a advertencia o a crítico.</li>
+      <li><strong>Los puntos</strong> arriba a la derecha de la medición: hasta
+        cuatro, uno por cada uno de los <strong>últimos cuatro
+        eventos</strong> de alerta de ese sensor, el más antiguo a la
+        izquierda. Ámbar indica un evento de racha o de frecuencia; rojo, uno
+        crítico o de sensor sin lecturas.</li>
+    </ul>
+
+    <p>El detalle de cada alerta (tipo y contador, por ejemplo
+      <code>2/3</code>) no se muestra en esta pantalla: queda en el monitor web
+      (sección 13) y, si la alerta interrumpe el experimento, en la pantalla
+      Resultado.</p>
+
+    <h3>Detención manual</h3>
+
+    <p>Botón rojo <strong>DETENER</strong>, abajo a la derecha. La pantalla pasa a Espera («Deteniendo…»)
+      y luego a Resultado. El experimento queda registrado como detenido por
+      el operador, lo cual, a efectos de los datos, no equivale a un
+      experimento completado.</p>
+
+    <h2 id="s10">Sección 10</h2>
+    <p class="h2title">Finalización del experimento</p>
+
+    <p>Un experimento finaliza de tres maneras, y la pantalla
+      <strong>Resultado</strong> indica cuál fue. Existe además un cuarto
+      caso, en el que el experimento ni siquiera comenzó:</p>
+
+    <div class="tablewrap"><table>
+      <thead><tr><th>Panel</th><th>Color</th><th>Causa</th></tr></thead>
+      <tbody>
+        <tr><td>COMPLETADO</td><td>Verde</td><td>Se cumplió la duración configurada.</td></tr>
+        <tr><td>FALLA</td><td>Rojo</td><td>El equipo interrumpió la exposición por una condición peligrosa sostenida.</td></tr>
+        <tr><td>DETENIDO</td><td>Ámbar</td><td>Lo detuvo una persona, desde la pantalla o mediante el pulsador.</td></tr>
+        <tr><td>NO INICIO</td><td>Rojo</td><td>El equipo se negó a arrancar (mapa o balance; sección 8). No hubo exposición: progreso y tiempo figuran en cero.</td></tr>
+        <tr><td>TERMINO</td><td>Gris</td><td>Motivo desconocido: la placa de control no informó cómo terminó (por ejemplo, se perdió el enlace al final). El detalle dice lo que sabe la interfaz.</td></tr>
+      </tbody>
+    </table></div>
+
+    <p>El panel muestra además el modo de exposición del experimento, un
+      titular y una línea de detalle. Debajo, tres recuadros con el
+      progreso, el tiempo transcurrido y el campo medio.</p>
+
+    <p>En el caso de <strong>Falla</strong>, el detalle indica qué sensor
+      provocó el corte y con qué contador; por ejemplo, que la temperatura
+      alcanzó el límite de alertas críticas. Esa información debe registrarse:
+      permite determinar si el experimento se perdió por el equipo, por la
+      muestra o por el ambiente.</p>
+
+    <p>En el caso de <strong>Detenido</strong>, el detalle indica de dónde vino
+      la orden: el <em>pulsador de emergencia</em> o el <em>botón de la
+      pantalla</em>. Para el experimento ambos casos son equivalentes, pero no
+      para quien revisa después por qué se interrumpió.</p>
+
+    <p>La pantalla muestra el progreso, el tiempo transcurrido y el
+      <strong>campo medio</strong> (mT), es decir, el promedio de todas las
+      lecturas del campo recibidas durante la exposición. Los tres quedan
+      congelados <strong>en el instante de la finalización</strong>; no
+      continúan avanzando. Si no llegó ninguna lectura del campo, el campo
+      medio figura como «--», no como cero, para que no se confunda con un
+      campo nulo medido.</p>
+
+    <p>Desde Resultado hay dos salidas, y el equipo no abandona esta pantalla
+      por sí mismo, de manera deliberada: el resultado debe poder leerse y
+      anotarse sin apremio.</p>
+
+    <ul>
+      <li><strong>PRINCIPAL</strong> regresa a Principal. Cuando REPETIR no
+        está disponible ocupa todo el ancho de la pantalla.</li>
+      <li><strong>REPETIR</strong> inicia de inmediato un nuevo experimento con
+        la misma configuración, igual que <em>INICIAR</em> en Principal. Solo
+        aparece cuando el experimento resultó <em>COMPLETADO</em> o
+        <em>DETENIDO</em>. Tras una <em>FALLA</em> se oculta, porque repetir la
+        misma configuración que acaba de alcanzar un límite muy probablemente
+        volvería a cortar, y la causa debe revisarse antes. Tampoco aparece en
+        <em>NO INICIO</em> (sección 8) ni en <em>TERMINO</em>, ni mientras haya
+        una configuración remota esperando el reinicio. Si el enlace con la placa de control
+        está caído, Repetir no hace nada, salvo que la tarjeta haya
+        desactivado la exigencia de esa placa (<code>requireMega</code>,
+        sección 14).</li>
+    </ul>
+
+    <h2 id="s11">Sección 11</h2>
+    <p class="h2title">Parada de emergencia</p>
+
+    <p>El pulsador físico <strong>interrumpe de inmediato el experimento en
+      curso</strong>. Es el camino más corto y no depende de la pantalla ni
+      del enlace serie.</p>
+
+    <div class="callout warn">
+      <span class="tag">Dos propiedades a tener presentes</span>
+      <p><strong>Solo actúa durante un experimento en curso.</strong>
+        Accionarlo con el equipo en reposo no produce efecto, de manera
+        deliberada: evita que quede registrado el resultado de un experimento
+        que nunca existió.</p>
+      <p>Deja el experimento en estado <strong>Detenido</strong>, del mismo
+        modo que el botón de la pantalla.</p>
+    </div>
+
+    <p>El pulsador es de contacto <strong>normalmente cerrado</strong>: si su
+      cable se corta o un borne se afloja durante un experimento, el equipo
+      lo interpreta como pulsador accionado y corta. Si al encender el cable ya
+      está abierto, la consola del Mega lo advierte («pulsador de emergencia
+      leido como presionado al arrancar») y la corriente de las bobinas no se
+      mide hasta resolverlo.</p>
+
+    <p>Para comprobarlo sin iniciar un experimento, accionarlo con la consola
+      del Mega abierta: cada pulsación registra una única línea «pulsador de
+      emergencia apretado sin corrida: se ignora», y soltarlo no registra
+      nada.</p>
+
+    <p>El interruptor general de potencia es un relé con una protección que
+      ignora cambios de estado separados por menos de 200 ms. En uso normal
+      resulta imperceptible.</p>
+
+    <h2 id="s12">Sección 12</h2>
+    <p class="h2title">Monitoreo remoto</p>
+
+    <p>Con la red WiFi configurada, el equipo publica telemetría a un panel
+      remoto mientras hay un experimento en curso: campo, temperatura,
+      corriente, salud, progreso y tiempo transcurrido.</p>
+
+    <p>Tres consideraciones:</p>
+
+    <ul>
+      <li><strong>Solo publica durante un experimento.</strong> Fuera de una
+        corrida no hay datos, y ello no constituye una falla.</li>
+      <li><strong>Es un medio de supervisión, no de control.</strong> No es
+        posible iniciar ni detener nada desde el panel remoto.</li>
+      <li><strong>La pérdida de WiFi no afecta al experimento.</strong> La
+        conectividad se ejecuta en un núcleo aparte y no interfiere con la
+        exposición ni con la vigilancia. Solo se pierden los datos remotos de
+        ese intervalo.</li>
+    </ul>
+
+    <p>La telemetría viaja cifrada al servidor. El equipo sincroniza su reloj
+      por NTP al conectarse al WiFi y no intenta establecer la conexión segura
+      hasta haberlo hecho, porque todo certificado tiene fechas de validez y un
+      equipo recién encendido cree estar en 1970.</p>
+
+    <p>Lo publicado por el equipo se recibe, se almacena y se presenta en el
+      monitor web, descrito en la sección siguiente.</p>
+
+    <h2 id="s13">Sección 13</h2>
+    <p class="h2title">El monitor web</p>
+
+    <p>El monitor web es una página a la que se accede desde cualquier
+      computadora o teléfono con internet, dentro o fuera del laboratorio.
+      Recibe lo que el equipo publica, lo conserva y permite consultar los
+      experimentos anteriores.</p>
+
+<pre class="diagram">
+   Equipo              Servidor de              Monitor web
+   (WiFi)              telemetría               (navegador)
+
+  ┌────────┐   cifrado  ┌──────────┐            ┌──────────────┐
+  │ ESP32  │───────────▶│  Broker  │───────────▶│   Inicio     │
+  └────────┘            └──────────┘   guarda   │   En curso   │
+                              │        y envía  │   Historial  │
+                              ▼                 │   Detalle    │
+                        ┌──────────┐            │   Bitácora   │
+                        │   Base   │            └──────────────┘
+                        └──────────┘  histórico de experimentos
+                                      y bitácora (una semana)
+</pre>
+
+    <p>El acceso requiere usuario y contraseña. La dirección y las credenciales
+      las provee quien haya instalado el monitor. Hay dos roles: un
+      <strong>administrador</strong> envía configuración a la placa, crea y
+      modifica escenarios de prueba, borra corridas, gestiona usuarios (menú
+      «Usuarios») y consulta la Bitácora del equipo; un usuario de
+      <strong>solo lectura</strong> ve todo lo demás.</p>
+
+    <p>La barra superior dice en todo momento qué funciona y qué no, cada
+      indicador por su lado:</p>
+
+    <ul>
+      <li><strong>Monitor</strong>: si el servidor del monitor recibe la
+        telemetría («en línea»), no llega al broker («sin broker») o si este
+        navegador perdió la conexión con el servidor («sin servidor»).</li>
+      <li><strong>Placa</strong>: si la interfaz del equipo contesta. El
+        monitor le pregunta cada 15 segundos, y el botón
+        <strong>Probar</strong> le pregunta en el momento. Al pasar el mouse
+        se ve si la placa de control está conectada y con qué configuración
+        corre. También muestra la red WiFi por la que está conectada y la
+        intensidad de su señal (en la pantalla del equipo solo se ve si hay
+        WiFi o no); con señal muy débil se marca en amarillo, porque suele
+        explicar cortes de la telemetría. Que el monitor esté en línea no dice nada de la placa: fuera
+        de un experimento la placa no publica nada, y esta es la única forma
+        de saber si está encendida.</li>
+      <li><strong>Tema</strong>: automático (el del sistema), claro u
+        oscuro. Se recuerda en cada navegador.</li>
+    </ul>
+
+    <p><strong>Acceso directo en el celular.</strong> El monitor se puede
+      instalar como una aplicación, con su ícono y a pantalla completa. En
+      Android (Chrome): menú ⋮ → <strong>Instalar app</strong> o
+      <strong>Agregar a la pantalla principal</strong>. En iPhone (Safari):
+      <strong>Compartir</strong> → <strong>Agregar a inicio</strong>. En iPhone
+      la app instalada guarda su propia sesión, así que la primera vez pide
+      usuario y contraseña de nuevo. Siempre muestra datos en vivo: sin
+      conexión no muestra nada guardado.</p>
+
+    <h3>Pantalla «Inicio»</h3>
+
+    <p>Es la que se abre al entrar. Reúne el estado del sistema de un
+      vistazo:</p>
+
+    <ul>
+      <li><strong>Corrida abierta</strong>: si hay un experimento o una prueba
+        en marcha, arriba de todo aparece su número, el estado general, el
+        modo, el avance y el botón <strong>Ver en curso</strong>.</li>
+      <li><strong>Estado del sistema</strong>: el servidor del monitor, el
+        broker, la interfaz del equipo (encendida hace cuánto, última
+        respuesta), la placa de control, la red WiFi con su señal y la
+        configuración con la que corre. Cada línea lleva un punto verde, rojo
+        o gris (sin datos).</li>
+      <li><strong>Última corrida</strong>: cómo terminó la más reciente, con
+        enlace a su detalle.</li>
+      <li><strong>Experimentos</strong>: cuántos hay en total y en los últimos
+        30 días, las horas de exposición acumuladas, cuántos fueron del grupo
+        tratado (campo X) y cuántos del grupo control (campo nulo), y cuántas
+        pruebas hay aparte.</li>
+      <li><strong>Cómo terminaron</strong> y <strong>alertas más
+        frecuentes</strong>: completados, detenidos, cortados por alerta o sin
+        cierre, y qué alertas se repiten. Es la forma rápida de ver si el
+        equipo es confiable.</li>
+      <li><strong>Salud del equipo</strong> (solo administradores): reinicios
+        de la placa de control, caídas del enlace o del broker y otros
+        problemas registrados en la Bitácora durante la última semana.</li>
+    </ul>
+
+    <p>Las pruebas nunca entran en los números de experimentos, las horas
+      ni las alertas: son datos de banco. Una corrida sin marca de tipo
+      (firmware anterior a la marca) sí cuenta como experimento, porque pudo
+      haber tenido animales.</p>
+
+    <h3>Pantalla «En curso»</h3>
+
+    <p>Aparece en el menú solo mientras hay una corrida abierta, con un punto
+      que late del color del estado general. Al terminar la corrida, la
+      página vuelve sola a Inicio, que muestra cómo terminó.</p>
+
+    <p>Es la que responde la única pregunta que importa desde lejos: si el
+      experimento marcha bien. Muestra el número de corrida junto al título
+      («Experimento en curso #42»), el estado general, el modo de
+      exposición, el avance, el campo y la temperatura medidos junto a sus
+      consignas, una fila por cada bobina montada y las últimas alertas.</p>
+
+    <p>Tres comportamientos conviene conocer antes de interpretarla:</p>
+
+    <ul>
+      <li><strong>Los valores envejecen a la vista.</strong> Bajo cada
+        medición se indica hace cuánto llegó, y pasado un minuto y medio el
+        recuadro se atenúa. Un número atenuado es el último dato conocido, no
+        una medición actual. Sin esta señal, una lectura de hace media hora
+        se vería idéntica a una recién tomada.</li>
+      <li><strong>Un valor ausente se muestra como «--», nunca como cero.</strong>
+        Durante un experimento, 0 mT es una medición posible.</li>
+      <li><strong>Cada medición trae su escala.</strong> Debajo del valor, una
+        barra muestra la zona normal (verde), la de advertencia (ámbar) y la
+        crítica (roja) del experimento, con una marca donde está la lectura:
+        se ve de un vistazo cuánto margen queda, no solo el número.</li>
+      <li><strong>El gráfico «Evolución» es una ventana de tiempo
+        deslizante</strong> (1, 5 o 15 minutos, 1 hora o toda la corrida), cuyo
+        borde derecho es el momento actual y no el último dato. Si los datos
+        dejan de llegar, el hueco crece a la vista en lugar de que el gráfico
+        se detenga en silencio.</li>
+      <li><strong>Los avisos encabezan la pantalla.</strong> Si se pierde la
+        conexión con el servidor, con el broker o entre la interfaz y la placa
+        de control, se anuncia arriba de todo, porque cambia el significado de
+        cuanto figura debajo.</li>
+    </ul>
+
+    <h3>Pantalla «Historial»</h3>
+
+    <p>Lista los experimentos registrados, del más reciente al más antiguo, con
+      su número de corrida, su fecha, su modo de exposición, cómo terminó y
+      cuántas alertas registró. Puede filtrarse por modo y por motivo de
+      finalización. El buscador <strong>Corrida #</strong> encuentra una
+      corrida por su número (se escribe <code>42</code> o <code>#42</code>),
+      sea experimento o prueba.</p>
+
+    <p><strong>Las corridas de prueba no se listan por defecto.</strong> Son
+      las hechas con una tarjeta que declara <code>runType: "test"</code> (ver
+      la sección 14) y llevan el distintivo <strong>PRUEBA</strong>. Están en
+      la pestaña <em>Pruebas</em> (o en <em>Todas</em>); la pestaña
+      <em>Experimentos</em>, que es la que se abre, no las muestra. Una
+      corrida con el distintivo <strong>SIN MARCA</strong> proviene de un
+      firmware anterior a esta marca: no se sabe si fue un experimento o una
+      prueba, y por eso no se la presenta como ninguno de los dos.</p>
+
+    <p>Un experimento puede figurar como <strong>«Sin cierre»</strong>: son
+      aquellos cuyo mensaje de finalización nunca llegó, por un corte de
+      energía, de red o del propio servidor. Sus mediciones son reales y
+      válidas; lo que se desconoce es cómo terminó.</p>
+
+    <p>Un experimento puede llevar el distintivo <strong>CON
+      RELAJACIONES</strong>: se declaró como experimento, pero corrió con
+      alguna protección apagada (el detector, la vigilancia de la temperatura,
+      el control de intensidad) o con sensores simulados. Sus mediciones
+      pueden ser reales, pero no son las de un experimento en condiciones.</p>
+
+    <h3>Pantalla de detalle</h3>
+
+    <p>Al abrir un experimento se accede a sus consignas, su resultado y los
+      gráficos de campo, temperatura, corriente y ciclo de trabajo por bobina.
+      Sobre las mediciones, líneas verticales punteadas señalan el momento de
+      cada alerta.</p>
+
+    <p>El detalle indica también con qué <strong>configuración</strong> corrió
+      el experimento: un código que identifica el archivo de la tarjeta SD
+      («default» si se usaron los valores de fábrica), y la lista de
+      relajaciones que tenía activas. Dos experimentos con el mismo código
+      corrieron con exactamente los mismos umbrales, factores y ganancias.</p>
+
+    <p>Dos criterios de lectura de los gráficos:</p>
+
+    <ul>
+      <li><strong>Cada punto muestra su banda de mínimo y máximo</strong>,
+        además del promedio. Promediar por sí solo ocultaría los picos, que
+        son justamente los que disparan las alertas y los que se va a
+        buscar.</li>
+      <li><strong>Los tramos sin datos se dibujan como huecos.</strong> Si el
+        servidor estuvo caído, esos minutos no existen y no se recuperan: unir
+        los extremos con una recta afirmaría algo que nadie midió.</li>
+    </ul>
+
+    <p>El botón <strong>Descargar CSV</strong> entrega las mediciones tal como
+      se tomaron, sin promediar, para analizarlas en una planilla.</p>
+
+    <p>Para un administrador, el detalle termina con los <strong>eventos de
+      la placa</strong> ocurridos entre un minuto antes del inicio y un minuto
+      después del fin (ver «Pantalla «Bitácora»» más abajo), con un enlace a
+      la Bitácora filtrada por esa corrida. Explican lo que los gráficos no
+      dicen: un hueco porque se cayó el broker, un cierre sin motivo porque
+      la placa de control se reinició.</p>
+
+    <h3>Pantalla «Bitácora»</h3>
+
+    <p>La Bitácora registra <strong>lo que le pasó al equipo</strong>, no al
+      experimento: reinicios, enlaces caídos, conexión con el servidor,
+      configuración ignorada, y el inicio y el fin de cada corrida. Es lo
+      primero que conviene mirar cuando el monitor muestra algo raro. Solo
+      la ven los administradores.</p>
+
+    <p>No es la consola de las placas: son unos pocos eventos elegidos, en
+      castellano, cada uno con su nivel, su nombre, su hora y una línea
+      técnica con los datos. <strong>Con el equipo funcionando bien casi no
+      hay eventos</strong> (el arranque, el enlace con la placa de control y
+      las corridas); que la lista sea corta no es una falla.</p>
+
+    <div class="tablewrap"><table class="wide">
+      <thead><tr><th>Evento</th><th>Nivel</th><th>Cuándo aparece</th></tr></thead>
+      <tbody>
+        <tr><td>Arranque de la placa</td><td>Info / Error</td><td>Al encender la interfaz: causa del reinicio y qué configuración corre. Es <em>Error</em> si la interfaz se reinició sola (falla interna, baja tensión).</td></tr>
+        <tr><td>Configuración de la SD ignorada</td><td>Aviso</td><td>El archivo de la tarjeta existe pero no se usa (ilegible, inválido o incoherente): corren los valores de fábrica.</td></tr>
+        <tr><td>Configuración remota</td><td>Info / Aviso</td><td>Una configuración enviada desde el monitor se grabó, se revirtió o la placa conservó la red en uso.</td></tr>
+        <tr><td>Enlace con el Mega / Enlace con el Mega caído</td><td>Info / Aviso</td><td>Se estableció o se perdió el enlace serie con la placa de control.</td></tr>
+        <tr><td>El Mega se reinició</td><td>Error</td><td>La placa de control se reinició sin que el enlace llegara a caerse.</td></tr>
+        <tr><td>Memoria del Mega al límite</td><td>Aviso</td><td>El margen de memoria de la placa de control bajó de 500 bytes: antesala de un cuelgue.</td></tr>
+        <tr><td>Corrida iniciada / Corrida terminada</td><td>Info / Aviso</td><td>Inicio y fin de cada corrida, con su número, consignas y motivo de fin. Un corte por alerta es <em>Aviso</em>.</td></tr>
+        <tr><td>Corrida perdida</td><td>Error</td><td>La corrida terminó sin que llegara su resultado (por ejemplo, la placa de control se reinició).</td></tr>
+        <tr><td>Inicio rechazado</td><td>Aviso</td><td>La placa de control se negó a iniciar (panel <em>NO INICIÓ</em>).</td></tr>
+        <tr><td>Broker caído / Broker de vuelta</td><td>Aviso / Info</td><td>Se perdió y se recuperó la conexión con el servidor de telemetría, con el motivo y cuánto duró el corte.</td></tr>
+        <tr><td>Telemetría descartada</td><td>Aviso</td><td>Se perdieron mensajes de telemetría por no poder enviarlos a tiempo; dice cuántos.</td></tr>
+      </tbody>
+    </table></div>
+
+    <p>Cómo leerla:</p>
+
+    <ul>
+      <li><strong>Cada evento ocurrido durante una corrida lleva su
+        etiqueta</strong> («Corrida #42 · fecha · prueba»), que abre el detalle
+        de esa corrida. Los que no la llevan ocurrieron fuera de corrida.</li>
+      <li><strong>Filtros.</strong> Por nivel, por tipo de evento, solo
+        dentro o solo fuera de corridas, y el buscador
+        <strong>Corrida #</strong>, que deja solo los eventos de esa
+        corrida.</li>
+      <li><strong>La hora es la del equipo, no la de llegada.</strong> Lo que
+        pasa con el servidor caído (incluida la propia caída) espera en el
+        equipo y llega al reconectarse, ubicado en el momento en que
+        ocurrió. El equipo guarda hasta 16 eventos así; si se acumulan más,
+        el siguiente avisa cuántos se perdieron.</li>
+      <li><strong>Se conserva una semana.</strong> Pasado ese plazo los
+        eventos se borran solos; el historial de corridas no se borra.</li>
+      <li><strong>Un reinicio de la interfaz borra lo que todavía no
+        salió</strong>, pero su causa aparece en el siguiente <em>Arranque
+        de la placa</em>.</li>
+    </ul>
+
+    <div class="callout warn">
+      <span class="tag">Alcance del monitor</span>
+      <p><strong>No controla el experimento, por diseño.</strong> No es posible
+        iniciar ni detener un experimento desde la web, ni lo será: hacerlo
+        energizaría las bobinas con animales en el gabinete y sin nadie en la
+        sala, mientras que la parada de emergencia solo auxilia a quien ya está
+        presente. Lo único que la web puede cambiar es la configuración (ver
+        abajo).</p>
+      <p><strong>Solo hay datos durante un experimento.</strong> Fuera de una
+        corrida la pantalla indica que no hay ninguno en curso, y ello no
+        constituye una falla.</p>
+      <p><strong>El monitor debe permanecer encendido.</strong> Es el único
+        que escucha al equipo; lo publicado mientras está detenido se pierde y
+        no se recupera. Aparece luego como un tramo sin mediciones.</p>
+    </div>
+
+    <h3>Pantalla «Configuración»</h3>
+
+    <p>Muestra con qué configuración está funcionando la placa y permite
+      enviarle una nueva. El formulario es el mismo generador de configuración
+      que acompaña al equipo (sección 14), con las mismas validaciones y el
+      mismo recorrido por pasos: no deja enviar un archivo con errores ni uno
+      que no se revisó hasta el último paso. Esta pantalla es solo para
+      administradores.</p>
+
+    <p><strong>Redes WiFi y broker.</strong> También se cambian desde acá, sin
+      sacar la tarjeta ni recorrer los pasos: el botón <em>Conexión (WiFi y
+      broker)</em> abre una vista aparte que envía solo eso y deja intacto el
+      resto de la configuración de la placa. Si la tarjeta no tiene redes ni
+      broker, se muestran los compilados en el equipo, que la placa informa.
+      <strong>El orden de las redes es la prioridad</strong>: la placa se
+      conecta a la primera de la lista que encuentra y, si quedó en una de más
+      abajo, cada 10 minutos (nunca durante un experimento) busca una mejor;
+      las flechas cambian el orden. Las contraseñas nunca se muestran ni quedan guardadas
+      en el monitor: viajan solo hacia la placa. En una red o un broker que la
+      placa ya tiene, dejar la contraseña vacía conserva la que tenía. Dos
+      protecciones evitan dejar a la placa incomunicada:</p>
+
+    <ul>
+      <li><strong>La red por la que la placa está conectada se borra recién
+        cuando la placa confirma que se conectó por otra.</strong> Mientras
+        tanto la guarda de respaldo; si ninguna de las otras conecta, la
+        conserva y el envío figura como <em>Aplicada, pero la placa conservó la
+        red en uso</em>.</li>
+      <li><strong>Lo enviado corre a prueba.</strong> Si después de reiniciar
+        la placa no llega al broker en 5 minutos, vuelve sola a la
+        configuración anterior y el envío figura como <em>Revertida</em>.</li>
+    </ul>
+
+    <h3>Pantalla «Manual de usuario»</h3>
+
+    <p>Este mismo manual, accesible desde el menú lateral (grupo
+      «Proyecto») para cualquier usuario. Se lee en el mismo tema, claro u
+      oscuro, que el resto del monitor. Arriba ofrece:</p>
+
+    <ul>
+      <li><strong>Ir a una sección</strong>: salta directo a cualquiera de
+        las secciones del manual.</li>
+      <li><strong>Descargar PDF</strong>: la versión imprimible, con portada
+        e índice, para tenerla junto al equipo.</li>
+      <li><strong>Abrir aparte</strong>: el manual solo, en otra pestaña.</li>
+    </ul>
+
+    <h3>Cambiar de broker</h3>
+
+    <p>La placa y el monitor solo se ven si usan <strong>el mismo
+      broker</strong>, y cada uno guarda su conexión en un lugar distinto: la
+      de la placa se cambia desde la vista <em>Conexión</em>; la del monitor,
+      en los secretos del servidor (<code>MQTT_URL</code>,
+      <code>MQTT_USER</code>, <code>MQTT_PASSWORD</code> en Fly). Como la
+      configuración nueva le llega a la placa <em>por el broker actual</em>,
+      cambiar de broker es una mudanza ordenada, en este orden:</p>
+
+    <ol>
+      <li><strong>Levantar el broker nuevo</strong>, con los usuarios de la
+        placa y del monitor y los permisos de los temas
+        <code>biosoft/…</code>. El broker viejo sigue funcionando.</li>
+      <li><strong>Mudar la placa</strong>, sin experimento en curso: en
+        <em>Conexión</em>, cargar host, puerto, usuario y contraseña nuevos y
+        enviar. El envío figura como <em>Grabada en la placa</em>; la placa se
+        reinicia y pasa al broker nuevo. Desde ese momento el monitor deja de
+        verla: es lo esperado.</li>
+      <li><strong>Mudar el monitor</strong>:
+        <code>flyctl secrets set MQTT_URL=… MQTT_USER=… MQTT_PASSWORD=…</code>.
+        El servidor se reinicia solo, vuelve a ver la placa y la
+        configuración pasa a <em>vigente</em>.</li>
+      <li><strong>Recién entonces dar de baja el broker viejo.</strong></li>
+    </ol>
+
+    <div class="callout warn">
+      <span class="tag">Por qué en ese orden</span>
+      <p>Si un dato del broker nuevo está mal, la placa no llega en 5 minutos
+        y vuelve sola al broker viejo; el monitor, que sigue ahí, informa el
+        envío como <em>Revertida</em>. Si el monitor se mudara primero, o si el
+        broker viejo ya no existiera, la placa quedaría incomunicada y la
+        única salida sería editar la sección <code>broker</code> del
+        <code>config.json</code> en la tarjeta con una PC.</p>
+    </div>
+
+    <p>El <strong>certificado del broker no forma parte de la
+      configuración</strong>: está compilado en el firmware de la interfaz.
+      Sirve para otra instancia del mismo proveedor (EMQX Cloud, firmada por
+      la misma autoridad); un broker firmado por otra autoridad requiere
+      volver a cargar el firmware de la interfaz, y también cambiar
+      <code>MQTT_CA</code> en el monitor. El <em>Client ID</em> de la placa
+      tiene que ser distinto del del monitor.</p>
+
+    <p>Arriba del formulario se distinguen tres etapas, cada una en su
+      renglón:</p>
+
+    <ul>
+      <li><strong>En la placa</strong>: lo que corre ahora. Si la placa corre
+        con los valores de fábrica, se indica el motivo (sin tarjeta, sin
+        archivo, archivo inválido, etc.). Un archivo que está en la tarjeta
+        pero se ignora se señala como aviso.</li>
+      <li><strong>Enviado</strong>: lo mandado que todavía no corre (grabado
+        en la tarjeta, a la espera del reinicio).</li>
+      <li><strong>Editando</strong>: lo que hay en el formulario, que no
+        llega a la placa hasta enviarlo.</li>
+    </ul>
+
+    <p>Las mismas etapas acompañan a los escenarios de prueba en el paso
+      «Escenarios», que además ofrece la <strong>biblioteca de escenarios</strong>
+      del monitor (ver «Escenarios sintéticos» en la sección 14).</p>
+
+    <p>Al enviar, la placa recibe la configuración, la valida y la graba en su
+      tarjeta SD, dejando la anterior respaldada como
+      <code>config.prev.json</code>. La pantalla informa el resultado:
+      «Grabada en la placa», o el motivo del rechazo (por ejemplo, un
+      experimento en curso).</p>
+
+    <div class="callout warn">
+      <span class="tag">Cuándo se aplica</span>
+      <p><strong>La placa se reinicia sola para aplicar la configuración
+        enviada</strong>, en cuanto su pantalla esté en Principal y sin
+        experimento, y no pide confirmación. Si alguien está en Resultado o en
+        Configuración, espera a que vuelva a Principal; mientras tanto el botón
+        REPETIR de Resultado no aparece, porque repetiría con la configuración
+        anterior. Un envío se rechaza mientras hay un experimento en curso.</p>
+    </div>
+
+    <h2 id="s14">Sección 14</h2>
+    <p class="h2title">La tarjeta SD</p>
+
+    <p>El equipo lee su archivo de configuración
+      (<code>/biosoft/config.json</code>) de la tarjeta insertada en la
+      interfaz, al <strong>encender</strong>. Allí residen las opciones que
+      ofrecen las listas de Configuración, la cadencia de cada medición, los
+      parámetros del regulador, qué bobinas están habilitadas y con qué
+      corrección, qué vigila el detector y con qué reglas, y qué se publica
+      remotamente. La parte destinada a la placa de control se le transmite
+      por el enlace serie cada vez que este se establece.</p>
+
+    <p>Tres reglas rigen su uso:</p>
+
+    <ol>
+      <li><strong>Sin tarjeta el equipo funciona.</strong> Arranca con sus
+        valores de fábrica y lo registra en la consola. No existe un modo
+        «bloqueado por falta de configuración».</li>
+      <li><strong>Un archivo mal formado se descarta por completo</strong>, no
+        parcialmente. Se conservan los valores de fábrica. Nunca queda una
+        configuración aplicada a medias.</li>
+      <li><strong>Se lee únicamente al encender.</strong> Modificar el archivo
+        con el equipo en marcha no tiene efecto: es necesario reiniciar la
+        interfaz.</li>
+    </ol>
+
+    <h3>Generador de configuración</h3>
+
+    <p>El archivo se produce con el <strong>generador de configuración</strong>
+      (<code>tools/generador-config.html</code>), una página que acompaña al
+      equipo y sirve para <strong>armar el <code>config.json</code> sin
+      escribirlo a mano</strong>. Presenta un formulario con todas las
+      secciones del archivo —tipo de corrida, opciones de las listas de
+      Configuración, intervalos, control y mapa de intensidad, bobinas,
+      detector, canales de corriente, telemetría, WiFi y broker— y entrega el
+      archivo listo para copiar en la tarjeta. También permite abrir uno
+      existente para modificarlo. Es el mismo formulario que usa la pantalla
+      «Configuración» del monitor remoto (sección 13).</p>
+
+    <p>Su ventaja es que <strong>valida antes de permitir guardar</strong>:
+      rangos, coherencia entre secciones y errores de formato que el equipo no
+      puede advertir por sí mismo. Un valor entero escrito con parte decimal,
+      por ejemplo, se descarta en silencio al leerlo y, en las listas de la
+      pantalla, queda en cero. El generador bloquea la descarga mientras haya
+      errores. Se abre con doble clic, funciona sin conexión y no requiere
+      instalar nada.</p>
+
+    <p>El formulario se recorre <strong>por pasos</strong>, uno por sección,
+      con pestañas numeradas arriba y los botones Anterior y Siguiente al pie.
+      Las reglas del recorrido evitan enviar algo a medio revisar:</p>
+
+    <ul>
+      <li><strong>Lo elegido en un paso condiciona los siguientes.</strong> Por
+        ejemplo, en un experimento el paso de fuentes solo ofrece los
+        sensores reales, y los escenarios solo existen en una prueba.</li>
+      <li><strong>No se avanza con errores.</strong> La pestaña de cada paso se
+        colorea si tiene errores o avisos, y Siguiente no pasa mientras el paso
+        actual o uno anterior tenga errores.</li>
+      <li><strong>Volver atrás es libre; cambiar algo obliga a recorrer de
+        nuevo.</strong> Los pasos ya revisados se pueden visitar sin perder lo
+        hecho, pero un cambio en un paso hace que los siguientes se vuelvan a
+        recorrer de a uno, para llegar al final con todo validado contra lo
+        nuevo.</li>
+      <li><strong>Descargar (o Enviar) se habilita solo en el último paso,
+        «Revisión final»</strong>, sin errores y después del último cambio.
+        Cargar un archivo o restaurar los valores de fábrica reinicia el
+        recorrido.</li>
+      <li><strong>Cada campo numérico conoce sus límites.</strong> Se pone
+        rojo mientras se escribe un valor fuera de rango y, al salir del campo,
+        vuelve al último valor válido con una nota que indica el rango
+        permitido.</li>
+    </ul>
+
+    <h3>Corridas de prueba</h3>
+
+    <p>El archivo declara si lo que se corra con esa tarjeta es un
+      <strong>experimento</strong> o una <strong>prueba de banco</strong>
+      (clave <code>runType</code>, «Tipo de corrida» en el generador). El valor
+      de fábrica, y el que rige sin tarjeta, es experimento.</p>
+
+    <p>Con una tarjeta de prueba la pantalla lo hace evidente de dos
+      maneras: al encender aparece un cartel <strong>«Configuración de
+      prueba»</strong> que hay que cerrar con <strong>ENTENDIDO</strong>
+      antes de poder operar, y durante todo el uso queda una franja
+      <strong>MODO PRUEBA</strong> en el borde superior. Las corridas se
+      publican marcadas, y el monitor web las separa de los
+      experimentos.</p>
+
+    <div class="callout warn">
+      <span class="tag">Qué hace y qué no hace</span>
+      <p><strong>Declarar una prueba no apaga ninguna protección.</strong>
+        Solo marca las corridas y habilita las opciones de banco: si en una
+        prueba se quiere, por ejemplo, desactivar una fuente del detector, eso
+        se configura aparte, en su propia sección del archivo.</p>
+      <p><strong>Un experimento corre solo con los sensores reales y el
+        detector encendido.</strong> Un archivo que se declara experimento (o
+        no declara nada) y trae un sensor simulado, un escenario, TEMP1 sin
+        termómetro o el detector apagado <strong>se descarta entero</strong>:
+        el generador no lo deja armar (al pasar a experimento vuelve las
+        fuentes a sus sensores reales, con opción de deshacer), el monitor no
+        lo envía y la placa lo ignora al encender y corre con los valores de
+        fábrica, informando el motivo. Otras protecciones sí pueden
+        desactivarse en un experimento (una fuente sin vigilar, el control de
+        intensidad): antes de un experimento real conviene revisar el archivo
+        completo, no solo el tipo de corrida. Esas corridas llevan el
+        distintivo CON RELAJACIONES (sección 13).</p>
+      <p><strong>La parada de emergencia no puede desactivarse</strong> desde
+        la configuración, en ningún tipo de corrida.</p>
+    </div>
+
+    <h3>Ajustes de banco</h3>
+
+    <p>Tres ajustes del archivo existen para trabajar en el banco sin el
+      equipo completo. Los tres vienen de fábrica en su valor más seguro, y
+      el generador avisa cuando se cambian. Los dos últimos solo se pueden
+      cambiar en una corrida de prueba:</p>
+
+    <div class="tablewrap"><table>
+      <thead><tr><th>Ajuste</th><th>De fábrica</th><th>Para qué cambiarlo</th></tr></thead>
+      <tbody>
+        <tr><td>Exigir la placa de control</td><td>Sí</td><td>Desmarcado, la
+          pantalla funciona sola: se puede recorrer y «correr» un experimento
+          sin la placa de control conectada. Nada se energiza.</td></tr>
+        <tr><td>Detector encendido</td><td>Sí</td><td>Apagado, ninguna
+          alerta puede cortar el experimento. Se sigue midiendo y
+          mostrando.</td></tr>
+        <tr><td>Sensor de TEMP1</td><td>DS18B20</td><td><em>sim</em> lee la
+          temperatura de la entrada analógica A1 (0–5 V equivale a 0–50 °C), para
+          provocar un corte con un potenciómetro; <em>none</em> no usa
+          termómetro, para cuando no hay uno conectado.</td></tr>
+      </tbody>
+    </table></div>
+
+    <p>Con TEMP1 en <em>sim</em> o <em>none</em> el equipo <strong>no está
+      midiendo la temperatura del gabinete</strong>. Ninguno de estos ajustes
+      es apto para un experimento con animales.</p>
+
+    <h3>Escenarios sintéticos</h3>
+
+    <p>Con el sensor de una fuente en <em>scenario</em>, la placa de control
+      no lee el sensor: <strong>calcula la lectura</strong> siguiendo un
+      escenario, y esa lectura recorre todo el proceso real. Las alertas, el
+      corte, la pantalla de resultado y el monitor web se comportan como con
+      un sensor de verdad. Sirve para comprobar el equipo completo sin
+      sensores conectados.</p>
+
+    <p>Los escenarios se eligen en el paso <strong>5b · Escenarios de
+      prueba</strong> del generador, que solo los ofrece en una corrida de
+      prueba (en un experimento el paso explica por qué y ofrece pasar a
+      prueba). <strong>Cada fuente se elige por separado</strong>: la
+      temperatura y el campo tienen cada una su selector «Lee», con el sensor
+      real, los escenarios de esa fuente o uno nuevo. Así se arman
+      combinaciones como temperatura normal con campo inestable.</p>
+
+    <div class="tablewrap"><table>
+      <thead><tr><th>Fuente</th><th>Escenarios de fábrica</th></tr></thead>
+      <tbody>
+        <tr><td>Temperatura (TEMP1)</td><td>normal, alta, que sube, baja, que se
+          recupera, en advertencia sostenida, sensor caído</td></tr>
+        <tr><td>Campo (CEM1)</td><td>normal, perturbación compensada por el
+          lazo, prueba del control (oscilación compensada), inestable, fuera
+          de rango, sensor caído</td></tr>
+      </tbody>
+    </table></div>
+
+    <p>Cada escenario de fábrica indica qué resultado produce («corta por
+      crítico de TEMP1 a los ~75 s», «termina completa») con la otra fuente
+      en su escenario normal; ese resultado está comprobado contra el
+      firmware. Un escenario también define si su fuente queda
+      <strong>vigilada</strong> por el detector, porque eso es parte de lo que
+      prueba: «sensor de campo caído», por ejemplo, demuestra que el equipo
+      corta aun con el campo sin vigilar.</p>
+
+    <p>Los escenarios se adaptan solos a los rangos elegidos en la pantalla
+      Configuración: la señal se define en <em>niveles</em> (0 es el centro
+      del rango normal, 1 su borde, 2 el borde del crítico), de modo que
+      «temperatura alta» supera el rango crítico elegido, cualquiera sea.
+      Debajo de los parámetros de cada fuente, el generador traduce los
+      niveles a unidades con la corrida de referencia («1 nivel = 0,05 mT; la
+      forma va de 0,925 a 1,075 mT»). Hasta ±1 cada nivel vale medio rango
+      normal; más allá, lo que mide la franja de advertencia, que en el campo
+      depende del <em>criticalMultiplier</em> (paso 5). Con el 1,25 de fábrica
+      esa franja es angosta y una oscilación que pase de ±1 sale aplastada en
+      los picos: el generador lo avisa y ofrece poner 2, con el que cada nivel
+      vale lo mismo y la forma sale tal cual.</p>
+
+    <p><strong>En el campo, la forma puede significar dos cosas</strong>, y
+      el selector «Qué simula la forma de abajo» del bloque de CEM1 elige cuál:</p>
+
+    <ul>
+      <li><strong>La lectura del sensor</strong>: la forma es exactamente lo
+        que lee la placa; el regulador corre pero no cambia nada. Sirve para
+        probar el <em>detector</em> (alertas y cortes).</li>
+      <li><strong>Una perturbación que el regulador tiene que
+        compensar</strong>: la forma es lo que leería el sensor <em>si el
+        regulador no hiciera nada</em>, como un campo externo que suma o
+        resta. Las bobinas simuladas responden al duty, el regulador lo mueve
+        y el campo medido queda cerca del objetivo: <strong>lo que se mueve es
+        el duty</strong>, que el generador dibuja en una franja debajo del
+        gráfico. Sirve para probar el <em>control de intensidad</em>. Se
+        indica además el duty con que las bobinas simuladas dan el objetivo;
+        tiene que coincidir con el del mapa para esa intensidad y frecuencia,
+        porque el regulador se ajusta con el del mapa (si difieren, el
+        generador avisa con qué alfa se va a comportar en realidad y ofrece
+        igualarlos).</li>
+    </ul>
+
+    <p>Para ver la misma perturbación con y sin control, se hacen dos
+      corridas que solo cambian ese selector: con «lectura», el campo medido
+      es la forma completa; con «perturbación», queda casi plano y el duty la
+      copia invertida.</p>
+
+    <p>Bajo cada fuente, un gráfico dibuja la señal y lo que leería la placa
+      de control contra una corrida de referencia (intensidad, rangos,
+      duración y modo elegidos arriba, que no se guardan en el archivo), y al
+      pie se muestra el <strong>resultado previsto de la combinación</strong>:
+      si termina o en qué momento y por qué corta. La señal se edita sobre el
+      gráfico: arrastrar un punto lo mueve, un clic en un lugar vacío agrega
+      uno (hasta 8) y un doble clic sobre un punto lo borra; dos puntos en el
+      mismo segundo forman un salto. También se ajustan el ruido, una
+      oscilación y el segundo en que el sensor deja de responder. Una
+      leyenda arriba del gráfico dice qué es la línea (la forma dibujada, o
+      «sin control» en modo perturbación) y qué son los puntos (lo que lee
+      la placa).</p>
+
+    <p>Desde el monitor web, el mismo paso trae la <strong>biblioteca de
+      escenarios</strong>. Un administrador puede guardar lo dibujado en el
+      escenario elegido, guardarlo como uno nuevo (con nombre y descripción) o
+      borrarlo, cada fuente desde su propio bloque. Los de fábrica también se
+      pueden editar o borrar; «Restaurar los de fábrica» los devuelve a sus
+      valores originales sin tocar los propios. Un escenario de fábrica
+      editado deja de mostrar su resultado comprobado, porque ya no es el que
+      se comprobó.</p>
+
+    <div class="callout warn">
+      <span class="tag">Al usar escenarios</span>
+      <p><strong>Las bobinas no se energizan</strong> mientras el campo no
+        provenga del sensor real (escenario o <em>sim</em>): la pantalla
+        muestra el ciclo de trabajo que se aplicaría, pero no sale a la etapa
+        de potencia.</p>
+      <p><strong>Todas esas corridas quedan marcadas como PRUEBA</strong>,
+        aunque la tarjeta declare corridas normales.</p>
+    </div>
+
+    <h3>Sensor sin lecturas</h3>
+
+    <p>Si un sensor vigilado deja de dar lecturas durante un experimento
+      —se desconecta, se daña o falla su comunicación—, el equipo
+      <strong>corta el experimento</strong> y la pantalla de resultado indica,
+      por ejemplo, «TEMP1 SIN LECTURAS». De fábrica, el termómetro puede
+      perder tres lecturas seguidas (15 segundos) antes del corte.</p>
+
+    <p>El magnetómetro tiene una regla adicional: mientras el equipo regula la
+      intensidad del campo, <strong>su falta de lecturas siempre corta</strong>,
+      aunque no esté vigilado, porque sin él las bobinas quedarían excitadas
+      sin control. Si el magnetómetro no está conectado, todo experimento con
+      regulación activa se cortará a los pocos segundos de iniciado.</p>
+
+    <h3>Mapa de intensidad</h3>
+
+    <p>La sección <code>control</code> del archivo incluye el mapa, que
+      gobierna cómo se excita la bobina:</p>
+
+    <ul>
+      <li><strong>El mapa</strong> (<code>control.map</code>). Para cada
+        combinación de intensidad y frecuencia, el ciclo de trabajo que se
+        midió en el banco para lograrla y el <em>balance</em> entre los dos
+        grupos de bobinas. Admite hasta <strong>3 intensidades por 3
+        frecuencias</strong>, es decir, 9 puntos como máximo; cada punto se
+        identifica por el <em>valor</em> de la intensidad y de la frecuencia,
+        no por su posición en la lista, de modo que reordenar o cambiar las
+        opciones de la pantalla no lo desplaza. En campo X el punto es solo el
+        valor de partida del regulador; en campo nulo es lo que se aplica
+        (sección 7). El tope de balance (<code>balanceMax</code>, 0,2 de
+        fábrica) no puede superar 0,5.</li>
+    </ul>
+
+    <p>Una tarjeta <strong>sin mapa</strong> vacía el mapa que la placa de
+      control tuviera de una conexión anterior: el campo nulo no corre con
+      puntos que la tarjeta actual no declara. El generador de configuración
+      valida el mapa antes de permitir guardar.</p>
+
+    <h3>El mapa y el regulador de intensidad</h3>
+
+    <p>En campo X el equipo mantiene la intensidad con un <em>regulador</em>:
+      en cada lectura del campo compara lo medido con lo pedido y ajusta el
+      ciclo de trabajo. El mapa y el regulador trabajan juntos, y un mismo
+      punto del mapa sirve para las dos cosas:</p>
+
+    <ol>
+      <li><strong>Desde dónde arrancar.</strong> La corrida empieza con el
+        ciclo de trabajo del punto ya aplicado, así que el campo nace cerca de
+        lo pedido y el regulador solo corrige lo que falte.</li>
+      <li><strong>Con qué fuerza corregir.</strong> El punto dice cuánto campo
+        da cada unidad de ciclo de trabajo en esa intensidad y esa frecuencia
+        (por ejemplo, 1 mT con 0,40 equivale a 2,5 mT por unidad). Con ese dato
+        la placa calcula, al arrancar cada corrida, cuánto mover el ciclo de
+        trabajo por cada mT de diferencia.</li>
+    </ol>
+
+    <p>Lo que se configura no es ese cálculo sino un único número,
+      <strong>alfa</strong> (<code>control.alpha</code>): qué parte de la
+      diferencia corrige el regulador en cada lectura. Con alfa 0,25 (el valor
+      de fábrica) corrige un cuarto por lectura, y lo hace igual en todas las
+      intensidades y frecuencias del mapa. La <strong>zona muerta</strong>
+      (<code>control.deadBandPct</code>, 1,5&nbsp;% de fábrica) es la
+      diferencia, en porcentaje de lo pedido, por debajo de la cual el regulador
+      no toca nada, para no perseguir el ruido de la medición.</p>
+
+    <table>
+      <thead><tr><th>Alfa</th><th>Comportamiento</th></tr></thead>
+      <tbody>
+        <tr><td>0,1</td><td>Lento y suave: tarda en llegar, pero no reacciona al ruido.</td></tr>
+        <tr><td>0,2 a 0,3</td><td>Recomendado: corrige rápido sin sobrepasar.</td></tr>
+        <tr><td>0,5</td><td>Rápido, pero empieza a seguir el ruido de la medición.</td></tr>
+        <tr><td>1</td><td>Corrige toda la diferencia de una vez y amplifica el ruido. Por encima de 1 oscila.</td></tr>
+      </tbody>
+    </table>
+
+    <p>Dos casos no usan alfa: en <strong>campo nulo</strong> el regulador no
+      corre (se aplica el ciclo de trabajo del punto, fijo), y en campo X con
+      una combinación <strong>sin punto en el mapa</strong> el regulador usa
+      un valor fijo (<code>control.kp</code>) y arranca de cero, por lo que
+      tarda bastante más en llegar a la intensidad. El generador de
+      configuración muestra, en su sección 3, cuánto va a corregir el equipo en
+      cada punto del mapa y cuánto tarda.</p>
+
+    <div class="callout warn">
+      <span class="tag">Valores sin verificar</span>
+      <p>Los puntos del mapa y su balance deben obtenerse con el procedimiento de
+        <code>docs/protocolo-calibracion-intensidad.md</code>; hasta entonces el
+        campo nulo no puede usarse.</p>
+    </div>
+
+    <div class="callout">
+      <span class="tag">Edición del archivo</span>
+      <p>Se recomienda no editar el archivo a mano y usar el generador de
+        configuración (ver arriba), incluso para quien domina el formato JSON.</p>
+    </div>
+
+    <h2 id="s15">Sección 15</h2>
+    <p class="h2title">Limitaciones vigentes</p>
+
+    <div class="callout stop">
+      <span class="tag">Lectura obligatoria antes de usar el equipo con animales</span>
+      <p>Esta sección no describe defectos a corregir en algún momento futuro:
+        describe el estado real del equipo a la fecha de este manual, y
+        condiciona qué experimentos son válidos.</p>
+    </div>
+
+    <ul>
+      <li><strong>El campo no está calibrado.</strong> Los parámetros del
+        regulador y los factores de corrección de cada bobina son valores
+        iniciales, no medidos contra las bobinas reales. <strong>Un factor de
+        1,0 significa «aún sin medir»</strong>, no «medido y sin desvío».
+        Hasta que se ejecute el protocolo de calibración
+        (<code>docs/protocolo-calibracion-intensidad.md</code>), la
+        intensidad indicada no está verificada contra el campo real.</li>
+      <li><strong>El modo de experimento se selecciona en Configuración</strong>
+        y viaja con la orden de inicio. Por defecto es <strong>campo X</strong>,
+        nunca campo nulo, porque un campo nulo accidental sería indistinguible
+        de un experimento normal. No puede cambiarse con el experimento en
+        curso: alteraría la condición experimental de animales ya expuestos.</li>
+      <li><strong>El mapa y el balance no están medidos en banco.</strong> El
+        campo nulo se excita con un ciclo de trabajo que sale del mapa de la
+        tarjeta; sin los puntos medidos, el equipo se niega a iniciar en ese
+        modo. Cuando existan, el balance se fija una vez y no se ajusta durante
+        la exposición: si el desequilibrio entre grupos de bobinas cambia con
+        el calentamiento, el equipo no lo corrige.</li>
+      <li><strong>La medición del campo no está verificada en banco.</strong>
+        El valor eficaz tiene un piso de ruido (no lee cero ni con las bobinas
+        apagadas), la atenuación del sensor a 100 Hz no está medida, y una
+        fuente alterna a la frecuencia del experimento (la red a 50 o 60 Hz)
+        se suma a la lectura. Además el magnetómetro no informa el signo del
+        campo, de modo que no puede distinguirse de qué lado se desvía.</li>
+      <li><strong>Las listas de intensidad y frecuencia admiten 3 entradas
+        cada una</strong> a efectos del mapa (9 puntos). Más opciones en la
+        tarjeta no tendrían punto asociado.</li>
+      <li><strong>La inversión de fase depende de hardware no montado.</strong>
+        El inversor y el multiplexor de la etapa de potencia están diseñados
+        pero no construidos. Hasta entonces, el modo campo nulo no cancela
+        nada, aunque el pin 22 cambie de nivel. Debe verificarse con el
+        magnetómetro antes de confiar en él.</li>
+      <li><strong>La vigilancia de campo está desactivada de fábrica.</strong>
+        El detector vigila la temperatura; el campo se mide y se muestra, pero
+        por defecto no genera alertas ni corta. Se habilita desde el archivo
+        de configuración, y conviene hacerlo recién con el sensor real montado
+        y calibrado.</li>
+      <li><strong>Los umbrales de campo son provisorios.</strong> Los valores
+        con los que se decide qué lectura de campo es anormal están copiados
+        de los de temperatura, sin calibrar contra campo real.</li>
+      <li><strong>Solo dos bobinas y un canal de corriente están
+        registrados.</strong> BOB3, BOB4, el segundo ADS1115 (0x49) y los
+        canales SCT013-2 a 4 están declarados en firmware y listos, pero no
+        montados. La bobina 4 tiene asignado provisoriamente el pin 6.</li>
+      <li><strong>La corriente no interrumpe el experimento.</strong> Se mide,
+        se muestra y se publica, pero por diseño no es una condición de
+        corte.</li>
+      <li><strong>El monitor web no se ha probado con el equipo real.</strong>
+        Cuanto se verificó hasta ahora proviene de un simulador que reproduce
+        el formato de los mensajes. La primera corrida con la placa es la que
+        confirmará el resto (secciones 12 y 13).</li>
+      <li><strong>La tarjeta puede desactivar la exigencia de la placa de
+        control</strong> (<code>requireMega</code>, sección 14). Con ella
+        desmarcada y la placa desconectada, la interfaz «corre» experimentos
+        sin energizar nada. De fábrica está activada; antes de un experimento
+        real conviene revisar que la tarjeta no la haya cambiado.</li>
+      <li><strong>Un cambio remoto de configuración no avisa en pantalla.</strong>
+        La configuración enviada desde el monitor web se graba en la tarjeta y
+        se aplica al reiniciar; la interfaz no muestra ningún cartel ni ofrece
+        reiniciar. Además, restringir quién puede publicar en el tema de
+        configuración es un paso manual en la consola del servicio de
+        mensajería.</li>
+    </ul>
+
+    <h2 id="s16">Sección 16</h2>
+    <p class="h2title">Diagnóstico de fallas</p>
+
+    <div class="tablewrap"><table class="wide">
+      <thead><tr><th>Síntoma</th><th>Interpretación</th><th>Acción recomendada</th></tr></thead>
+      <tbody>
+        <tr><td>La interfaz regresa por sí sola a la pantalla de Inicio</td><td>Se perdió el contacto con la placa de control</td><td>Revisar el enlace serie (sección 3.3) y la alimentación de la placa de control</td></tr>
+        <tr><td>La interfaz nunca abandona la pantalla de Inicio</td><td>El enlace serie no funciona en al menos un sentido</td><td>Verificar cruce TX/RX, masa común y adaptador de nivel (sección 4.1)</td></tr>
+        <tr><td><em>Iniciar</em> deja la pantalla en Espera y regresa a Principal</td><td>El experimento no comenzó: la orden no llegó a la placa de control</td><td>Revisar el enlace con la placa de control; reintentar</td></tr>
+        <tr><td>Resultado con panel <em>NO INICIÓ</em> y «Sin punto en el mapa»</td><td>Campo nulo con una intensidad o frecuencia que el mapa de la tarjeta no tiene</td><td>Cargar el punto medido en el banco, o elegir una combinación mapeada (sección 14)</td></tr>
+        <tr><td>Resultado con panel <em>NO INICIÓ</em> y «Balance fuera de tope»</td><td>El balance del punto supera <code>balanceMax</code></td><td>Revisar el punto y el tope en la tarjeta</td></tr>
+        <tr><td>INICIAR aparece en gris con la leyenda SIN CONEXION</td><td>No hay enlace con la placa de control (el indicador USB está en rojo)</td><td>Revisar el enlace serie (sección 3.3) y la alimentación de la placa de control; se habilita solo al recuperarse</td></tr>
+        <tr><td>En En curso, una medición se queda en cero</td><td>Ese sensor no reporta</td><td>Revisar la conexión (sección 3.5); confirmar que está habilitado en la configuración</td></tr>
+        <tr><td>La temperatura no reporta pese a estar conectada</td><td>El código ROM del DS18B20 no coincide con el configurado</td><td>Si el sensor fue reemplazado, cargar su dirección (líneas <code>TEMP DS18B20 address=…</code> de la consola) en el archivo de configuración; ver 3.5</td></tr>
+        <tr><td>La consola del Mega indica «ningun dispositivo responde» en I2C</td><td>Bus I2C inoperante</td><td>Revisar SDA/SCL, alimentación de los módulos y <em>pull-ups</em></td></tr>
+        <tr><td>El campo medido queda muy por debajo de la consigna</td><td>El regulador no alcanza la consigna</td><td>Buscar avisos de recorte en la consola: una bobina puede carecer de margen. Requiere revisar el hardware o recalibrar</td></tr>
+        <tr><td>Corta apenas concluye la ventana de asentamiento</td><td>Una condición fuera de rango desde el arranque</td><td>Consultar el detalle en la pantalla Resultado: indica qué sensor fue</td></tr>
+        <tr><td>Se modificó el archivo de la SD y no hubo cambios</td><td>Se lee solo al encender</td><td>Reiniciar la interfaz</td></tr>
+        <tr><td>La interfaz indica «Continuando sin tarjeta SD» con tarjeta insertada</td><td>La tarjeta no responde en el bus VSPI</td><td>Reinsertar; comprobar formato FAT32; ensayar con <code>tools/test-sd-esp32</code></td></tr>
+        <tr><td>Se cambió la configuración y el panel remoto dejó de mostrar un valor</td><td>Se renombró un campo de telemetría</td><td>El panel remoto espera los nombres originales: revertirlos o actualizar el panel</td></tr>
+        <tr><td>Colores invertidos o toque permanente en una esquina</td><td>Firmware compilado para la otra revisión de la placa HMI</td><td>Ajustar <code>TOUCH_KIND</code> y <code>TFT_INVERSION_ON</code> de manera conjunta (sección 3.7)</td></tr>
+        <tr><td>Un hueco en los gráficos o una corrida «Sin cierre»</td><td>Se cortó la conexión, o una de las placas se reinició</td><td>Abrir el detalle de la corrida (o la Bitácora con su número): los eventos de la placa dicen qué pasó y a qué hora</td></tr>
+        <tr><td>La Bitácora queda vacía con la placa funcionando</td><td>El broker no deja pasar los eventos de la placa</td><td>Revisar la regla de acceso del broker para el topic <code>biosoft/log</code> (guía de despliegue del monitor)</td></tr>
+        <tr><td>El pulsador de emergencia no produce efecto</td><td>No hay experimento en curso</td><td>Es el comportamiento esperado. La consola del Mega igual registra cada pulsación (sección 11)</td></tr>
+        <tr><td>Al encender, la consola del Mega indica «pulsador de emergencia leido como presionado al arrancar», o la corriente de las bobinas queda siempre en 0</td><td>Cable del pulsador cortado o desconectado, o un pulsador de contacto normalmente abierto en lugar del normalmente cerrado esperado</td><td>Comprobar continuidad entre pin 28 y GND con el pulsador en reposo (sección 4). Si se reemplazó el pulsador por uno normalmente abierto, el firmware debe declararlo así (<code>Contact::NormallyOpen</code> en <code>SoftMega2560.ino</code>)</td></tr>
+        <tr><td>El experimento se corta al <em>soltar</em> el pulsador y no al accionarlo</td><td>Tipo de contacto del pulsador distinto del declarado en el firmware</td><td>Ídem fila anterior</td></tr>
+      </tbody>
+    </table></div>
+
+    <h2 id="s17">Sección 17</h2>
+    <p class="h2title">Buenas prácticas</p>
+
+    <ul>
+      <li><strong>Revisar la pantalla Principal antes de iniciar.</strong> Es el
+        último punto en que se ve la configuración completa antes de exponer
+        animales.</li>
+      <li><strong>Registrar el resultado, no solo la finalización.</strong> Un
+        experimento interrumpido por falla y uno completado no producen los
+        mismos datos, y el detalle de la pantalla Resultado indica la
+        causa.</li>
+      <li><strong>No modificar parámetros entre tandas de una misma serie</strong>
+        sin dejar constancia. El equipo no conserva historial: lo único que
+        permanece es lo que registre el operador.</li>
+      <li><strong>Verificar el campo nulo antes de cada serie con grupo
+        control.</strong> Un control mal cancelado es un grupo tratado sin
+        que nadie lo advierta, y constituye el error más costoso que este
+        equipo puede cometer: invalida la comparación completa sin
+        manifestar síntoma alguno.</li>
+      <li><strong>No tocar nada cerca del magnetómetro al pulsar Iniciar.</strong>
+        Durante los primeros segundos el equipo mide el campo ambiente para
+        descontarlo; lo que se mueva en ese lapso queda incorporado como si
+        fuera ambiente.</li>
+      <li><strong>No dar por válido el campo nulo sin el mapa medido.</strong>
+        Cargar el punto de cada combinación de intensidad y frecuencia que se
+        vaya a usar, y verificar el campo residual con el magnetómetro antes de
+        la serie.</li>
+      <li><strong>Documentar toda intervención en el cableado.</strong> Tras
+        abrir el gabinete, repetir la verificación de la sección 4 y anotar
+        qué se desconectó y qué se repuso; si se movió el magnetómetro, la
+        calibración debe repetirse.</li>
+    </ul>
+
+  </article>
+</div>
+
+</body>
+</html>

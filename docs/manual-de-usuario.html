@@ -32,8 +32,10 @@
   --mono: "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace;
 }
 
+/* Oscuro: lo decide el sistema, salvo que la pagina que embebe el manual
+   (el monitor web) fije el tema con data-theme en <html>. */
 @media screen and (prefers-color-scheme: dark){
-  :root{
+  :root:not([data-theme="light"]){
     --ink:#e8eaed; --ink-soft:#c3c9d1; --muted:#98a1ac;
     --rule:#333b44; --rule-soft:#262c33;
     --paper:#171a1e; --canvas:#101215;
@@ -42,6 +44,23 @@
     --stop:#f0928a; --stop-soft:#2c1917; --stop-rule:#7d3b33;
   }
 }
+@media screen{
+  :root[data-theme="dark"]{
+    --ink:#e8eaed; --ink-soft:#c3c9d1; --muted:#98a1ac;
+    --rule:#333b44; --rule-soft:#262c33;
+    --paper:#171a1e; --canvas:#101215;
+    --accent:#5fb8c0; --accent-soft:#14282b;
+    --warn:#e8b464; --warn-soft:#2b2216; --warn-rule:#7a5a22;
+    --stop:#f0928a; --stop-soft:#2c1917; --stop-rule:#7d3b33;
+  }
+}
+
+/* Embebido en el monitor web (pagina Manual): el marco crece al alto del
+   contenido y la pagina del monitor es la unica que scrollea, asi que nada
+   puede medirse en vh ni quedar sticky; el indice lo da el monitor. */
+html.embebido .sheet{min-height:0;max-width:none;grid-template-columns:minmax(0,1fr);box-shadow:none}
+html.embebido nav.toc{display:none}
+html.embebido article{margin:0 auto}
 
 *{box-sizing:border-box}
 
@@ -1364,6 +1383,18 @@ table.pins tbody td{padding:7px 12px 7px 0}
         modo que el botón de la pantalla.</p>
     </div>
 
+    <p>El pulsador es de contacto <strong>normalmente cerrado</strong>: si su
+      cable se corta o un borne se afloja durante un experimento, el equipo
+      lo interpreta como pulsador accionado y corta. Si al encender el cable ya
+      está abierto, la consola del Mega lo advierte («pulsador de emergencia
+      leido como presionado al arrancar») y la corriente de las bobinas no se
+      mide hasta resolverlo.</p>
+
+    <p>Para comprobarlo sin iniciar un experimento, accionarlo con la consola
+      del Mega abierta: cada pulsación registra una única línea «pulsador de
+      emergencia apretado sin corrida: se ignora», y soltarlo no registra
+      nada.</p>
+
     <p>El interruptor general de potencia es un relé con una protección que
       ignora cambios de estado separados por menos de 200 ms. En uso normal
       resulta imperceptible.</p>
@@ -1691,6 +1722,20 @@ table.pins tbody td{padding:7px 12px 7px 0}
       <li><strong>Lo enviado corre a prueba.</strong> Si después de reiniciar
         la placa no llega al broker en 5 minutos, vuelve sola a la
         configuración anterior y el envío figura como <em>Revertida</em>.</li>
+    </ul>
+
+    <h3>Pantalla «Manual de usuario»</h3>
+
+    <p>Este mismo manual, accesible desde el menú lateral (grupo
+      «Proyecto») para cualquier usuario. Se lee en el mismo tema, claro u
+      oscuro, que el resto del monitor. Arriba ofrece:</p>
+
+    <ul>
+      <li><strong>Ir a una sección</strong>: salta directo a cualquiera de
+        las secciones del manual.</li>
+      <li><strong>Descargar PDF</strong>: la versión imprimible, con portada
+        e índice, para tenerla junto al equipo.</li>
+      <li><strong>Abrir aparte</strong>: el manual solo, en otra pestaña.</li>
     </ul>
 
     <h3>Cambiar de broker</h3>
@@ -2209,7 +2254,9 @@ table.pins tbody td{padding:7px 12px 7px 0}
         <tr><td>Colores invertidos o toque permanente en una esquina</td><td>Firmware compilado para la otra revisión de la placa HMI</td><td>Ajustar <code>TOUCH_KIND</code> y <code>TFT_INVERSION_ON</code> de manera conjunta (sección 3.7)</td></tr>
         <tr><td>Un hueco en los gráficos o una corrida «Sin cierre»</td><td>Se cortó la conexión, o una de las placas se reinició</td><td>Abrir el detalle de la corrida (o la Bitácora con su número): los eventos de la placa dicen qué pasó y a qué hora</td></tr>
         <tr><td>La Bitácora queda vacía con la placa funcionando</td><td>El broker no deja pasar los eventos de la placa</td><td>Revisar la regla de acceso del broker para el topic <code>biosoft/log</code> (guía de despliegue del monitor)</td></tr>
-        <tr><td>El pulsador de emergencia no produce efecto</td><td>No hay experimento en curso</td><td>Es el comportamiento esperado</td></tr>
+        <tr><td>El pulsador de emergencia no produce efecto</td><td>No hay experimento en curso</td><td>Es el comportamiento esperado. La consola del Mega igual registra cada pulsación (sección 11)</td></tr>
+        <tr><td>Al encender, la consola del Mega indica «pulsador de emergencia leido como presionado al arrancar», o la corriente de las bobinas queda siempre en 0</td><td>Cable del pulsador cortado o desconectado, o un pulsador de contacto normalmente abierto en lugar del normalmente cerrado esperado</td><td>Comprobar continuidad entre pin 28 y GND con el pulsador en reposo (sección 4). Si se reemplazó el pulsador por uno normalmente abierto, el firmware debe declararlo así (<code>Contact::NormallyOpen</code> en <code>SoftMega2560.ino</code>)</td></tr>
+        <tr><td>El experimento se corta al <em>soltar</em> el pulsador y no al accionarlo</td><td>Tipo de contacto del pulsador distinto del declarado en el firmware</td><td>Ídem fila anterior</td></tr>
       </tbody>
     </table></div>
 
