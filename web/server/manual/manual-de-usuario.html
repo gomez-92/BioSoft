@@ -60,7 +60,17 @@
    puede medirse en vh ni quedar sticky; el indice lo da el monitor. */
 html.embebido .sheet{min-height:0;max-width:none;grid-template-columns:minmax(0,1fr);box-shadow:none}
 html.embebido nav.toc{display:none}
-html.embebido article{margin:0 auto}
+/* width:100% hace falta: en una grilla, margin auto achica el item a su
+   ancho natural (46em, ~780 px) y en un celular se salia del marco, que
+   no scrollea. */
+html.embebido article{margin:0 auto;width:100%}
+
+/* Celular: los 60 px de margen se comian un tercio del ancho. */
+@media screen and (max-width:600px){
+  .cover{padding:36px 18px 26px}
+  .cover h1{font-size:38px}
+  article{padding:26px 18px 60px}
+}
 
 *{box-sizing:border-box}
 
